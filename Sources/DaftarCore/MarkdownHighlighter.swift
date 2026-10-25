@@ -228,10 +228,30 @@ public enum MarkdownHighlighter {
         }
         each(Patterns.autolink) { match in if free(match.range) { out.append(Span(kind: .url, range: at(match.range))) } }
         each(Patterns.bareURL) { match in if free(match.range) { out.append(Span(kind: .url, range: at(match.range))) } }
+        // `***both***` is bold and italic at once; its runs of three are no
+        // one else's, so `**` and `*` do not match half of them.
+        var triples: [NSRange] = []
+        each(Patterns.boldItalic) { match in
+            let whole = match.range(at: 1)
+            guard free(whole) else { return }
+            out.append(Span(kind: .bold, range: at(whole)))
+            out.append(Span(kind: .italic, range: at(whole)))
+            let open = NSRange(location: whole.location, length: 3), close = NSRange(location: NSMaxRange(whole) - 3, length: 3)
+            out.append(Span(kind: .markup, range: at(open)))
+            out.append(Span(kind: .markup, range: at(close)))
+            triples += [open, close]
+        }
         for (pattern, kind, width) in [(Patterns.bold, Kind.bold, 2), (Patterns.strike, .strike, 2), (Patterns.highlight, .highlight, 2), (Patterns.italic, .italic, 1)] {
             each(pattern) { match in
                 let whole = match.range(at: 1)
-                guard free(whole) else { return }
+                // Code may be inside (`==the `x` flag==`); the marks may not.
+                guard free(NSRange(location: whole.location, length: width)),
+                    free(NSRange(location: NSMaxRange(whole) - width, length: width))
+                else { return }
+                if kind == .bold || kind == .italic {
+                    let ends = [NSRange(location: whole.location, length: width), NSRange(location: NSMaxRange(whole) - width, length: width)]
+                    if ends.contains(where: { end in triples.contains { NSIntersectionRange($0, end).length > 0 } }) { return }
+                }
                 out.append(Span(kind: kind, range: at(whole)))
                 out.append(Span(kind: .markup, range: at(NSRange(location: whole.location, length: width))))
                 out.append(Span(kind: .markup, range: at(NSRange(location: NSMaxRange(whole) - width, length: width))))
@@ -260,6 +280,7 @@ public enum MarkdownHighlighter {
         nonisolated(unsafe) static let markdownLink = make(#"!?(\[[^\]\n]*\])(\([^)\n]*\))"#)
         nonisolated(unsafe) static let autolink = make(#"<(?:https?|mailto):[^>\s]+>"#)
         nonisolated(unsafe) static let bareURL = make(#"(?<![<(])\bhttps?://[^\s<>)\]]+"#)
+        nonisolated(unsafe) static let boldItalic = make(#"((\*\*\*|___)(?=\S)(?:.+?)(?<=\S)\2)"#)
         nonisolated(unsafe) static let bold = make(#"((?:\*\*|__)(?=\S)(?:.+?)(?<=\S)(?:\*\*|__))"#)
         nonisolated(unsafe) static let italic = make(#"(?<![*_\w])((?:\*|_)(?=[^\s*_])(?:[^*_\n]+?)(?<=[^\s*_])(?:\*|_))(?![*_\w])"#)
         nonisolated(unsafe) static let strike = make(#"(~~(?=\S).+?(?<=\S)~~)"#)

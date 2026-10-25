@@ -301,7 +301,19 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         storage.setAttributes(base, range: range)
         let mono = Fonts.code(size: fontSize * 0.86)
         let text = storage.string as NSString
-        for span in MarkdownHighlighter.spans(in: text, range: range) {
+        // A highlight goes on top of bold and italic, so its text colour wins
+        // and they keep their weight and slant; the marks go on last and dim.
+        func rank(_ kind: MarkdownHighlighter.Kind) -> Int {
+            switch kind {
+            case .highlight: 1
+            case .markup, .blockId: 2
+            default: 0
+            }
+        }
+        let spans = MarkdownHighlighter.spans(in: text, range: range).enumerated()
+            .sorted { (rank($0.element.kind), $0.offset) < (rank($1.element.kind), $1.offset) }.map(\.element)
+        let highlights = spans.filter { $0.kind == .highlight }.map(\.range)
+        for span in spans {
             let r = span.range
             guard NSMaxRange(r) <= storage.length else { continue }
             switch span.kind {
@@ -313,7 +325,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
                     .foregroundColor: NSPalette.heading(level),
                 ], range: r)
             case .markup, .blockId:
-                storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: r)
+                // On a highlight the marks dim in the highlight's own text colour.
+                let marked = highlights.contains { NSIntersectionRange($0, r).length == r.length }
+                storage.addAttribute(.foregroundColor, value: marked ? NSPalette.markOnHighlight : NSPalette.faint, range: r)
             case .bold:
                 storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.strong], range: r)
             case .italic:
@@ -930,6 +944,14 @@ final class EditorContainer: NSView {
     override func layout() {
         super.layout()
         onLayout?()
+    }
+
+    /// A layer's colour is fixed when it is set: the bar takes the theme again.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            bar.layer?.backgroundColor = NSPalette.panel.cgColor
+        }
     }
 }
 

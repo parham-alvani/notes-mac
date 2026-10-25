@@ -230,6 +230,8 @@ enum NSPalette {
     static let red = dynamic(dark: 0xFF7088, light: 0xC01030)
     static let selection = dynamic(dark: 0x4A4A4A, light: 0xD8D5CC)
     static let pink = dynamic(dark: 0xFF69B4, light: 0xB02A70)
+    /// `**` and `*` on a highlight: the text colour, dimmed.
+    static let markOnHighlight = dynamic(dark: 0xF5F5F0, light: 0x2A2A28, alpha: 0.4)
     static let chartreuse = dynamic(dark: 0xA0FF40, light: 0x5A7A00)
     static let green = dynamic(dark: 0x20FFA0, light: 0x0A7A48)
     static let vividYellow = dynamic(dark: 0xFFE040, light: 0x8A6A00)

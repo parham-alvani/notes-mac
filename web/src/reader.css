@@ -400,6 +400,12 @@ mark {
   border-radius: 0.2em;
 }
 
+/* Bold, italic and the rest inside a highlight take its text colour: their
+   own colours do not read on the marker. They keep their weight and slant. */
+mark strong, mark em, mark b, mark i, mark del, mark s, mark a:not(.tag) { color: inherit; }
+mark a.internal-link:not(.attachment) { text-decoration-color: currentColor; }
+mark code { color: inherit; background: color-mix(in oklch, var(--background) 25%, transparent); border-color: transparent; }
+
 /* Obsidian's six highlight colours (==🔴 text== and so on), in the
    callouts' colours, as the vault's snippet maps them. */
 mark[data-highlight="red"] { --highlight-bg: var(--red); }

@@ -376,6 +376,23 @@ import Testing
         return out
     }
 
+    @Test func boldAndItalicWithHighlights() {
+        let inside = kinds("==a **bold** and *it* word==")
+        #expect(inside[.highlight] == ["==a **bold** and *it* word=="])
+        #expect(inside[.bold] == ["**bold**"])
+        #expect(inside[.italic] == ["*it*"])
+        let both = kinds("***==both==*** and **==mark==**")
+        #expect(both[.bold] == ["***==both==***", "**==mark==**"])
+        #expect(both[.italic] == ["***==both==***"])
+        #expect(both[.highlight] == ["==both==", "==mark=="])
+        #expect(both[.markup]?.filter { $0 == "***" }.count == 2)
+        #expect(kinds("___under___")[.italic] == ["___under___"])
+        // Code inside a highlight; marks inside code are not marks.
+        #expect(kinds("==the `x` flag==")[.highlight] == ["==the `x` flag=="])
+        #expect(kinds("`a*b` and `c*d`")[.italic] == nil)
+        #expect(kinds("`==a` b==")[.highlight] == nil)
+    }
+
     @Test func headingsAndInline() {
         let found = kinds("## Title **bold** and *it* with `co**de**` and [[Note|label]] #tag")
         #expect(found[.heading(2)] == ["## Title **bold** and *it* with `co**de**` and [[Note|label]] #tag"])
