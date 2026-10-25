@@ -215,4 +215,60 @@ import Testing
         try await Task.sleep(for: .milliseconds(300))
         #expect(reported.last == 2)
     }
+
+    func put(_ text: String, cursor: Int) {
+        view.textStorage?.setAttributedString(NSAttributedString(string: text))
+        view.setSelectedRange(NSRange(location: cursor, length: 0))
+    }
+
+    @Test func tabInATableGoesToTheNextCellAndLinesItUp() {
+        put("intro\n| a | b |\n|-|-|\n| long cell | x |\nafter", cursor: 9)
+        view.insertTab(nil)
+        #expect(view.string == "intro\n| a         | b   |\n| --------- | --- |\n| long cell | x   |\nafter")
+        // In cell b now; Tab again goes over the separator to the next row.
+        #expect(view.selectedRange().location == ("intro\n| a         | " as NSString).length)
+        view.insertTab(nil)
+        #expect(view.selectedRange().location == ("intro\n| a         | b   |\n| --------- | --- |\n| " as NSString).length)
+        // Return at the end of the last row starts a new one.
+        view.setSelectedRange(NSRange(location: ("intro\n| a         | b   |\n| --------- | --- |\n| long cell | x   |" as NSString).length, length: 0))
+        view.insertNewline(nil)
+        #expect(view.string.contains("| long cell | x   |\n|           |     |\nafter"))
+    }
+
+    @Test func aSelectionIsWrappedAndBracketsComeInPairs() {
+        put("make this bold", cursor: 0)
+        view.setSelectedRange(NSRange(location: 5, length: 4))
+        view.insertText("*", replacementRange: view.selectedRange())
+        view.insertText("*", replacementRange: view.selectedRange())
+        #expect(view.string == "make **this** bold")
+        put("call ", cursor: 5)
+        view.insertText("(", replacementRange: view.selectedRange())
+        #expect(view.string == "call ()")
+        view.insertText("x", replacementRange: view.selectedRange())
+        view.insertText(")", replacementRange: view.selectedRange())
+        #expect(view.string == "call (x)")
+        #expect(view.selectedRange().location == 8)
+        // An empty pair goes with one backspace; `[[` still makes a link.
+        put("a ", cursor: 2)
+        view.insertText("(", replacementRange: view.selectedRange())
+        view.deleteBackward(nil)
+        #expect(view.string == "a ")
+        view.insertText("[", replacementRange: view.selectedRange())
+        view.insertText("[", replacementRange: view.selectedRange())
+        #expect(view.string == "a [[]]")
+        #expect(view.selectedRange().location == 4)
+    }
+
+    @Test func aLinkPastedOnWordsAndLinesThatMove() {
+        put("see the docs here", cursor: 0)
+        view.setSelectedRange(NSRange(location: 8, length: 4))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("https://example.com/docs", forType: .string)
+        view.paste(nil)
+        #expect(view.string == "see the [docs](https://example.com/docs) here")
+        put("one\ntwo\n", cursor: 5)
+        let up = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .option, timestamp: 0, windowNumber: 0, context: nil, characters: "\u{F700}", charactersIgnoringModifiers: "\u{F700}", isARepeat: false, keyCode: 126)!
+        view.keyDown(with: up)
+        #expect(view.string == "two\none\n")
+    }
 }

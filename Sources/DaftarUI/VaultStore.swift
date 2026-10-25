@@ -157,6 +157,15 @@ final class VaultStore {
     /// Paths come from notes, links and the reader page, so each one is checked.
     func url(of path: String) -> URL? { root.flatMap { Self.file(path, in: $0) } }
 
+    /// The vault path of a file URL inside the vault, or nil.
+    func vaultPath(of url: URL) -> String? {
+        guard let root else { return nil }
+        let base = root.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        guard path.hasPrefix(base) else { return nil }
+        return Slugs.normalize(String(path.dropFirst(base.count)))
+    }
+
     /// [path] inside [root], or nil for an absolute path, a `.` or `..`
     /// part, or a symlink that points out of the vault.
     nonisolated static func file(_ path: String, in root: URL) -> URL? {

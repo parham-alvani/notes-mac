@@ -39,6 +39,23 @@ public enum EditorCommands {
 
     public static func isListItem(_ line: String) -> Bool { line.wholeMatch(of: item) != nil }
 
+    /// The link a dropped file gets: `[[Note]]`, or the path when another
+    /// note has the same name; pictures, sound, video and PDFs embedded.
+    public static func link(to path: String, files: Set<String>) -> String {
+        let name = String(path.split(separator: "/").last ?? "")
+        let short = Vault.isNote(path) ? String(name.dropLast(3)) : name
+        let same = files.filter { String($0.split(separator: "/").last ?? "").lowercased() == name.lowercased() }.count
+        let target = same > 1 ? (Vault.isNote(path) ? String(path.dropLast(3)) : path) : short
+        let media = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "mp3", "m4a", "wav", "ogg", "flac", "mp4", "mov", "webm", "mkv", "pdf"]
+        return (media.contains((path as NSString).pathExtension.lowercased()) ? "!" : "") + "[[" + target + "]]"
+    }
+
+    /// One web address and nothing else, as a paste over a selection takes it.
+    public static func isWebAddress(_ text: String) -> Bool {
+        guard !text.contains(where: \.isWhitespace), let url = URL(string: text), let scheme = url.scheme?.lowercased() else { return false }
+        return ["http", "https", "mailto"].contains(scheme) && (url.host != nil || scheme == "mailto")
+    }
+
     /// ⌘↩: a task is ticked or opened again, as a click on its box does; a
     /// list item becomes a task; any other line becomes a task item.
     public static func toggleTask(_ line: String, today: Day) -> [String] {
