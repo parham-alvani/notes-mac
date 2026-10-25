@@ -54,6 +54,9 @@ import Testing
         #expect(EditorCommands.extractName(from: "## Kafka: partitions & [[Consumer|consumers]]\nbody") == "Kafka partitions & consumers")
         #expect(EditorCommands.extractName(from: "- [ ] Call the bank") == "Call the bank")
         #expect(EditorCommands.extractName(from: "   \n") == "Untitled")
+        #expect(EditorCommands.extractName(from: "...hidden thought") == "hidden thought")
+        #expect(VaultMoves.isValidName(EditorCommands.extractName(from: "# .env notes")))
+        #expect(EditorCommands.extractName(from: ". . .") == "Untitled")
         #expect(EditorCommands.extractName(from: String(repeating: "word ", count: 30)).count <= 60)
     }
 

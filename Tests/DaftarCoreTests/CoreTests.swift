@@ -137,6 +137,14 @@ import Testing
         #expect(lines == ["- [x] Gym 🔁 every Monday ⏳ 2026-10-05 ✅ 2026-10-05"])
     }
 
+    @Test func theBlockIdStaysLast() {
+        let lines = TaskLine.toggled("- [ ] t 🔁 every day 📅 2026-10-25 ^abc", today: "2026-10-25")
+        #expect(lines == ["- [ ] t 🔁 every day 📅 2026-10-26", "- [x] t 🔁 every day 📅 2026-10-25 ✅ 2026-10-25 ^abc"])
+        #expect(TaskLine.toggled("- [ ] t ^abc", today: "2026-10-25") == ["- [x] t ✅ 2026-10-25 ^abc"])
+        #expect(TaskLine.toggled("- [x] t ✅ 2026-10-25 ^abc", today: "2026-10-26") == ["- [ ] t ^abc"])
+        #expect(EditorCommands.toggleTask("- [ ] t ^abc", today: Day("2026-10-25")!) == ["- [x] t ✅ 2026-10-25 ^abc"])
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")

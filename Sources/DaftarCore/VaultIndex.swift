@@ -47,6 +47,8 @@ public struct VaultIndex: Sendable {
     public private(set) var backlinks: [String: [Backlink]] = [:]
     public private(set) var tree: [TreeNode] = []
     public private(set) var tags: [String: Int] = [:]
+    /// The tags as the tag pane shows them, each note counted once per branch.
+    public private(set) var tagTree: [TagNode] = []
 
     public init() {}
 
@@ -111,6 +113,7 @@ public struct VaultIndex: Sendable {
         for key in back.keys { back[key]!.sort { $0.source < $1.source } }
         backlinks = back
         tags = tagCounts
+        tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags))
         tree = Vault.tree(of: files)
     }
 }

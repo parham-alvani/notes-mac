@@ -68,8 +68,8 @@ public struct LinkResolver: Sendable {
     }
 
     /// The vault path [target] refers to, seen from [source], or nil for a
-    /// broken link.
-    public func resolve(_ target: String, from source: String) -> String? {
+    /// broken link. With [aliases] false, only a file's name or path answers.
+    public func resolve(_ target: String, from source: String, aliases: Bool = true) -> String? {
         if target.isEmpty { return source }
         var cleaned = Slugs.normalize(target).trimmingCharacters(in: .whitespaces)
         while cleaned.hasSuffix("/") { cleaned.removeLast() }
@@ -78,7 +78,7 @@ public struct LinkResolver: Sendable {
         if cleaned.hasPrefix("./") || cleaned.hasPrefix("../"), let found = relative(cleaned, source) {
             return found
         }
-        guard let candidates = exact[cleaned] ?? folded[Slugs.fold(cleaned)] ?? aliased[Slugs.fold(cleaned)] else {
+        guard let candidates = exact[cleaned] ?? folded[Slugs.fold(cleaned)] ?? (aliases ? aliased[Slugs.fold(cleaned)] : nil) else {
             return nil
         }
         return candidates.count == 1 ? candidates[0] : disambiguate(candidates, source)

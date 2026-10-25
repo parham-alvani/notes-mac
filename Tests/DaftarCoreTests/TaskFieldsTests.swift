@@ -42,4 +42,33 @@ import Testing
         #expect(try VaultEdits.editTask(in: text, line: 1, before: before, fields: after) == "# Tasks\n- [ ] One 📅 2026-11-01\n- [ ] Two\n")
         #expect(throws: VaultEdits.Failure.taskMoved) { try VaultEdits.editTask(in: text, line: 2, before: before, fields: after) }
     }
+
+    @Test func aPriorityTakesNoValueAndADateOnlyADate() throws {
+        let urgent = "- [ ] 🔺 urgent thing"
+        let fields = try #require(TaskLine.fields(urgent))
+        #expect(fields.priority == nil)
+        #expect(fields.text == "🔺 urgent thing")
+        #expect(TaskLine.edited(urgent, fields) == urgent)
+        let split = TaskMetadata.split("Call 📅 tomorrow morning ⏫")
+        #expect(split.text == "Call 📅 tomorrow morning")
+        #expect(split.meta == [.init(emoji: "⏫", value: "")])
+        // The recurrence keeps its words.
+        #expect(TaskMetadata.split("Gym 🔁 every week").meta == [.init(emoji: "🔁", value: "every week")])
+    }
+
+    @Test func twoFieldsOfOneKindDropNothing() throws {
+        for raw in ["- [ ] Move 📅 2026-10-25 then 📅 2026-10-26", "- [ ] Run 🔁 every day or 🔁 every week", "- [ ] Pick 🔼 ⏫"] {
+            let fields = try #require(TaskLine.fields(raw))
+            #expect(TaskLine.edited(raw, fields) == raw)
+        }
+    }
+
+    @Test func onCompletionIsAField() throws {
+        let fields = try #require(TaskLine.fields("- [ ] Bins 🔁 every day 🏁 delete 📅 2026-10-25"))
+        #expect(fields.text == "Bins")
+        #expect(fields.recurring == "every day")
+        #expect(fields.due == "2026-10-25")
+        #expect(fields.other == [TaskMetadata.Meta(emoji: "🏁", value: "delete")])
+        #expect(TaskLine.edited("- [ ] Bins 🔁 every day 🏁 delete 📅 2026-10-25", fields) == "- [ ] Bins 🔁 every day 🏁 delete 📅 2026-10-25")
+    }
 }

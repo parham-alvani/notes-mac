@@ -163,6 +163,8 @@ extension EditorCommands {
         name = name.replacing(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/) { String($0.2 ?? $0.1) }
         name = String(name.map { "/\\:#^[]|*\"<>?".contains($0) ? " " : $0 })
         name = name.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        // A leading dot would hide the file.
+        name = String(name.drop { $0 == "." || $0 == " " })
         if name.count > 60 { name = String(name.prefix(60)).trimmingCharacters(in: .whitespaces) }
         return name.isEmpty ? "Untitled" : name
     }

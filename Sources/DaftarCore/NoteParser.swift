@@ -76,6 +76,14 @@ public enum NoteParser {
             tags: front.values("tags") + front.values("tag"), headings: [], links: [], tasks: [], plain: "", rtl: false)
         note.tags = note.tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
 
+        // A link in a property, `up: "[[Parent]]"`, is a link as Obsidian counts them.
+        for index in 1..<max(1, front.lineCount - 1) {
+            for match in lines[index].matches(of: wikilink) {
+                let parts = Wikilink(String(match.2))
+                note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
+            }
+        }
+
         var plain: [String] = []
         var fenceMarker: String?
         var inComment = false
@@ -138,10 +146,16 @@ public struct Wikilink: Sendable, Equatable {
     public var target: String
     public var anchor: String?
     public var alias: String?
+    /// The bar was written `\|`, as it must be inside a table.
+    var escaped = false
 
     public init(_ inner: String) {
         let bar = inner.firstIndex(of: "|")
-        let ref = bar.map { String(inner[..<$0]) } ?? inner
+        var ref = bar.map { String(inner[..<$0]) } ?? inner
+        if bar != nil, ref.hasSuffix("\\") {
+            ref.removeLast()
+            escaped = true
+        }
         alias = bar.map { String(inner[inner.index(after: $0)...]) }
         if let hash = ref.firstIndex(of: "#") {
             target = String(ref[..<hash]).trimmingCharacters(in: .whitespaces)

@@ -19,4 +19,16 @@ import Testing
     @Test func theCommonerSpellingNamesTheTag() {
         #expect(TagNode.tree(["Kubernetes": 5, "kubernetes": 2]).map(\.name) == ["Kubernetes"])
     }
+
+    @Test func aNoteCountsOnceUnderAParent() {
+        var index = VaultIndex()
+        for (path, text) in ["One.md": "#a and #a/b", "Two.md": "#a/b and #a/c", "Three.md": "#A"] {
+            index.notes[path] = NoteEntry(path: path, modified: .distantPast, parsed: NoteParser.parse(text))
+        }
+        index.files = Set(index.notes.keys)
+        index.derive()
+        let a = index.tagTree[0]
+        #expect(a.tag == "a" && a.count == 3)
+        #expect(a.children?.map(\.count) == [2, 1])
+    }
 }

@@ -16,19 +16,38 @@ public struct Bookmarks: @unchecked Sendable {
         public var folder: Bool
     }
 
+    public enum Failure: LocalizedError, Equatable {
+        /// The file is there but could not be read, so it is not written over.
+        case unreadable
+
+        public var errorDescription: String? { "bookmarks.json could not be read, so it is left as it is" }
+    }
+
+    /// True when the file was there but could not be read: the bookmarks
+    /// are empty, and `save` refuses rather than lose the file.
+    public private(set) var unreadable = false
+
     public init(items: [[String: Any]] = []) { self.items = items }
 
     static func url(_ root: URL) -> URL { root.appending(path: ".obsidian/bookmarks.json") }
 
+    /// No file is no bookmarks yet; a file that does not read is `unreadable`.
     public static func load(_ root: URL) -> Bookmarks {
-        guard let data = try? Data(contentsOf: url(root)),
+        let url = url(root)
+        guard FileManager.default.fileExists(atPath: url.path) else { return Bookmarks() }
+        guard let data = try? Data(contentsOf: url),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let items = object["items"] as? [[String: Any]]
-        else { return Bookmarks() }
+        else {
+            var bookmarks = Bookmarks()
+            bookmarks.unreadable = true
+            return bookmarks
+        }
         return Bookmarks(items: items)
     }
 
     public func save(_ root: URL) throws {
+        guard !unreadable else { throw Failure.unreadable }
         let data = try JSONSerialization.data(withJSONObject: ["items": items], options: [.prettyPrinted, .withoutEscapingSlashes])
         try FileManager.default.createDirectory(at: Self.url(root).deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: Self.url(root), options: .atomic)

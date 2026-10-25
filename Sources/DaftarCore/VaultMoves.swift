@@ -67,6 +67,12 @@ public enum VaultMoves {
             if path == from + "/" + oldName + ".md" { moved = to + "/" + newName + ".md" }
             moves[path] = moved
         }
+        // Two files to one place: `X/Y.md` beside the folder note of `X`, renamed `Y`.
+        var taken: [String: String] = [:]
+        for (path, moved) in moves.sorted(by: { $0.key < $1.key }) {
+            if let other = taken[Slugs.fold(moved)], Slugs.fold(other) != Slugs.fold(path) { throw Failure.exists(moved) }
+            taken[Slugs.fold(moved)] = path
+        }
         return moves
     }
 
@@ -74,6 +80,8 @@ public enum VaultMoves {
     nonisolated(unsafe) private static let markdownLink = /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+)(>?\))/
     nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
     nonisolated(unsafe) private static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
+    /// A path in a markdown link: `(` and `)` encoded too, or the link ends early.
+    private static let urlAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "()")).union(["#"])
 
     /// The notes whose links change with [moves], each with its new text,
     /// by the path it has after the moves.
@@ -92,6 +100,8 @@ public enum VaultMoves {
         let unique = { (name: String) in names[Slugs.fold(name)] == 1 }
         var sources = Set<String>()
         for old in moves.keys { sources.formUnion((index.backlinks[old] ?? []).map(\.source)) }
+        // A moved note's links to itself, and its relative links, change too.
+        sources.formUnion(moves.keys.filter(Vault.isNote))
         var out: [String: String] = [:]
         for source in sources {
             guard let text = read(source) else { continue }
@@ -108,6 +118,8 @@ public enum VaultMoves {
     ) -> String {
         var lines = text.components(separatedBy: "\n")
         var open: String?
+        // A note in another folder now: its relative links are written again.
+        let rebased = source.split(separator: "/").dropLast() != newSource.split(separator: "/").dropLast()
         for at in lines.indices {
             let line = lines[at]
             if let match = line.firstMatch(of: fence) {
@@ -121,12 +133,20 @@ public enum VaultMoves {
             var result = line.replacing(wikilink) { match -> String in
                 guard !inCode(match.range) else { return String(match.output.0) }
                 let link = Wikilink(String(match.output.2))
-                guard !link.target.isEmpty, let old = index.resolve(link.target, from: source), let new = moves[old] else {
+                guard !link.target.isEmpty, let old = index.resolver.resolve(link.target, from: source, aliases: false),
+                    let new = moves[old] ?? (isRelative(link.target) && rebased ? old : nil)
+                else {
                     return String(match.output.0)
                 }
-                var inner = spelling(link.target, of: new, from: newSource, resolver: resolver, unique: unique)
+                var inner: String
+                if isRelative(link.target) {
+                    inner = relative(new, from: newSource)
+                    if Vault.isNote(new), !link.target.lowercased().hasSuffix(".md") { inner = String(inner.dropLast(3)) }
+                } else {
+                    inner = spelling(link.target, of: new, from: newSource, resolver: resolver, unique: unique)
+                }
                 if let anchor = link.anchor { inner += "#" + anchor }
-                if let alias = link.alias { inner += "|" + alias }
+                if let alias = link.alias { inner += (link.escaped ? "\\|" : "|") + alias }
                 return match.output.1 + "[[" + inner + "]]"
             }
             if result.contains("](") {
@@ -138,10 +158,13 @@ public enum VaultMoves {
                     let decoded = url.removingPercentEncoding ?? url
                     let hash = decoded.firstIndex(of: "#")
                     let target = hash.map { String(decoded[..<$0]) } ?? decoded
-                    guard let old = index.resolve(target, from: source), let new = moves[old] else { return String(match.output.0) }
+                    guard let old = index.resolver.resolve(target, from: source, aliases: false),
+                        let moved = moves[old] ?? (isRelative(target) && rebased ? old : nil)
+                    else { return String(match.output.0) }
+                    let new = isRelative(target) ? relative(moved, from: newSource) : moved
                     let anchor = hash.map { String(decoded[$0...]) } ?? ""
                     let written = match.output.2.isEmpty
-                        ? (new + anchor).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.union(["#"])) ?? new
+                        ? (new + anchor).addingPercentEncoding(withAllowedCharacters: urlAllowed) ?? new
                         : new + anchor
                     return match.output.1 + match.output.2 + written + match.output.4
                 }
@@ -149,6 +172,17 @@ public enum VaultMoves {
             lines[at] = result
         }
         return lines.joined(separator: "\n")
+    }
+
+    static func isRelative(_ target: String) -> Bool { target.hasPrefix("./") || target.hasPrefix("../") }
+
+    /// [path] as a link from [source] that starts `./` or `../`.
+    static func relative(_ path: String, from source: String) -> String {
+        let dirs = source.split(separator: "/").dropLast()
+        let parts = path.split(separator: "/")
+        let shared = zip(dirs, parts.dropLast()).prefix { $0 == $1 }.count
+        let up = Array(repeating: "..", count: dirs.count - shared)
+        return ((up.isEmpty ? ["."] : up) + parts.dropFirst(shared).map(String.init)).joined(separator: "/")
     }
 
     /// A note's name without `.md`, any other file's name with its extension.
@@ -176,29 +210,41 @@ public enum VaultMoves {
     public static func perform(_ from: String, to: String, index: VaultIndex, root: URL) throws -> Set<String> {
         let moves = try plan(from, to: to, files: index.files)
         guard !moves.isEmpty else { return [] }
+        let manager = FileManager.default
+        let source = root.appending(path: from), destination = root.appending(path: to)
+        let oldName = String(from.split(separator: "/").last ?? ""), newName = String(to.split(separator: "/").last ?? "")
+        let folderNote = moves[from + "/" + oldName + ".md"] == to + "/" + newName + ".md" && oldName != newName
+        // What the disk could refuse is asked before the first file moves,
+        // so a move does not stop half done.
+        guard manager.fileExists(atPath: source.path) else { throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: source.path]) }
+        if Slugs.fold(from) != Slugs.fold(to), manager.fileExists(atPath: destination.path) { throw Failure.exists(to) }
+        if folderNote, Slugs.fold(oldName) != Slugs.fold(newName), manager.fileExists(atPath: source.appending(path: newName + ".md").path) {
+            throw Failure.exists(to + "/" + newName + ".md")
+        }
         let edits = relinked(index: index, moves: moves) { path in
             try? String(contentsOf: root.appending(path: path), encoding: .utf8)
         }
-        let manager = FileManager.default
-        let destination = root.appending(path: to)
         try manager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if Slugs.fold(from) == Slugs.fold(to) {
-            // A change of case only: through a free name, for a disk that folds case.
-            let step = root.appending(path: to + ".daftar-\(UUID().uuidString.prefix(8))")
-            try manager.moveItem(at: root.appending(path: from), to: step)
-            try manager.moveItem(at: step, to: destination)
-        } else {
-            try manager.moveItem(at: root.appending(path: from), to: destination)
-        }
+        try move(source, to: destination)
         // The folder note, renamed with its folder.
-        let oldName = String(from.split(separator: "/").last ?? ""), newName = String(to.split(separator: "/").last ?? "")
-        let carried = to + "/" + oldName + ".md"
-        if moves[from + "/" + oldName + ".md"] == to + "/" + newName + ".md", oldName != newName {
-            try manager.moveItem(at: root.appending(path: carried), to: root.appending(path: to + "/" + newName + ".md"))
+        if folderNote {
+            try move(destination.appending(path: oldName + ".md"), to: destination.appending(path: newName + ".md"))
         }
         for (path, text) in edits {
             try Data(text.utf8).write(to: root.appending(path: path), options: .atomic)
         }
         return Set(moves.keys).union(moves.values).union([from, to])
+    }
+
+    /// A change of case only goes through a free name, for a disk that folds case.
+    private static func move(_ from: URL, to: URL) throws {
+        let manager = FileManager.default
+        if Slugs.fold(from.path) == Slugs.fold(to.path) {
+            let step = to.deletingLastPathComponent().appending(path: to.lastPathComponent + ".daftar-\(UUID().uuidString.prefix(8))")
+            try manager.moveItem(at: from, to: step)
+            try manager.moveItem(at: step, to: to)
+        } else {
+            try manager.moveItem(at: from, to: to)
+        }
     }
 }

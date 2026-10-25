@@ -254,11 +254,14 @@ public final class BaseEngine {
     }
 
     /// A property id from `order`, `sort` or `groupBy` -- `file.name`,
-    /// `formula.x`, `note.x` or a bare name -- as an expression.
+    /// `formula.x`, `note.x` or a bare name -- as an expression. An id is a
+    /// path, never parsed as one: `note.date-created` is not a subtraction.
     private func column(_ id: String) -> BaseExpr {
-        if let expression = try? BaseParser.parse(id) { return expression }
-        // A key no expression can spell, such as `my-key` or `due date`.
-        return .index(.name("note"), .value(.string(id.hasPrefix("note.") ? String(id.dropFirst(5)) : id)))
+        if id == "file" { return .name("file") }
+        for space in ["file", "formula", "note"] where id.hasPrefix(space + ".") {
+            return .member(.name(space), String(id.dropFirst(space.count + 1)))
+        }
+        return .index(.name("note"), .value(.string(id)))
     }
 
     private func value(of expression: BaseExpr, _ path: String) -> BaseValue {
@@ -512,11 +515,12 @@ public final class BaseEngine {
     private func subscriptValue(_ value: BaseValue, _ key: BaseValue) -> BaseValue {
         switch (value, key) {
         case (.list(let items), .number(let number)):
-            let at = Int(number) < 0 ? items.count + Int(number) : Int(number)
+            guard let whole = number.whole else { return .null }
+            let at = whole < 0 ? items.count + whole : whole
             return items.indices.contains(at) ? items[at] : .null
         case (.string(let text), .number(let number)):
             let characters = Array(text)
-            let at = Int(number)
+            guard let at = number.whole else { return .null }
             return characters.indices.contains(at) ? .string(String(characters[at])) : .null
         case (_, .string(let name)): return member(value, name)
         default: return .null
@@ -634,10 +638,10 @@ public final class BaseEngine {
             case "ceil": return .number(number.rounded(.up))
             case "floor": return .number(number.rounded(.down))
             case "round":
-                let digits = self.number(first).map(Int.init) ?? 0
+                let digits = min(100, max(-100, self.number(first).flatMap(\.whole) ?? 0))
                 let scale = pow(10, Double(digits))
                 return .number((number * scale).rounded() / scale)
-            case "toFixed": return .string(String(format: "%.\(max(0, self.number(first).map(Int.init) ?? 0))f", number))
+            case "toFixed": return .string(String(format: "%.\(min(100, max(0, self.number(first).flatMap(\.whole) ?? 0)))f", number))
             default: break
             }
         case .date(let date, let time):
@@ -701,7 +705,11 @@ public final class BaseEngine {
         case "upper": return .string(text.uppercased())
         case "trim": return .string(text.trimmingCharacters(in: .whitespacesAndNewlines))
         case "reverse": return .string(String(text.reversed()))
-        case "repeat": return .string(String(repeating: text, count: max(0, number(first).map(Int.init) ?? 0)))
+        case "repeat":
+            let count = max(0, number(first).flatMap(\.whole) ?? 0)
+            // A count too large for memory is bad input, not a crash.
+            guard count <= 10_000_000 / max(1, text.utf8.count) else { return .null }
+            return .string(String(repeating: text, count: count))
         case "title":
             var out = ""
             var start = true
@@ -728,7 +736,7 @@ public final class BaseEngine {
                 let separator = display(first)
                 parts = separator.isEmpty ? text.map(String.init) : text.components(separatedBy: separator)
             }
-            if values.count > 1, let limit = number(values[1]) { parts = Array(parts.prefix(Int(limit))) }
+            if values.count > 1, let limit = number(values[1]).flatMap(\.whole), limit >= 0 { parts = Array(parts.prefix(limit)) }
             return .list(parts.map(BaseValue.string))
         case "replace":
             let replacement = values.count > 1 ? display(values[1]) : ""
@@ -813,7 +821,8 @@ public final class BaseEngine {
         case (.duration(let a), .duration(let b), "+"): return .duration(a + b)
         case (.duration(let a), .duration(let b), "-"): return .duration(a + -b)
         case (.duration(let span), .number(let number), "*"):
-            return .duration(BaseSpan(months: Int(Double(span.months) * number), milliseconds: span.milliseconds * number))
+            guard let months = (Double(span.months) * number).whole else { return .null }
+            return .duration(BaseSpan(months: months, milliseconds: span.milliseconds * number))
         case (.duration(let span), .number(let number), "/"):
             return .number(span.approximateMilliseconds / number)
         case (.string, _, "+"), (_, .string, "+"):
@@ -958,7 +967,7 @@ public final class BaseEngine {
 
     private static func slice(_ count: Int, _ bounds: [Double]) -> Range<Int> {
         func clamp(_ value: Double) -> Int {
-            let at = Int(value)
+            let at = value.isNaN ? 0 : Int(min(Double(count), max(-Double(count), value)))
             return min(count, max(0, at < 0 ? count + at : at))
         }
         let start = bounds.first.map(clamp) ?? 0
@@ -999,7 +1008,7 @@ public final class BaseEngine {
     /// moment's thresholds for a length of time in words.
     static func humanize(_ seconds: Double) -> String {
         let s = abs(seconds), minutes = s / 60, hours = minutes / 60, days = hours / 24
-        func count(_ value: Double, _ unit: String) -> String { "\(Int(value.rounded())) \(unit)" }
+        func count(_ value: Double, _ unit: String) -> String { "\(value.rounded().whole.map(String.init) ?? "many") \(unit)" }
         if s < 45 { return "a few seconds" }
         if s < 90 { return "a minute" }
         if minutes < 45 { return count(minutes, "minutes") }
@@ -1065,10 +1074,16 @@ public final class BaseEngine {
             case "a": return hour < 12 ? "am" : "pm"
             case "ZZ": return zone + two(abs(offset) % 60)
             case "Z": return zone + ":" + two(abs(offset) % 60)
-            case "X": return String(Int(date.timeIntervalSince1970))
-            case "x": return String(Int64(date.timeIntervalSince1970 * 1000))
+            case "X": return date.timeIntervalSince1970.whole.map(String.init) ?? ""
+            case "x": return (date.timeIntervalSince1970 * 1000).whole.map(String.init) ?? ""
             default: return String(token.dropFirst().dropLast())
             }
         }
     }
+}
+
+extension Double {
+    /// The whole number toward zero, or nil when there is none: not a
+    /// number, infinite, or past what an `Int` holds.
+    var whole: Int? { Int(exactly: rounded(.towardZero)) }
 }

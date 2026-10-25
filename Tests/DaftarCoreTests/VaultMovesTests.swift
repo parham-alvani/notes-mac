@@ -22,9 +22,9 @@ import Testing
         "uploads/diagram.png": "png",
     ]
 
-    func makeVault() throws -> URL {
+    func makeVault(_ files: [String: String]? = nil) throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "daftar-moves-\(UUID().uuidString)")
-        for (path, text) in files {
+        for (path, text) in files ?? self.files {
             let url = root.appending(path: path)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try text.write(to: url, atomically: true, encoding: .utf8)
@@ -108,6 +108,63 @@ import Testing
         try VaultMoves.perform("Other.md", to: "other.md", index: index, root: root)
         #expect(Vault.scan(root).contains("other.md"))
         #expect(try String(contentsOf: root.appending(path: "Home.md"), encoding: .utf8).hasSuffix("[[other]]."))
+    }
+
+    func read(_ path: String, in root: URL) throws -> String {
+        try String(contentsOf: root.appending(path: path), encoding: .utf8)
+    }
+
+    @Test func selfLinksFrontMatterAndTablesFollow() throws {
+        let root = try makeVault([
+            "Parent.md": "# Top\nSee [[Parent#Top]] and [[#Top]].",
+            "Child.md": "---\nup: \"[[Parent]]\"\n---\n| a | [[Parent\\|p]] |",
+            "Kin.md": "---\nup: \"[[Parent]]\"\n---\nNo other link.",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try VaultMoves.perform("Parent.md", to: "Mother.md", index: Vault.index(root), root: root)
+        #expect(try read("Mother.md", in: root) == "# Top\nSee [[Mother#Top]] and [[#Top]].")
+        #expect(try read("Child.md", in: root) == "---\nup: \"[[Mother]]\"\n---\n| a | [[Mother\\|p]] |")
+        #expect(try read("Kin.md", in: root) == "---\nup: \"[[Mother]]\"\n---\nNo other link.")
+    }
+
+    @Test func aMovedNoteKeepsItsRelativeLinks() throws {
+        let root = try makeVault([
+            "Other.md": "x",
+            "Notes/sib.md": "y",
+            "Notes/x.md": "[o](../Other.md), [s](./sib.md) and [[../Other]].",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try VaultMoves.perform("Notes/x.md", to: "Deep/More/x.md", index: Vault.index(root), root: root)
+        #expect(try read("Deep/More/x.md", in: root) == "[o](../../Other.md), [s](../../Notes/sib.md) and [[../../Other]].")
+    }
+
+    @Test func anAliasIsNotRewritten() throws {
+        let root = try makeVault(["Bar.md": "---\naliases: [Foo]\n---\n", "Home.md": "[[Foo]] and [[Bar]]"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try VaultMoves.perform("Bar.md", to: "Baz.md", index: Vault.index(root), root: root)
+        #expect(try read("Home.md", in: root) == "[[Foo]] and [[Baz]]")
+    }
+
+    @Test func aFolderAndItsNoteChangeCase() throws {
+        let root = try makeVault(["Foo/Foo.md": "folder note", "Foo/x.md": "[[Foo]]"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try VaultMoves.perform("Foo", to: "foo", index: Vault.index(root), root: root)
+        #expect(Vault.scan(root) == ["foo/foo.md", "foo/x.md"])
+        #expect(try read("foo/x.md", in: root) == "[[foo]]")
+    }
+
+    @Test func twoNotesCannotBecomeTheFolderNote() {
+        #expect(throws: VaultMoves.Failure.exists("Y/Y.md")) {
+            try VaultMoves.plan("X", to: "Y", files: ["X/X.md", "X/Y.md"])
+        }
+    }
+
+    @Test func markdownLinksEncodeParentheses() throws {
+        let root = try makeVault(["Old/a.md": "a", "Home.md": "[a](Old/a.md)"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try VaultMoves.perform("Old", to: "Notes (old)", index: Vault.index(root), root: root)
+        #expect(try read("Home.md", in: root) == "[a](Notes%20%28old%29/a.md)")
+        #expect(NoteParser.parse(try read("Home.md", in: root)).links.first?.target == "Notes (old)/a.md")
     }
 
     @Test func excludedFiles() {

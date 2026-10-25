@@ -229,4 +229,43 @@ import Testing
         #expect(tables.count == 1)
         #expect(tables[0].groups[0].rows.map(\.path) == ["Home.md"])
     }
+
+    @Test func aColumnIdIsAPropertyNotASum() {
+        var index = VaultIndex()
+        for (path, text) in ["A.md": "---\ndate-created: 2026-10-01\nmy-key: b\n---\n", "B.md": "---\ndate-created: 2026-09-01\nmy-key: a\n---\n"] {
+            index.notes[path] = NoteEntry(path: path, modified: now, parsed: NoteParser.parse(text))
+        }
+        index.files = ["A.md", "B.md"]
+        index.derive()
+        let base = Base.parse("""
+            views:
+              - type: table
+                name: All
+                order:
+                  - file.name
+                  - note.date-created
+                  - my-key
+                sort:
+                  - property: my-key
+                    direction: ASC
+            """)
+        let table = BaseEngine(index: index, now: now).run(base, context: "")[0]
+        #expect(table.groups[0].rows.map(\.path) == ["B.md", "A.md"])
+        #expect(table.groups[0].rows[0].cells.map(\.text) == ["B", "2026-09-01", "a"])
+    }
+
+    @Test func badNumbersAreNullNotACrash() throws {
+        for source in [
+            "[1, 2][0 / 0]", "\"ab\"[1 / 0]", "[1, 2][100000000000000000000000]", "(1.5).round(1 / 0)", "(1.5).toFixed(0 / 0)",
+            "\"ab\".repeat(1 / 0)", "\"a-b\".split(\"-\", -1)", "\"a-b\".split(\"-\", 0 / 0)",
+            "duration(\"1M\") * (1 / 0)", "\"abc\".slice(0 / 0, 1 / 0)", "[1, 2, 3].slice(-100000000000000000000000)",
+            "duration(\"99999999999999999999 years\")",
+        ] {
+            _ = try evaluate(source)
+        }
+        #expect(try evaluate("[1, 2][0 / 0]") == "")
+        #expect(try evaluate("\"a-b\".split(\"-\", -1).length") == "2")
+        #expect(try evaluate("\"abc\".slice(0 / 0, 1 / 0)") == "abc")
+        #expect(BaseSpan.parse("99999999999999999999 years") == nil)
+    }
 }

@@ -53,8 +53,11 @@ public struct BaseSpan: Sendable, Equatable {
             let name = String(match.2)
             guard let unit = units[name] ?? (name.count > 1 ? units[name.lowercased()] : nil) else { return nil }
             if unit.months != 0 {
-                guard amount == amount.rounded() else { return nil }
-                span.months += Int(amount) * unit.months
+                guard amount == amount.rounded(), let whole = amount.whole,
+                    case let (months, false) = whole.multipliedReportingOverflow(by: unit.months),
+                    case let (sum, false) = span.months.addingReportingOverflow(months)
+                else { return nil }
+                span.months = sum
             } else {
                 span.milliseconds += amount * unit.ms
             }

@@ -6,6 +6,7 @@ public enum TaskMetadata {
         "✅": "done", "➕": "created", "⏳": "scheduled", "❌": "cancelled", "📅": "due",
         "🔁": "recurring", "⛔": "blocked", "🛫": "start", "🆔": "id",
         "🔺": "priority", "⏫": "priority", "🔼": "priority", "🔽": "priority", "⏬": "priority",
+        "🏁": "onCompletion",
     ]
 
     public struct Meta: Sendable, Equatable, Hashable {
@@ -14,16 +15,28 @@ public enum TaskMetadata {
     }
 
     nonisolated(unsafe) private static let value = /^[0-9A-Za-z\/,:. -]{0,32}$/
+    nonisolated(unsafe) private static let dateValue = /^\d{4}-\d{2}-\d{2}$/
+    private static let dated: Set<String> = ["done", "created", "scheduled", "cancelled", "due", "start"]
+
+    /// Whether [value] can follow [symbol]: nothing after a priority, only
+    /// a date after a date, a rule or an id after the rest.
+    private static func takes(_ symbol: String, _ value: String) -> Bool {
+        if value.isEmpty { return true }
+        let kind = symbols[symbol] ?? ""
+        if kind == "priority" { return false }
+        return value.wholeMatch(of: dated.contains(kind) ? Self.dateValue : Self.value) != nil
+    }
 
     /// The sentence and its metadata, in the order written. From the right:
     /// the metadata is always a suffix, and an emoji with prose after it is
-    /// part of the sentence.
+    /// part of the sentence, as is a second field of a kind already found.
     public static func split(_ line: String) -> (text: String, meta: [Meta]) {
         var remaining = line
         var found: [Meta] = []
         // Tags after the signifiers (`📅 2026-10-20 ⏫ #kit`) stay part of
         // the text, as the Tasks plugin keeps them.
         var tags: [String] = []
+        var kinds = Set<String>()
         while true {
             var last: (String, Range<String.Index>)?
             for symbol in symbols.keys {
@@ -33,16 +46,17 @@ public enum TaskMetadata {
                     last = (symbol, range)
                 }
             }
-            guard let (symbol, range) = last else { break }
+            guard let (symbol, range) = last, !kinds.contains(symbols[symbol]!) else { break }
             var value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
-            if !value.isEmpty, value.wholeMatch(of: Self.value) == nil {
+            if !takes(symbol, value) {
                 guard let match = value.wholeMatch(of: /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/),
-                    String(match.1).isEmpty || String(match.1).wholeMatch(of: Self.value) != nil
+                    takes(symbol, String(match.1))
                 else { break }
                 tags.insert(String(match.2).trimmingCharacters(in: .whitespaces), at: 0)
                 value = String(match.1)
             }
             found.append(Meta(emoji: symbol, value: value))
+            kinds.insert(symbols[symbol]!)
             remaining = String(remaining[..<range.lowerBound])
             while remaining.last?.isWhitespace ?? false { remaining.removeLast() }
         }
@@ -94,14 +108,25 @@ public enum TaskLine {
     public static func toggled(_ raw: String, today: String) -> [String]? {
         guard let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
         let prefix = String(match.1)
-        let body = String(match.3)
+        // The block id `^abc` stays the line's last word, on the line it named.
+        var body = String(match.3)
+        var id = ""
+        if let found = body.firstMatch(of: blockId) {
+            id = " " + found.1
+            body = String(body[..<found.range.lowerBound])
+        }
         if closed.contains(status) {
             let text = body.replacing(/[ \t]*(?:✅|❌)[ \t]*\d{4}-\d{2}-\d{2}/, with: "")
-            return [prefix + "[ ] " + text]
+            return [prefix + "[ ] " + text + id]
         }
-        if let lines = completeRecurring(prefix: prefix, body: body, today: today) { return lines }
-        return [prefix + "[x] " + trimmedEnd(body) + " \(done) \(today)"]
+        if var lines = completeRecurring(prefix: prefix, body: body, today: today) {
+            lines[lines.count - 1] += id
+            return lines
+        }
+        return [prefix + "[x] " + trimmedEnd(body) + " \(done) \(today)" + id]
     }
+
+    nonisolated(unsafe) private static let blockId = /\s+(\^[A-Za-z0-9-]+)\s*$/
 
     /// The next occurrence above the one just done, every date moved by the
     /// same number of days. Nil when the rule is not a plain interval or the
@@ -256,7 +281,7 @@ public struct TaskFields: Sendable, Equatable {
     public var due: String?
     public var cancelled: String?
     public var done: String?
-    /// Signifiers the form does not show (🆔, ⛔), kept as they are.
+    /// Signifiers the form does not show (🏁, ⛔, 🆔), kept as they are.
     public var other: [TaskMetadata.Meta] = []
 
     public init() {}
@@ -296,11 +321,14 @@ extension TaskLine {
         var parts = [fields.text.trimmingCharacters(in: .whitespaces)]
         if let priority = fields.priority { parts.append(priority) }
         if let rule = fields.recurring?.trimmingCharacters(in: .whitespaces), !rule.isEmpty { parts.append("🔁 " + rule) }
-        for meta in fields.other.filter({ $0.emoji == "⛔" || $0.emoji == "🆔" }) { parts.append("\(meta.emoji) \(meta.value)") }
+        let afterRule = ["🏁", "⛔", "🆔"]
+        for emoji in afterRule {
+            for meta in fields.other where meta.emoji == emoji { parts.append("\(meta.emoji) \(meta.value)") }
+        }
         for (emoji, value) in [("➕", fields.created), ("🛫", fields.start), ("⏳", fields.scheduled), ("📅", fields.due), ("❌", fields.cancelled), ("✅", fields.done)] {
             if let value, !value.isEmpty { parts.append("\(emoji) \(value)") }
         }
-        for meta in fields.other where meta.emoji != "⛔" && meta.emoji != "🆔" { parts.append("\(meta.emoji) \(meta.value)") }
+        for meta in fields.other where !afterRule.contains(meta.emoji) { parts.append("\(meta.emoji) \(meta.value)") }
         return String(match.1) + "[\(fields.status)] " + parts.filter { !$0.isEmpty }.joined(separator: " ") + (match.4.map(String.init) ?? "")
     }
 }

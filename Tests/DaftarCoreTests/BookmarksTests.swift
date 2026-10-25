@@ -65,4 +65,23 @@ import Testing
         // The group stays, empty, as Obsidian keeps it.
         #expect(bookmarks.items.contains { $0["type"] as? String == "group" })
     }
+
+    @Test func aFileItCannotReadIsNeverSavedOver() throws {
+        let root = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let broken = "{\"items\": [ half written"
+        try broken.write(to: root.appending(path: ".obsidian/bookmarks.json"), atomically: true, encoding: .utf8)
+        var bookmarks = Bookmarks.load(root)
+        #expect(bookmarks.entries.isEmpty)
+        bookmarks.toggle("Other.md")
+        #expect(throws: Bookmarks.Failure.unreadable) { try bookmarks.save(root) }
+        #expect(try String(contentsOf: root.appending(path: ".obsidian/bookmarks.json"), encoding: .utf8) == broken)
+        // No file at all is no bookmarks yet, and saving makes one.
+        let empty = FileManager.default.temporaryDirectory.appending(path: "daftar-bookmarks-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: empty) }
+        var fresh = Bookmarks.load(empty)
+        fresh.toggle("Home.md")
+        try fresh.save(empty)
+        #expect(Bookmarks.load(empty).entries.map(\.path) == ["Home.md"])
+    }
 }
