@@ -93,7 +93,7 @@ struct FilesList: View {
                         }
                 }
             }
-            let tags = TagNode.tree(store.index.tags)
+            let tags = store.index.tagTree
             if !tags.isEmpty {
                 Section(isExpanded: $tagsOpen) {
                     OutlineGroup(tags, children: \.children) { node in
