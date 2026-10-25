@@ -14,6 +14,11 @@ final class WindowModel {
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
     var quickOpen = false
+    /// ⇧⌘P, the command palette, and the commands used last, first.
+    var palette = false
+    var recentCommands: [String] = []
+    /// The graph of the open note and its neighbours.
+    var graph = false
     var inspector = true
     /// The terminal pane under the note.
     var terminal = false

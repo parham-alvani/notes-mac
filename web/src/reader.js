@@ -223,6 +223,89 @@ async function fillBases(root) {
   }
 }
 
+/**
+ * Hover a link to a note to see it: after a moment a card shows the note,
+ * or the section the link names, rendered as the reader renders it. The
+ * card stays while the pointer is on it, so its links can be followed.
+ */
+const preview = { card: null, timer: null, hide: null, link: null };
+
+function previewCard() {
+  if (preview.card) return preview.card;
+  const card = document.createElement("div");
+  card.className = "preview";
+  card.addEventListener("mouseenter", () => clearTimeout(preview.hide));
+  card.addEventListener("mouseleave", hidePreviewSoon);
+  document.body.appendChild(card);
+  preview.card = card;
+  return card;
+}
+
+async function showPreview(link) {
+  const path = link.dataset.path;
+  let note;
+  try {
+    note = await app?.embed?.postMessage({ path });
+  } catch (error) {
+    note = null;
+  }
+  if (!note || preview.link !== link) return;
+  const card = previewCard();
+  const holder = document.createElement("div");
+  holder.innerHTML = render(note.text, { path, links: note.links });
+  // A preview is one level deep, like an embed.
+  holder.querySelectorAll(".embed, .tasks-query, .base-query").forEach((inner) => inner.remove());
+  holder.querySelectorAll("input[type=checkbox]").forEach((box) => (box.disabled = true));
+  const part = section(holder, link.dataset.anchor);
+  const title = (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+  card.innerHTML = `<div class="preview-head"><span class="preview-title" dir="auto">${escape(title)}</span>${link.dataset.anchor ? `<span class="preview-anchor" dir="auto">› ${escape(link.dataset.anchor)}</span>` : ""}<span class="preview-path">${escape(path.split("/").slice(0, -1).join(" › "))}</span></div><div class="preview-body"></div>`;
+  card.querySelector(".preview-body").replaceChildren(...part.childNodes);
+  if (!card.querySelector(".preview-body").childNodes.length) card.querySelector(".preview-body").innerHTML = `<p class="preview-empty">The note is empty.</p>`;
+  decorate(card);
+  // Below the link, or above it when there is no room below.
+  const box = link.getBoundingClientRect();
+  card.classList.add("is-open");
+  const width = Math.min(460, window.innerWidth - 24);
+  card.style.width = `${width}px`;
+  const left = Math.min(Math.max(12, box.left), window.innerWidth - width - 12);
+  const below = window.innerHeight - box.bottom;
+  card.style.left = `${left}px`;
+  if (below > 260 || below > box.top) {
+    card.style.top = `${box.bottom + 8}px`;
+    card.style.bottom = "auto";
+    card.style.maxHeight = `${Math.min(360, below - 20)}px`;
+  } else {
+    card.style.bottom = `${window.innerHeight - box.top + 8}px`;
+    card.style.top = "auto";
+    card.style.maxHeight = `${Math.min(360, box.top - 20)}px`;
+  }
+  await drawDiagrams(card);
+}
+
+function hidePreviewSoon() {
+  clearTimeout(preview.timer);
+  clearTimeout(preview.hide);
+  preview.hide = setTimeout(() => {
+    preview.card?.classList.remove("is-open");
+    preview.link = null;
+  }, 250);
+}
+
+document.addEventListener("mouseover", (event) => {
+  const link = event.target.closest?.("a.internal-link");
+  if (!link || link.closest(".preview") || !/\.md$/i.test(link.dataset.path ?? "")) return;
+  if (link.dataset.path === current.path && !link.dataset.anchor) return;
+  clearTimeout(preview.hide);
+  if (preview.link === link) return;
+  clearTimeout(preview.timer);
+  preview.link = link;
+  preview.timer = setTimeout(() => showPreview(link), 450);
+  link.addEventListener("mouseleave", hidePreviewSoon, { once: true });
+});
+window.addEventListener("scroll", () => {
+  if (preview.card?.classList.contains("is-open")) hidePreviewSoon();
+}, { passive: true });
+
 /** Click an image or a diagram to see it as large as the window allows. */
 function zoom(node) {
   const overlay = document.createElement("div");
@@ -543,6 +626,8 @@ document.addEventListener("click", (event) => {
   }
   if (link.classList.contains("internal-link")) {
     event.preventDefault();
+    preview.card?.classList.remove("is-open");
+    preview.link = null;
     const path = link.dataset.path;
     if (path === current.path && link.dataset.anchor) {
       window.daftar.scrollTo(link.dataset.anchor);

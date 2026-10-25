@@ -6,6 +6,8 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case today
     case file(String)
+    /// A bookmark: the same file as its row in the tree, a row of its own.
+    case bookmark(String)
 }
 
 /// The sidebar, as a Mac app has one: Today at the top, then the vault's
@@ -45,6 +47,31 @@ struct FilesList: View {
                 }
                 .badge(groups.today.count + groups.overdue.count)
                     .tag(SidebarItem.today)
+            }
+            let bookmarks = store.bookmarks.entries.filter { $0.folder || store.index.files.contains($0.path) }
+            if !bookmarks.isEmpty {
+                Section("Bookmarks") {
+                    ForEach(bookmarks, id: \.path) { entry in
+                        Label {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(entry.title ?? (Vault.isNote(entry.path) ? Vault.title(of: entry.path) : String(entry.path.split(separator: "/").last ?? "")))
+                                    .lineLimit(1)
+                                if let group = entry.group {
+                                    Text(group).font(.caption2).foregroundStyle(Palette.yellow.opacity(0.8))
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: entry.folder ? "folder.fill" : "star.fill")
+                                .foregroundStyle(entry.folder ? Palette.accent : Palette.yellow)
+                                .frame(width: IconicImage.slot, height: IconicImage.slot)
+                        }
+                        // A bookmarked folder opens its folder note.
+                        .tag(SidebarItem.bookmark(entry.folder ? entry.path + "/" + (entry.path.split(separator: "/").last.map(String.init) ?? "") + ".md" : entry.path))
+                        .contextMenu {
+                            Button("Remove Bookmark") { store.toggleBookmark(entry.path) }
+                        }
+                    }
+                }
             }
             Section(store.name) {
                 OutlineGroup(store.index.tree, children: \.children) { node in
@@ -93,7 +120,8 @@ struct FilesList: View {
         } set: { item in
             switch item {
             case .today: model.showsToday = true
-            case .file(let path) where store.index.files.contains(path):
+            case .file(let path) where store.index.files.contains(path),
+                .bookmark(let path) where store.index.files.contains(path):
                 if path != model.path || model.showsToday { model.open(path, store: store) }
             default: break
             }
@@ -144,6 +172,7 @@ struct FileMenu: View {
 
     var body: some View {
         if Vault.opensInApp(path), store.index.files.contains(path) {
+            Button(store.bookmarks.contains(path) ? "Remove Bookmark" : "Bookmark") { store.toggleBookmark(path) }
             Button("Open in New Window") { openWindow(value: path) }
             Button("Open in Obsidian") { openInObsidian(path, store: store) }
             Divider()

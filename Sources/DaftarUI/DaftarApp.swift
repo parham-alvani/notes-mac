@@ -31,7 +31,7 @@ public struct DaftarApp: App {
         .windowToolbarStyle(.unified)
         .handlesExternalEvents(matching: ["*"])
         .commands {
-            FileCommands(window: window)
+            FileCommands(window: window, store: store)
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Find…") { window?.find(.showFindInterface) }
@@ -51,6 +51,9 @@ public struct DaftarApp: App {
                 Button("Quick Open…") { window?.quickOpen = true }
                     .keyboardShortcut("p")
                     .disabled(window == nil)
+                Button("Command Palette…") { window?.palette = true }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                    .disabled(window == nil)
             }
             // ⌘P is the file switcher, as in Obsidian; nothing here prints.
             CommandGroup(replacing: .printItem) {}
@@ -59,6 +62,9 @@ public struct DaftarApp: App {
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Show Terminal") { window?.terminal.toggle() }
                     .keyboardShortcut("`", modifiers: .control)
+                Button("Show Graph") { window?.graph = true }
+                    .keyboardShortcut("g", modifiers: [.command, .option])
+                    .disabled(window == nil)
                 Divider()
                 Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
                     .keyboardShortcut("e")
@@ -370,6 +376,7 @@ struct MenuBarView: View {
 /// note, as in Obsidian, so New Window moves to ⌥⌘N.
 struct FileCommands: Commands {
     var window: WindowModel?
+    var store: VaultStore
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
@@ -391,6 +398,12 @@ struct FileCommands: Commands {
                 .disabled(window?.path == nil || window?.showsToday == true)
             Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
                 .disabled(window?.path == nil || window?.showsToday == true)
+            Divider()
+            Button(window?.path.map { store.bookmarks.contains($0) } == true ? "Remove Bookmark" : "Bookmark") {
+                if let path = window?.path { store.toggleBookmark(path) }
+            }
+            .keyboardShortcut("d")
+            .disabled(window?.path == nil || window?.showsToday == true)
         }
     }
 }

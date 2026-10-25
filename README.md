@@ -22,7 +22,11 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Pictures:** a click on an image or a Mermaid diagram shows it as large as the window. A click or Escape closes it.
 - **Quick open:** ⌘P or ⌘O finds a note or a base by its name. Obsidian's excluded files (`userIgnoreFilters`) stay out of it and out of search.
 - **Files:** ⌘N makes a note in the open note's folder, ⇧⌘N a folder. Rename (⌘R), move (⌥⌘M, or drag onto a folder in the sidebar) and move to the Trash, from the File menu or a right click. When a file or a folder moves, every link to it in the vault follows, in the style it was written, as Obsidian's "always update links" does. A folder note takes its folder's new name.
-- **Inspector:** the outline, the backlinks and the tags of the note.
+- **Inspector:** the outline in the heading colors, the backlinks, the outgoing links (a missing note in red) and the tags of the note.
+- **Command palette:** ⇧⌘P runs any command by its name, with a fuzzy match, and keeps the commands you used last at the top.
+- **Link preview:** hold the pointer on a link to a note to see the note, or the section the link names, in a card.
+- **Bookmarks:** ⌘D bookmarks the note. The sidebar shows the bookmarks at the top, from Obsidian's own `.obsidian/bookmarks.json`, groups too, and keeps the kinds it does not show when it writes the file. A bookmark follows its file when the file moves.
+- **Graph:** ⌥⌘G shows the open note and the notes up to four links away, or the whole vault. Each top folder has its color, a note grows with its links, and a click opens it.
 - **Today:** the meetings of the day from the week notes in `Calendar/` (which Daftar on the phone writes), the free time, and the tasks that are overdue, due, in progress and coming. A click on a checkbox completes a task, also a repeating one, as the Tasks plugin does.
 - **Notifications:** an alert before each meeting, with a Join button, and a morning digest of the tasks that are due.
 - **Menu bar and Dock:** today's meetings and tasks in the menu bar, and the count of tasks due on the Dock icon.

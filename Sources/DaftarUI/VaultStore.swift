@@ -12,6 +12,8 @@ final class VaultStore {
     private(set) var iconic = Iconic()
     /// Obsidian's excluded files, kept out of search and the switcher.
     private(set) var excluded = ExcludedFiles()
+    /// Obsidian's bookmarks, the same file both apps read and write.
+    private(set) var bookmarks = Bookmarks()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0
@@ -54,6 +56,7 @@ final class VaultStore {
         if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
         excluded = ExcludedFiles.load(url)
+        bookmarks = Bookmarks.load(url)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
             Task { @MainActor in self?.changed(paths) }
@@ -83,6 +86,8 @@ final class VaultStore {
     /// For tests: the vault indexed before this returns, with no watcher and no git.
     func openSynchronously(_ url: URL) {
         root = url.standardizedFileURL
+        excluded = ExcludedFiles.load(url)
+        bookmarks = Bookmarks.load(url)
         index = Vault.index(url, search: search)
         revision += 1
     }
@@ -153,6 +158,21 @@ final class VaultStore {
 
     // MARK: Files
 
+    /// Bookmarks the file, or takes the bookmark away.
+    func toggleBookmark(_ path: String) {
+        guard let root else { return }
+        bookmarks.toggle(path)
+        saveBookmarks(root)
+    }
+
+    private func saveBookmarks(_ root: URL) {
+        do {
+            try bookmarks.save(root)
+        } catch {
+            notice = "The bookmarks could not be saved: \(error.localizedDescription)"
+        }
+    }
+
     private func flushEditors() async {
         for flush in flushers.values { await flush() }
     }
@@ -205,6 +225,7 @@ final class VaultStore {
         revision += 1
         changed(touched)
         requestSync()
+        if bookmarks.follow(moves, folder: index.files.contains(to) ? nil : (from, to)) { saveBookmarks(root) }
         let count = moves.count
         notice = count > 1 ? "Moved \(count) files; the links to them follow." : nil
         return moves
@@ -215,6 +236,9 @@ final class VaultStore {
         guard let root else { return }
         await flushEditors()
         try FileManager.default.trashItem(at: root.appending(path: path), resultingItemURL: nil)
+        let before = bookmarks.entries
+        bookmarks.remove(path)
+        if bookmarks.entries != before { saveBookmarks(root) }
         let base = path + "/"
         for gone in index.files.filter({ $0 == path || $0.hasPrefix(base) }) {
             search.remove(path: gone)

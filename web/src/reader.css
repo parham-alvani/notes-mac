@@ -634,3 +634,29 @@ li.task-list-item.is-checked .query-date { text-decoration: none; opacity: 0.75;
 .task-priority.is-highest, .task-priority.is-high { --priority-color: var(--red); }
 .task-priority.is-medium { --priority-color: var(--orange); }
 .task-priority.is-low, .task-priority.is-lowest { --priority-color: var(--blue); }
+
+/* A note's preview, under the link the pointer is on. */
+.preview {
+  position: fixed; z-index: 70; overflow: auto;
+  padding: 0 1em 0.8em; font-size: 0.9em;
+  background: var(--background);
+  border: 1px solid color-mix(in oklch, var(--accent) 45%, var(--table-hairline));
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35), 0 0 0 4px color-mix(in oklch, var(--accent) 10%, transparent);
+  opacity: 0; transform: translateY(4px) scale(0.98); pointer-events: none;
+  transition: opacity 0.14s, transform 0.14s;
+}
+.preview.is-open { opacity: 1; transform: none; pointer-events: auto; }
+.preview-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: baseline; gap: 0.5em; flex-wrap: wrap;
+  margin: 0 -1em 0.6em; padding: 0.6em 1em 0.5em;
+  background: linear-gradient(100deg, color-mix(in oklch, var(--accent) 18%, var(--background)), color-mix(in oklch, var(--pink) 10%, var(--background)));
+  border-bottom: 1px solid color-mix(in oklch, var(--accent) 25%, transparent);
+}
+.preview-title { font-weight: 700; color: var(--accent); }
+.preview-anchor { color: var(--h3-color); font-weight: 600; }
+.preview-path { margin-inline-start: auto; color: var(--text-faint); font-size: 0.82em; }
+.preview-body > :last-child { margin-bottom: 0; }
+.preview-body h1, .preview-body h2, .preview-body h3 { margin-top: 0.8em; }
+.preview-empty { color: var(--text-faint); font-style: italic; }

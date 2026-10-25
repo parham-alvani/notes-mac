@@ -41,6 +41,12 @@ struct ContentView: View {
         .sheet(isPresented: $model.quickOpen) {
             QuickOpenView(model: model)
         }
+        .sheet(isPresented: $model.palette) {
+            CommandPaletteView(model: model)
+        }
+        .sheet(isPresented: $model.graph) {
+            GraphView(model: model)
+        }
         .sheet(item: $model.fileAction) { action in
             FileActionSheet(action: action, model: model)
         }
