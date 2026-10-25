@@ -124,6 +124,10 @@ function wikilinks(md) {
       const alt = size ? target : (alias ?? target);
       return `<img src="${vaultUrl(path)}" alt="${escapeHtml(alt)}"${width}${height}>`;
     }
+    if (path && /\.base$/i.test(path)) {
+      // The app runs the base; `![[x.base#View]]` opens on that view.
+      return `<div class="base-query" data-path="${escapeHtml(path)}" data-view="${escapeHtml(anchor ?? "")}"></div>`;
+    }
     if (path && /\.md$/i.test(path)) {
       return (
         `<div class="embed" data-path="${escapeHtml(path)}" data-anchor="${escapeHtml(anchor ?? "")}">` +
@@ -425,6 +429,7 @@ function fences(md) {
     if (lang === "mermaid") return `<pre class="mermaid">${escapeHtml(token.content)}</pre>\n`;
     // The app runs the query on its index; the page fills the result in.
     if (lang === "tasks") return `<div class="tasks-query" data-source="${escapeHtml(token.content)}"></div>\n`;
+    if (lang === "base") return `<div class="base-query" data-source="${escapeHtml(token.content)}"></div>\n`;
     if (lang === "math" || lang === "latex") {
       return `<div class="math math-block">${katex.renderToString(token.content, { displayMode: true, throwOnError: false })}</div>\n`;
     }

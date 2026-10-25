@@ -248,13 +248,13 @@ final class VaultStore {
         return groups
     }
 
-    /// Notes whose name holds [query], best first: a prefix before a word
-    /// start before anywhere, then the shorter path.
+    /// Notes and bases whose name holds [query], best first: a prefix before
+    /// a word start before anywhere, then the shorter path.
     func quickOpen(_ query: String, recent: [String], limit: Int = 50) -> [String] {
-        let notes = index.notes.keys
+        let notes = Array(index.notes.keys) + index.files.filter(Base.isBase)
         let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
         if needle.isEmpty {
-            let recents = recent.filter { index.notes[$0] != nil }
+            let recents = recent.filter { index.files.contains($0) }
             return Array(recents.prefix(limit))
         }
         var scored: [(path: String, score: Int)] = []

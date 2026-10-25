@@ -332,3 +332,35 @@ pre code { color: var(--code-text); }
 .hljs-attr, .hljs-attribute, .hljs-property, .hljs-meta, .hljs-section, .hljs-variable { color: var(--code-key); }
 .hljs-punctuation, .hljs-operator { color: var(--code-punctuation); }
 .hljs-deletion { color: var(--red); }
+
+/* Bases: a tab per view, then the table, its groups as header rows. */
+#note.is-base { max-width: none; }
+.base-query, .base-file { margin: 0 0 1em; }
+.base-tabs { display: flex; flex-wrap: wrap; gap: 0.3em; margin: 0 0 0.8em; }
+.base-tab {
+  font: inherit; font-size: 0.85em; color: var(--text-muted);
+  background: none; border: 1px solid var(--table-hairline); border-radius: 6px;
+  padding: 0.2em 0.7em; cursor: pointer;
+}
+.base-tab:hover { color: var(--text); }
+.base-tab.is-active { color: var(--accent); border-color: var(--accent); background: var(--panel); }
+.base-table { font-size: 0.9em; margin: 0; }
+.base-table thead th { position: sticky; top: 0; background: var(--background); white-space: nowrap; }
+.base-table td.numeric { text-align: end; font-variant-numeric: tabular-nums; }
+.base-table tr.base-group th { color: var(--accent); background: var(--panel); font-weight: 600; }
+.base-group-count { color: var(--text-faint); font-weight: 400; font-size: 0.85em; margin-inline-start: 0.4em; }
+.base-query .query-count, .base-query .query-empty, .base-file .query-count, .base-file .query-empty { margin-inline-start: 0; }
+
+/* A picture clicked to see it large; a click or Escape closes it. */
+#note img, #note pre.mermaid svg { cursor: zoom-in; }
+.zoom {
+  position: fixed; inset: 0; z-index: 100; cursor: zoom-out;
+  display: flex; align-items: center; justify-content: center; padding: 2em;
+  background: color-mix(in srgb, var(--background) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+.zoom > img, .zoom > svg {
+  max-width: 100%; max-height: 100%; width: auto; height: auto;
+  object-fit: contain; border: none; border-radius: 6px;
+}
+.zoom > svg { width: 100%; height: 100%; }

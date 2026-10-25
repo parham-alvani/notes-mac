@@ -38,6 +38,7 @@ struct ReaderView: NSViewRepresentable {
         controller.add(context.coordinator, name: "daftar")
         controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "embed")
         controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "tasks")
+        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "base")
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
@@ -63,8 +64,10 @@ struct ReaderView: NSViewRepresentable {
         private var shownRevision = -1
         private var shownSize = ""
         private var lastFind: String?
-        /// The note on screen has a ` ```tasks ` block.
+        /// The note on screen has a ` ```tasks ` block or a base.
         private var hasQuery = false
+        /// Grows with each show, so a base that finishes late is dropped.
+        private var showCount = 0
 
         init(_ parent: ReaderView) { self.parent = parent }
 
@@ -96,7 +99,12 @@ struct ReaderView: NSViewRepresentable {
             shown = request
             shownRevision = store.revision
             shownSize = "\(store.settings.textSize)|\(store.settings.font)|\(store.settings.codeFont)"
+            showCount += 1
             guard let text = store.text(of: request.path) else { return }
+            if Base.isBase(request.path) {
+                showBase(request, source: text, keepScroll: keepScroll)
+                return
+            }
             let parsed = NoteParser.parse(text)
             var note: [String: Any] = [
                 "path": request.path,
@@ -115,6 +123,23 @@ struct ReaderView: NSViewRepresentable {
                 if let line = request.line { note["line"] = line }
             }
             view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+        }
+
+        /// A `.base` file: its views in place of a note's text.
+        private func showBase(_ request: ReaderRequest, source: String, keepScroll: Bool) {
+            hasQuery = true
+            let count = showCount
+            let store = parent.store
+            Task {
+                let base = await runBase(source, context: request.path)
+                guard count == showCount else { return }
+                let note: [String: Any] = [
+                    "path": request.path, "title": Vault.title(of: request.path), "text": "", "links": [String: String](),
+                    "properties": [[String]](), "keepScroll": keepScroll, "base": base,
+                    "textSize": store.settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
+                ]
+                _ = try? await view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+            }
         }
 
         /// Front matter the reader does not print: the plugins' own keys.
@@ -165,6 +190,16 @@ struct ReaderView: NSViewRepresentable {
                 hasQuery = true
                 return (runQuery(body["source"] as? String ?? "", in: body["path"] as? String ?? ""), nil)
             }
+            if message.name == "base" {
+                // ` ```base ` in a note, or `![[file.base]]`; `this` is the note.
+                hasQuery = true
+                let context = body["context"] as? String ?? ""
+                if let path = body["path"] as? String, !path.isEmpty {
+                    guard let source = parent.store.text(of: path) else { return (nil, nil) }
+                    return (await runBase(source, context: context), nil)
+                }
+                return (await runBase(body["source"] as? String ?? "", context: context), nil)
+            }
             guard let path = body["path"] as? String, let text = parent.store.text(of: path) else { return (nil, nil) }
             let parsed = NoteParser.parse(text)
             return (["text": text, "links": parent.store.index.resolvedLinks(in: parsed, from: path)], nil)
@@ -194,6 +229,54 @@ extension ReaderView.Coordinator {
             return row
         }
         return ["tasks": tasks, "notUnderstood": query.notUnderstood, "links": links]
+    }
+}
+
+extension ReaderView.Coordinator {
+    /// Every view of a base, as the page draws it.
+    func runBase(_ source: String, context: String) async -> [String: Any] {
+        let index = parent.store.index
+        guard let root = parent.store.root else { return [:] }
+        let (tables, problems) = await Task.detached {
+            let engine = BaseEngine(index: index, types: BaseEngine.types(in: root)) { path in
+                guard let values = try? root.appending(path: path).resourceValues(
+                    forKeys: [.creationDateKey, .contentModificationDateKey, .fileSizeKey])
+                else { return nil }
+                return BaseEngine.Stat(
+                    created: values.creationDate ?? .distantPast, modified: values.contentModificationDate ?? .distantPast,
+                    size: values.fileSize ?? 0)
+            }
+            let tables = engine.run(Base.parse(source), context: context)
+            return (tables, engine.problems)
+        }.value
+        let views: [[String: Any]] = tables.map { table in
+            [
+                "name": table.name, "type": table.type, "columns": table.columns, "count": table.count,
+                "groups": table.groups.map { group -> [String: Any] in
+                    var out: [String: Any] = [
+                        "rows": group.rows.map { row -> [String: Any] in
+                            ["path": row.path, "cells": row.cells.map(Self.json)]
+                        }
+                    ]
+                    out["name"] = group.name
+                    return out
+                },
+            ]
+        }
+        return ["views": views, "problems": problems]
+    }
+
+    private static func json(_ cell: BaseCell) -> [String: Any] {
+        var out: [String: Any] = [
+            "parts": cell.parts.map { part -> [String: Any] in
+                var item: [String: Any] = ["text": part.text]
+                item["path"] = part.path
+                return item
+            },
+            "numeric": cell.numeric,
+        ]
+        out["check"] = cell.check
+        return out
     }
 }
 

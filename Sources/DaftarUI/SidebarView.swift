@@ -78,7 +78,7 @@ struct FileRow: View {
     var body: some View {
         let icon = store.iconic.icon(for: node.path, folder: node.isFolder)
         Label {
-            Text(node.name).foregroundStyle(Vault.isNote(node.path) || node.isFolder ? .primary : .secondary)
+            Text(node.name).foregroundStyle(Vault.opensInApp(node.path) || node.isFolder ? .primary : .secondary)
         } icon: {
             if node.isFolder {
                 IconicImage(icon: icon, fallback: node.folderNote != nil ? "folder.fill" : "folder", fallbackColor: Palette.accent)
@@ -110,7 +110,7 @@ struct FileMenu: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        if Vault.isNote(path), store.index.files.contains(path) {
+        if Vault.opensInApp(path), store.index.files.contains(path) {
             Button("Open in New Window") { openWindow(value: path) }
             Button("Open in Obsidian") { openInObsidian(path, store: store) }
             Divider()
@@ -121,7 +121,7 @@ struct FileMenu: View {
         }
         if let url = store.url(of: folder ?? path) {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            if Vault.isNote(path) || folder == nil {
+            if Vault.opensInApp(path) || folder == nil {
                 ShareLink(item: url)
             }
         }

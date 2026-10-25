@@ -88,3 +88,9 @@ test("a tasks query is left for the app to answer", () => {
 test("code is coloured", () => {
   assert.match(render("```yaml\nkey: value\n```"), /hljs-attr/);
 });
+
+test("a base, embedded or written in a block, is left for the app to run", () => {
+  const html = render("![[Shops.base#Open]]", { links: { "Shops.base": "Shops/Shops.base" } });
+  assert.match(html, /<div class="base-query" data-path="Shops\/Shops.base" data-view="Open"><\/div>/);
+  assert.match(render("```base\nfilters: file.ext == \"md\"\n```"), /<div class="base-query" data-source="filters: file.ext == &quot;md&quot;\n"><\/div>/);
+});

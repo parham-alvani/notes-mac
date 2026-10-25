@@ -30,7 +30,7 @@ final class WindowModel {
     var canGoForward: Bool { !forward.isEmpty }
 
     func open(_ path: String, heading: String? = nil, line: Int? = nil, store: VaultStore) {
-        guard Vault.isNote(path) else {
+        guard Vault.opensInApp(path) else {
             // An attachment opens in the app the system gives it to.
             if let url = store.url(of: path) { NSWorkspace.shared.open(url) }
             return

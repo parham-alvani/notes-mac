@@ -151,6 +151,93 @@ async function fillQueries(root) {
   }
 }
 
+/** The view of a base chosen last, by the base, so a redraw keeps it. */
+const chosenViews = new Map();
+
+function renderCell(cell) {
+  if (cell.check !== undefined) return `<input type="checkbox" disabled${cell.check ? " checked" : ""}>`;
+  return cell.parts
+    .map((part) =>
+      part.path
+        ? `<a class="internal-link" href="#" data-path="${escape(part.path)}">${escape(part.text)}</a>`
+        : escape(part.text),
+    )
+    .join("");
+}
+
+function renderView(view) {
+  const head = view.columns.map((name) => `<th dir="auto">${escape(name)}</th>`).join("");
+  const body = view.groups
+    .map((group) => {
+      const title = group.name == null ? "" : `<tr class="base-group"><th colspan="${view.columns.length}" dir="auto">${escape(group.name)} <span class="base-group-count">${group.rows.length}</span></th></tr>`;
+      const rows = group.rows
+        .map((row) => `<tr>${row.cells.map((cell) => `<td dir="auto"${cell.numeric ? ' class="numeric"' : ""}>${renderCell(cell)}</td>`).join("")}</tr>`)
+        .join("");
+      return title + rows;
+    })
+    .join("");
+  const empty = view.count === 0 ? `<div class="query-empty">No files match.</div>` : "";
+  const note = view.type === "table" ? "" : ` · shown as a table, not ${escape(view.type)}`;
+  return `<div class="base-scroll"><table class="base-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${empty}<div class="query-count">${view.count} ${view.count === 1 ? "result" : "results"}${note}</div>`;
+}
+
+/** A base's views, with a tab for each, into [holder]. */
+function renderBase(holder, result, key, wanted) {
+  const views = result.views ?? [];
+  let chosen = chosenViews.get(key) ?? views.findIndex((view) => view.name === wanted);
+  if (chosen < 0 || chosen >= views.length) chosen = 0;
+  const problems = (result.problems ?? []).map((line) => `<li>${escape(line)}</li>`).join("");
+  const warning = problems ? `<div class="callout query-warning" data-callout="warning"><div class="callout-title">Not understood</div><ul>${problems}</ul></div>` : "";
+  const tabs = views.length > 1
+    ? `<div class="base-tabs" role="tablist">${views.map((view, at) => `<button class="base-tab${at === chosen ? " is-active" : ""}" data-at="${at}" dir="auto">${escape(view.name)}</button>`).join("")}</div>`
+    : "";
+  holder.innerHTML = warning + tabs + `<div class="base-view">${views[chosen] ? renderView(views[chosen]) : ""}</div>`;
+  holder.querySelectorAll(".base-tab").forEach((tab) =>
+    tab.addEventListener("click", () => {
+      chosenViews.set(key, Number(tab.dataset.at));
+      renderBase(holder, result, key, wanted);
+    }),
+  );
+}
+
+/** Each `![[x.base]]` and ` ```base ` block, run by the app. */
+async function fillBases(root) {
+  for (const block of root.querySelectorAll(".base-query")) {
+    let result;
+    try {
+      result = await app?.base?.postMessage({ path: block.dataset.path ?? "", source: block.dataset.source ?? "", context: current.path });
+    } catch (error) {
+      result = null;
+    }
+    if (!result) continue;
+    const key = `${current.path}|${block.dataset.path ?? block.dataset.source}`;
+    renderBase(block, result, key, block.dataset.view);
+  }
+}
+
+/** Click an image or a diagram to see it as large as the window allows. */
+function zoom(node) {
+  const overlay = document.createElement("div");
+  overlay.className = "zoom";
+  const copy = node.tagName === "IMG" ? Object.assign(document.createElement("img"), { src: node.src, alt: node.alt }) : node.cloneNode(true);
+  copy.removeAttribute("width");
+  copy.removeAttribute("height");
+  copy.removeAttribute("style");
+  overlay.appendChild(copy);
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const onKey = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  };
+  overlay.addEventListener("click", close);
+  document.addEventListener("keydown", onKey, true);
+  document.body.appendChild(overlay);
+}
 
 function renderProperties(properties) {
   if (!properties || properties.length === 0) return "";
@@ -186,11 +273,18 @@ window.daftar = {
       `<h1 class="inline-title" dir="auto">${escape(note.title)}</h1>` +
       renderProperties(note.properties) +
       render(note.text, { path: note.path, links: note.links });
+    // A base is a wide table: it gets the whole window.
+    main.classList.toggle("is-base", Boolean(note.base));
+    if (note.base) {
+      const holder = Object.assign(document.createElement("div"), { className: "base-file" });
+      main.appendChild(holder);
+      renderBase(holder, note.base, note.path, "");
+    }
     if (keep !== null) window.scrollTo(0, keep);
     else if (note.heading) this.scrollTo(note.heading);
     else if (note.line != null) this.scrollToLine(note.line);
     else window.scrollTo(0, 0);
-    await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main)]);
+    await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
   },
 
   /** Scrolls to a heading by its text, or to a `^block` id. */
@@ -227,7 +321,11 @@ document.addEventListener("click", (event) => {
     return;
   }
   const link = event.target.closest("a");
-  if (!link) return;
+  if (!link) {
+    const picture = event.target.closest("#note img, #note pre.mermaid svg");
+    if (picture && !event.target.closest(".zoom")) zoom(picture);
+    return;
+  }
   if (link.classList.contains("tag")) {
     event.preventDefault();
     post({ kind: "tag", tag: link.dataset.tag });

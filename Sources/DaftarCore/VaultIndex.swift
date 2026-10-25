@@ -114,6 +114,10 @@ public enum Vault {
 
     public static func isNote(_ path: String) -> Bool { path.lowercased().hasSuffix(".md") }
 
+    /// A note or a base: a file the app shows itself rather than handing it
+    /// to the app the system gives it to.
+    public static func opensInApp(_ path: String) -> Bool { isNote(path) || Base.isBase(path) }
+
     /// Whether a vault path is one the app reads at all.
     public static func counts(_ path: String) -> Bool {
         !path.split(separator: "/").contains { $0.hasPrefix(".") || skipped.contains(String($0)) }
