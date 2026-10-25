@@ -31,6 +31,7 @@ test("a task knows the file line it is on, front matter counted", () => {
   const html = render(text);
   assert.match(html, /data-line="5" data-status=" ">first/);
   assert.match(html, /data-line="6" data-status="x" checked>second/);
+  assert.match(render("- [/] half"), /data-status="\/">half/);
 });
 
 test("a callout has a title and a body, and a fold marker makes it a details", () => {
@@ -78,6 +79,10 @@ test("a block id is hidden and names its paragraph", () => {
 
 test("mermaid is left for the page to draw", () => {
   assert.match(render("```mermaid\ngraph TD; A-->B\n```"), /<pre class="mermaid">graph TD; A--&gt;B/);
+});
+
+test("a tasks query is left for the app to answer", () => {
+  assert.match(render("```tasks\nnot done\n```"), /<div class="tasks-query" data-source="not done\n"><\/div>/);
 });
 
 test("code is coloured", () => {

@@ -37,6 +37,7 @@ struct ReaderView: NSViewRepresentable {
         let controller = configuration.userContentController
         controller.add(context.coordinator, name: "daftar")
         controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "embed")
+        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "tasks")
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
@@ -60,8 +61,10 @@ struct ReaderView: NSViewRepresentable {
         private var ready = false
         private var shown: ReaderRequest?
         private var shownRevision = -1
-        private var shownSize = 0
+        private var shownSize = ""
         private var lastFind: String?
+        /// The note on screen has a ` ```tasks ` block.
+        private var hasQuery = false
 
         init(_ parent: ReaderView) { self.parent = parent }
 
@@ -70,8 +73,11 @@ struct ReaderView: NSViewRepresentable {
         func update() {
             guard ready, let request = parent.request else { return }
             let store = parent.store
-            let changedOnDisk = store.revision != shownRevision && store.lastChanged.contains(request.path)
-            let sizeChanged = store.settings.textSize != shownSize
+            // A note with a tasks query shows tasks from every note, so any
+            // change to a note can change it.
+            let changedOnDisk = store.revision != shownRevision
+                && (store.lastChanged.contains(request.path) || (hasQuery && store.lastChanged.contains(where: Vault.isNote)))
+            let sizeChanged = "\(store.settings.textSize)|\(store.settings.font)|\(store.settings.codeFont)" != shownSize
             if request != shown {
                 show(request, keepScroll: false)
             } else if changedOnDisk || sizeChanged || (shownRevision == -1) {
@@ -86,9 +92,10 @@ struct ReaderView: NSViewRepresentable {
 
         private func show(_ request: ReaderRequest, keepScroll: Bool) {
             let store = parent.store
+            hasQuery = false
             shown = request
             shownRevision = store.revision
-            shownSize = store.settings.textSize
+            shownSize = "\(store.settings.textSize)|\(store.settings.font)|\(store.settings.codeFont)"
             guard let text = store.text(of: request.path) else { return }
             let parsed = NoteParser.parse(text)
             var note: [String: Any] = [
@@ -100,6 +107,8 @@ struct ReaderView: NSViewRepresentable {
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
                 "textSize": store.settings.textSize,
+                "fontText": Fonts.css.text,
+                "fontCode": Fonts.css.code,
             ]
             if !keepScroll {
                 if let heading = request.heading { note["heading"] = heading }
@@ -124,7 +133,9 @@ struct ReaderView: NSViewRepresentable {
                 guard let request = shown, let line = body["line"] as? Int,
                     let status = (body["status"] as? String)?.first
                 else { return }
-                parent.store.toggleTask(path: request.path, line: line, status: status)
+                // A task in a query result is in its own note.
+                let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
+                parent.store.toggleTask(path: path, line: line, status: status)
             case "open":
                 let path = body["path"] as? String ?? ""
                 let anchor = (body["anchor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -144,16 +155,45 @@ struct ReaderView: NSViewRepresentable {
             }
         }
 
-        /// `![[note]]`: the embedded note's text and links, for the page to render.
+        /// `![[note]]`: the embedded note's text and links, for the page to
+        /// render; and a ` ```tasks ` block, answered from the index.
         func userContentController(
             _ controller: WKUserContentController, didReceive message: WKScriptMessage
         ) async -> (Any?, String?) {
-            guard let body = message.body as? [String: Any], let path = body["path"] as? String,
-                let text = parent.store.text(of: path)
-            else { return (nil, nil) }
+            guard let body = message.body as? [String: Any] else { return (nil, nil) }
+            if message.name == "tasks" {
+                hasQuery = true
+                return (runQuery(body["source"] as? String ?? "", in: body["path"] as? String ?? ""), nil)
+            }
+            guard let path = body["path"] as? String, let text = parent.store.text(of: path) else { return (nil, nil) }
             let parsed = NoteParser.parse(text)
             return (["text": text, "links": parent.store.index.resolvedLinks(in: parsed, from: path)], nil)
         }
+    }
+}
+
+extension ReaderView.Coordinator {
+    /// The query's result as the page draws it: each task with the groups it
+    /// is under, its note, its line, and the links its text needs.
+    func runQuery(_ source: String, in path: String) -> [String: Any] {
+        let index = parent.store.index
+        let query = TasksQuery.parse(source, file: path)
+        let found = query.run(index.tasks.sorted { ($0.path, $0.task.line) < ($1.path, $1.task.line) }, today: .today()) { QueryTask($0) }
+        var links: [String: String] = [:]
+        let tasks: [[String: Any]] = found.map { task in
+            for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
+                if let target = index.resolve(link.target, from: task.path) { links[link.target] = target }
+            }
+            var row: [String: Any] = [
+                "path": task.path, "line": task.task.line, "status": String(task.task.status),
+                "text": task.task.text, "title": Vault.title(of: task.path), "groups": query.groups(of: QueryTask(task)),
+            ]
+            row["due"] = task.task.due
+            row["scheduled"] = task.task.scheduled
+            row["done"] = task.task.done
+            return row
+        }
+        return ["tasks": tasks, "notUnderstood": query.notUnderstood, "links": links]
     }
 }
 
@@ -199,7 +239,7 @@ enum Resources {
     /// The package's resource folder. In the app it is in
     /// `Contents/Resources`; under `swift run` it is next to the executable.
     static let folder: URL? = {
-        let name = "Daftar_Daftar.bundle"
+        let name = "Daftar_DaftarUI.bundle"
         let candidates = [
             Bundle.main.resourceURL?.appending(path: name),
             Bundle.main.executableURL?.deletingLastPathComponent().appending(path: name),

@@ -33,10 +33,11 @@ final class VaultStore {
     private var autoSync: Task<Void, Never>?
     private var syncSoon: Task<Void, Never>?
 
-    var settings = AppSettings.shared
+    let settings: AppSettings
 
-    init() {
-        if let path = settings.vaultPath { open(URL(filePath: path)) }
+    init(settings: AppSettings = .shared, openVault: Bool = true) {
+        self.settings = settings
+        if openVault, let path = settings.vaultPath { open(URL(filePath: path)) }
     }
 
     var name: String { root?.lastPathComponent ?? "Daftar" }
@@ -44,7 +45,8 @@ final class VaultStore {
     func open(_ url: URL) {
         let url = url.standardizedFileURL
         root = url
-        settings.vaultPath = url.path
+        // Only a new vault is written: the file may say `~/org` for this one.
+        if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
@@ -70,6 +72,19 @@ final class VaultStore {
             await refreshStatus()
             scheduleAutoSync()
         }
+    }
+
+    /// For tests: the vault indexed before this returns, with no watcher and no git.
+    func openSynchronously(_ url: URL) {
+        root = url.standardizedFileURL
+        index = Vault.index(url, search: search)
+        revision += 1
+    }
+
+    /// For tests: what the file watcher reports, without waiting for it.
+    func noteChanged(_ path: String) {
+        lastChanged = [path]
+        revision += 1
     }
 
     /// File events arrive in bursts -- a pull touches many files at once --
@@ -101,6 +116,15 @@ final class VaultStore {
     func url(of path: String) -> URL? { root?.appending(path: path) }
 
     // MARK: Edits
+
+    /// Writes a note the editor holds, whole. The index and the reader follow
+    /// through the file watcher, as they do for any other change.
+    func write(_ text: String, to path: String) throws {
+        guard let root else { return }
+        try Data(text.utf8).write(to: root.appending(path: path), options: .atomic)
+        changed([path])
+        requestSync()
+    }
 
     /// Ticks or opens the task on [line] of [path]. The file is read again
     /// first, and the edit is refused when that line is no longer the task

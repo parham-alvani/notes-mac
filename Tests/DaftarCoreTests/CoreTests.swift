@@ -358,3 +358,159 @@ import Testing
         #expect(iconic.icon(for: "Work/Acme", folder: false) == nil)
     }
 }
+
+@Suite struct HighlighterTests {
+    func kinds(_ text: String) -> [MarkdownHighlighter.Kind: [String]] {
+        let ns = text as NSString
+        var out: [MarkdownHighlighter.Kind: [String]] = [:]
+        for span in MarkdownHighlighter.spans(in: text) { out[span.kind, default: []].append(ns.substring(with: span.range)) }
+        return out
+    }
+
+    @Test func headingsAndInline() {
+        let found = kinds("## Title **bold** and *it* with `co**de**` and [[Note|label]] #tag")
+        #expect(found[.heading(2)] == ["## Title **bold** and *it* with `co**de**` and [[Note|label]] #tag"])
+        #expect(found[.bold] == ["**bold**"])
+        #expect(found[.italic] == ["*it*"])
+        #expect(found[.code] == ["`co**de**`"])
+        #expect(found[.link] == ["[[Note|label]]"])
+        #expect(found[.tag] == ["#tag"])
+        #expect(found[.markup]?.contains("Note|") == true)
+    }
+
+    @Test func tasksAndMetadata() {
+        let found = kinds("- [x] Done thing ✅ 2026-10-05\n    - [ ] Open ⏳ 2026-10-06")
+        #expect(found[.taskDone]?.first == "[x]")
+        #expect(found[.taskOpen] == ["[ ]"])
+        #expect(found[.metadata] == ["✅ 2026-10-05", "⏳ 2026-10-06"])
+        #expect(found[.listMarker] == ["- ", "    - "])
+    }
+
+    @Test func blocksCarryState() {
+        let text = "---\ntags: [a]\n---\n```swift\nlet **x** = 1\n```\n%%\nhidden\n%%\nafter"
+        let found = kinds(text)
+        #expect(found[.frontMatter] == ["---", "tags: [a]", "---"])
+        #expect(found[.codeBlock] == ["let **x** = 1"])
+        #expect(found[.fence] == ["```swift", "```"])
+        #expect(found[.comment] == ["%%", "hidden", "%%"])
+        #expect(found[.bold] == nil)
+        let ns = text as NSString
+        #expect(MarkdownHighlighter.blockState(before: ns.range(of: "let").location, in: ns) == .fence("```"))
+        #expect(MarkdownHighlighter.blockState(before: ns.range(of: "after").location, in: ns) == .normal)
+    }
+
+    @Test func calloutAndQuote() {
+        let found = kinds("> [!warning] Careful\n> body")
+        #expect(found[.calloutTitle] == ["[!warning] Careful"])
+        #expect(found[.quote]?.count == 2)
+    }
+}
+
+@Suite struct EditorCommandTests {
+    @Test func returnContinuesLists() {
+        #expect(EditorCommands.onReturn(after: "- item") == .insert("\n- "))
+        #expect(EditorCommands.onReturn(after: "    - [x] done") == .insert("\n    - [ ] "))
+        #expect(EditorCommands.onReturn(after: "9. ninth") == .insert("\n10. "))
+        #expect(EditorCommands.onReturn(after: "> - quoted") == .insert("\n> - "))
+        #expect(EditorCommands.onReturn(after: "- ") == .endList)
+        #expect(EditorCommands.onReturn(after: "- [ ] ") == .endList)
+        #expect(EditorCommands.onReturn(after: "plain") == nil)
+    }
+
+    @Test func toggleMakesTasks() {
+        let day = Day("2026-10-05")!
+        #expect(EditorCommands.toggleTask("    - item", today: day) == ["    - [ ] item"])
+        #expect(EditorCommands.toggleTask("  text", today: day) == ["  - [ ] text"])
+        #expect(EditorCommands.toggleTask("- [ ] a", today: day) == ["- [x] a ✅ 2026-10-05"])
+    }
+
+    @Test func indentByFour() {
+        #expect(EditorCommands.indent("- a") == "    - a")
+        #expect(EditorCommands.outdent("        - a") == "    - a")
+        #expect(EditorCommands.outdent("  - a") == "- a")
+    }
+
+    @Test func linkQuery() {
+        let text = "See [[Kube and [[done]] here" as NSString
+        #expect(EditorCommands.linkQuery(in: text, at: 10).map { text.substring(with: $0) } == "Kube")
+        #expect(EditorCommands.linkQuery(in: text, at: text.length) == nil)
+    }
+
+    @Test func pastedName() {
+        var parts = DateComponents()
+        parts.year = 2026; parts.month = 10; parts.day = 25; parts.hour = 9; parts.minute = 5; parts.second = 7
+        let date = Calendar.current.date(from: parts)!
+        #expect(EditorCommands.pastedImageName(at: date) == "Pasted image 20261025090507.png")
+    }
+}
+
+@Suite struct TasksQueryTests {
+    let today = Day("2026-10-21")!  // a Wednesday
+    let tasks = [
+        QueryTask(text: "Ship the plan #work", state: .todo, path: "Tasks/Work.md", section: "Alpha", scheduled: "2026-10-20"),
+        QueryTask(text: "Half way", state: .inProgress, path: "Tasks/Work.md", section: "Beta"),
+        QueryTask(text: "Book flights", state: .todo, path: "Tasks/Home.md", section: "", due: "2026-10-28"),
+        QueryTask(text: "Old one", state: .done, path: "Tasks/Home.md", section: "Done", done: "2026-10-01"),
+        QueryTask(text: "Reading", state: .todo, path: "Books/Reading.md", section: "", scheduled: "2026-10-22"),
+        QueryTask(text: "Dropped", state: .cancelled, path: "Tasks/Work.md", section: "Alpha"),
+    ]
+
+    func run(_ source: String, file: String = "Tasks/Tasks.md") -> [String] {
+        TasksQuery.parse(source, file: file).run(tasks, today: today) { $0 }.map(\.text)
+    }
+
+    @Test func theVaultsInProgressQuery() {
+        let source = """
+            folder includes {{query.file.folder}}
+            filter by function task.status.type === "IN_PROGRESS" && task.file.filenameWithoutExtension != "Books"
+            group by function task.file.filenameWithoutExtension
+            group by function task.hasHeading ? task.heading : ''
+            show tree
+            short mode
+            """
+        let query = TasksQuery.parse(source, file: "Tasks/Tasks.md")
+        #expect(query.notUnderstood.isEmpty)
+        let found = query.run(tasks, today: today) { $0 }
+        #expect(found.map(\.text) == ["Half way"])
+        #expect(query.groups(of: found[0]) == ["Work", "Beta"])
+    }
+
+    @Test func datesAndRanges() {
+        #expect(run("scheduled on or before this week\nnot done") == ["Ship the plan #work", "Reading"])
+        #expect(run("due next week") == ["Book flights"])
+        #expect(run("scheduled before today") == ["Ship the plan #work"])
+        #expect(run("no due date\nnot done\nfolder includes Tasks/") == ["Ship the plan #work", "Half way"])
+        #expect(run("done on 2026-10-01") == ["Old one"])
+    }
+
+    @Test func booleansAndText() {
+        #expect(Set(run("(due next week) OR (scheduled tomorrow)")) == ["Book flights", "Reading"])
+        #expect(run("NOT (done)\nheading includes alpha") == ["Ship the plan #work"])
+        #expect(run("tags include work") == ["Ship the plan #work"])
+        #expect(run("description does not include o\nnot done") == ["Reading", "Half way"])
+    }
+
+    @Test func doneMeansFinished() {
+        #expect(Set(run("done")) == ["Old one", "Dropped"])
+    }
+
+    @Test func sortAndLimit() {
+        #expect(run("not done\nsort by description\nlimit 2") == ["Book flights", "Half way"])
+        #expect(run("not done\nsort by path reverse\nlimit 1") == ["Ship the plan #work"])
+    }
+
+    @Test func unknownLinesAreReported() {
+        let query = TasksQuery.parse("priority is high\nfilter by function task.urgency > 3\nfolder includes {{query.file.unknown}}", file: "A.md")
+        #expect(query.notUnderstood.count == 3)
+        #expect(TasksQuery.parse("folder includes {{query.file.folder}}").notUnderstood.count == 1)
+    }
+
+    @Test func expressions() throws {
+        let task = tasks[0]
+        #expect(try #require(TaskExpression.parse("task.description.toLowerCase().includes('ship')")).test(task))
+        #expect(try #require(TaskExpression.parse("['Work', 'Home'].includes(task.file.filenameWithoutExtension)")).test(task))
+        #expect(try #require(TaskExpression.parse("!task.isDone && task.file.folder === 'Tasks/'")).test(task))
+        #expect(TaskExpression.parse("task.urgency") == nil)
+        #expect(TaskExpression.parse("1 + 2") == nil)
+    }
+}

@@ -2,13 +2,14 @@ import AppKit
 import DaftarCore
 import SwiftUI
 
-@main
-struct DaftarApp: App {
+public struct DaftarApp: App {
+    public init() {}
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @ViewState private var store = VaultStore()
     @FocusedValue(\.window) private var window
 
-    var body: some Scene {
+    public var body: some Scene {
         WindowGroup(id: "main") {
             ContentView()
                 .environment(store)
@@ -43,6 +44,10 @@ struct DaftarApp: App {
                     .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Show Terminal") { window?.terminal.toggle() }
                     .keyboardShortcut("`", modifiers: .control)
+                Divider()
+                Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
+                    .keyboardShortcut("e")
+                    .disabled(window?.path == nil || window?.showsToday == true)
                 Divider()
                 Button("Bigger Text") { store.settings.textSize = min(store.settings.textSize + 1, 28) }
                     .keyboardShortcut("+")
@@ -129,6 +134,24 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     @Environment(VaultStore.self) private var store
 
+    /// Apple's faces first, then every family installed, so any font can be picked.
+    static func textFonts(current: String) -> [String] {
+        var names = ["New York", "SF Pro", "SF Pro Rounded"] + NSFontManager.shared.availableFontFamilies.filter { !$0.hasPrefix(".") }
+        if !names.contains(current) { names.insert(current, at: 0) }
+        return names
+    }
+
+    static func codeFonts(current: String) -> [String] {
+        let fixed = NSFontManager.shared.availableFontFamilies.filter { family in
+            !family.hasPrefix(".") && (NSFont(name: family, size: 12)?.isFixedPitch ?? false
+                || NSFontManager.shared.availableMembers(ofFontFamily: family)?.first.flatMap { $0.first as? String }
+                    .flatMap { NSFont(name: $0, size: 12)?.isFixedPitch } ?? false)
+        }
+        var names = ["SF Mono"] + fixed
+        if !names.contains(current) { names.insert(current, at: 0) }
+        return names
+    }
+
     var body: some View {
         @Bindable var settings = store.settings
         Form {
@@ -143,6 +166,12 @@ private struct GeneralSettings: View {
             }
             .pickerStyle(.segmented)
             Stepper("Text size: \(settings.textSize) pt", value: $settings.textSize, in: 10...28)
+            Picker("Font", selection: $settings.font) {
+                ForEach(Self.textFonts(current: settings.font), id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Code font", selection: $settings.codeFont) {
+                ForEach(Self.codeFonts(current: settings.codeFont), id: \.self) { Text($0).tag($0) }
+            }
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
             Section {
                 LabeledContent("Settings file") {

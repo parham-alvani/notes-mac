@@ -11,7 +11,7 @@ import Observation
 final class AppSettings {
     static let shared = AppSettings()
 
-    @ObservationIgnored let url = ConfigFile.defaultURL
+    @ObservationIgnored let url: URL
     @ObservationIgnored private var file = ConfigFile(text: ConfigFile.template)
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var loading = false
@@ -19,6 +19,8 @@ final class AppSettings {
     var vaultPath: String? { didSet { write("vault", .string(vaultPath ?? "")) } }
     var appearance: Appearance { didSet { write("appearance.theme", .string(appearance.rawValue)); applyAppearance() } }
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
+    var font: String { didSet { write("appearance.font", .string(font)) } }
+    var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
     var dockBadge: Bool { didSet { write("appearance.dock_badge", .bool(dockBadge)) } }
     /// Minutes between commit-pull-push runs; 0 is off.
     var syncInterval: Int { didSet { write("git.sync_interval", .int(syncInterval)) } }
@@ -44,10 +46,14 @@ final class AppSettings {
         }
     }
 
-    private init() {
+    /// [url] is for tests, which must never touch the person's own file.
+    init(url: URL = ConfigFile.defaultURL) {
+        self.url = url
         vaultPath = nil
         appearance = .system
         textSize = 15
+        font = "New York"
+        codeFont = "JetBrains Mono"
         dockBadge = true
         syncInterval = 0
         pullOnLaunch = true
@@ -76,6 +82,8 @@ final class AppSettings {
         vaultPath = vault.isEmpty ? nil : (vault as NSString).expandingTildeInPath
         appearance = file.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
         textSize = file.int("appearance.text_size") ?? 15
+        font = file.string("appearance.font") ?? "New York"
+        codeFont = file.string("appearance.code_font") ?? "JetBrains Mono"
         dockBadge = file.bool("appearance.dock_badge") ?? true
         syncInterval = file.int("git.sync_interval") ?? 0
         pullOnLaunch = file.bool("git.pull_on_launch") ?? true

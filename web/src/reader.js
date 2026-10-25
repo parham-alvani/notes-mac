@@ -2,7 +2,7 @@
 // what the person does with it. Every message to the app goes through
 // `post`, and the app calls `daftar.show` and `daftar.scrollTo`.
 
-import { render } from "./render.js";
+import { render, renderInline, isClosed } from "./render.js";
 
 const app = window.webkit?.messageHandlers;
 
@@ -108,6 +108,55 @@ async function fillEmbeds(root) {
   }
 }
 
+/**
+ * Each ` ```tasks ` block, answered by the app: groups as headings, then the
+ * tasks, each ticked in its own file. Lines the app could not read are listed
+ * above the result, so a filter that did nothing is never silent.
+ */
+async function fillQueries(root) {
+  for (const block of root.querySelectorAll(".tasks-query")) {
+    let result;
+    try {
+      result = await app?.tasks?.postMessage({ source: block.dataset.source, path: current.path });
+    } catch (error) {
+      result = null;
+    }
+    if (!result) continue;
+    const parts = [];
+    if (result.notUnderstood.length > 0) {
+      const lines = result.notUnderstood.map((line) => `<li><code>${escape(line)}</code></li>`).join("");
+      parts.push(`<div class="callout query-warning" data-callout="warning"><div class="callout-title">Not understood, so not applied</div><ul>${lines}</ul></div>`);
+    }
+    let open = [];
+    for (const task of result.tasks) {
+      task.groups.forEach((name, level) => {
+        if (open[level] === name) return;
+        open = open.slice(0, level);
+        open[level] = name;
+        if (name) parts.push(`<div class="query-group level-${level}" dir="auto">${escape(name)}</div>`);
+      });
+      const checked = isClosed(task.status) ? " checked" : "";
+      const dates = [task.due && `📅 ${task.due}`, task.scheduled && `⏳ ${task.scheduled}`, task.done && `✅ ${task.done}`].filter(Boolean).join(" ");
+      parts.push(
+        `<li class="task-list-item${checked ? " is-checked" : ""}" data-task="${escape(task.status)}" dir="auto">` +
+          `<input type="checkbox" class="task-list-item-checkbox" data-path="${escape(task.path)}" data-line="${task.line}" data-status="${escape(task.status)}"${checked}>` +
+          `<span class="query-text">${renderInline(task.text, { path: task.path, links: result.links })}</span>` +
+          (dates ? ` <span class="query-dates">${escape(dates)}</span>` : "") +
+          ` <a class="internal-link query-source" href="#" data-path="${escape(task.path)}">${escape(task.title)}</a></li>`,
+      );
+    }
+    if (result.tasks.length === 0) parts.push(`<div class="query-empty">No tasks match.</div>`);
+    parts.push(`<div class="query-count">${result.tasks.length} ${result.tasks.length === 1 ? "task" : "tasks"}</div>`);
+    block.innerHTML = `<ul class="query-list">${parts.join("")}</ul>`;
+    markInProgress(block);
+  }
+}
+
+/** `[/]` draws as a half-filled box, as it does on the phone. */
+function markInProgress(root) {
+  root.querySelectorAll('input.task-list-item-checkbox[data-status="/"]').forEach((box) => (box.indeterminate = true));
+}
+
 function renderProperties(properties) {
   if (!properties || properties.length === 0) return "";
   const rows = properties
@@ -131,7 +180,10 @@ window.daftar = {
   async show(note) {
     const keep = note.keepScroll ? window.scrollY : null;
     current = note;
-    if (note.textSize) document.documentElement.style.setProperty("--text-size", `${note.textSize}px`);
+    const root = document.documentElement.style;
+    if (note.textSize) root.setProperty("--text-size", `${note.textSize}px`);
+    if (note.fontText) root.setProperty("--font-text", note.fontText);
+    if (note.fontCode) root.setProperty("--font-mono", note.fontCode);
     const main = document.getElementById("note");
     main.innerHTML =
       `<h1 class="inline-title" dir="auto">${escape(note.title)}</h1>` +
@@ -141,7 +193,8 @@ window.daftar = {
     else if (note.heading) this.scrollTo(note.heading);
     else if (note.line != null) this.scrollToLine(note.line);
     else window.scrollTo(0, 0);
-    await Promise.all([drawDiagrams(main), fillEmbeds(main)]);
+    await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main)]);
+    markInProgress(main);
   },
 
   /** Scrolls to a heading by its text, or to a `^block` id. */
@@ -174,7 +227,7 @@ document.addEventListener("click", (event) => {
   const box = event.target.closest("input.task-list-item-checkbox");
   if (box && !box.disabled) {
     event.preventDefault();
-    post({ kind: "toggleTask", line: Number(box.dataset.line), status: box.dataset.status });
+    post({ kind: "toggleTask", line: Number(box.dataset.line), status: box.dataset.status, path: box.dataset.path ?? "" });
     return;
   }
   const link = event.target.closest("a");

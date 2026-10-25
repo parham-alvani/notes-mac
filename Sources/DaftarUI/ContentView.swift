@@ -43,7 +43,7 @@ struct ContentView: View {
         }
         .overlay(alignment: .bottom) { noticeBanner }
         .focusedSceneValue(\.window, model)
-        .onOpenURL { url in openFromURL(url) }
+        .onOpenURL { url in model.handle(url, store: store) }
         // A `daftar://` link goes to the window that is open, not to a new one.
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
     }
@@ -58,6 +58,8 @@ struct ContentView: View {
             ProgressView("Reading \(store.name)…")
         } else if model.showsToday {
             TodayView(model: model)
+        } else if let path = model.path, model.editing {
+            EditorView(path: path, store: store)
         } else if model.request != nil {
             ReaderView(
                 request: model.request, store: store,
@@ -89,10 +91,12 @@ struct ContentView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             if let path = model.path, !model.showsToday {
-                Button {
-                    openInObsidian(path, store: store)
-                } label: { Label("Edit in Obsidian", systemImage: "square.and.pencil") }
-                    .help("Open this note in Obsidian, to edit it")
+                Picker("Mode", selection: $model.editing) {
+                    Label("Read", systemImage: "book").tag(false)
+                    Label("Edit", systemImage: "square.and.pencil").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .help("Read or edit the note (⌘E)")
                 if let url = store.url(of: path) {
                     ShareLink(item: url)
                 }
@@ -130,22 +134,6 @@ struct ContentView: View {
         return parts.joined(separator: " › ")
     }
 
-    /// `daftar://open?path=Folder/Note.md`, which the notifications use, and
-    /// `daftar://terminal`.
-    private func openFromURL(_ url: URL) {
-        if url.scheme == "daftar", url.host == "terminal" {
-            model.terminal = true
-            return
-        }
-        guard url.scheme == "daftar", url.host == "open",
-            let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "path" })?.value
-        else { return }
-        if path == "today" {
-            model.showsToday = true
-        } else {
-            model.open(path, store: store)
-        }
-    }
 }
 
 /// A window opened on one note, by ⌘-click on a link.

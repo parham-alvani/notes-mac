@@ -17,7 +17,7 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
             return view
         }
         let view = LocalProcessTerminalView(frame: .zero)
-        view.font = NSFont.monospacedSystemFont(ofSize: CGFloat(AppSettings.shared.terminalFontSize), weight: .regular)
+        view.font = Fonts.code(size: CGFloat(AppSettings.shared.terminalFontSize))
         view.processDelegate = self
         paint(view, dark: dark)
         start(view, in: folder)

@@ -1,11 +1,11 @@
-// Bundles the reading view into Sources/Daftar/Reader/, which the app ships
+// Bundles the reading view into Sources/DaftarUI/Reader/, which the app ships
 // as a resource folder. The output is generated: edit web/src, then run
 // `just web`.
 
 import { build } from "esbuild";
 import { cpSync, mkdirSync, rmSync } from "node:fs";
 
-const out = "../Sources/Daftar/Reader";
+const out = "../Sources/DaftarUI/Reader";
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 

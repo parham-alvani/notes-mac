@@ -23,7 +23,7 @@ app: web
     rm -rf {{ APP }}
     mkdir -p {{ APP }}/Contents/MacOS {{ APP }}/Contents/Resources
     cp "$(swift build -c release --arch arm64 --show-bin-path)/Daftar" {{ APP }}/Contents/MacOS/
-    cp -R "$(swift build -c release --arch arm64 --show-bin-path)/Daftar_Daftar.bundle" {{ APP }}/Contents/Resources/
+    cp -R "$(swift build -c release --arch arm64 --show-bin-path)/Daftar_DaftarUI.bundle" {{ APP }}/Contents/Resources/
     sed 's/VERSION/{{ VERSION }}/g' Support/Info.plist > {{ APP }}/Contents/Info.plist
     if [ -f Support/Daftar.icns ]; then cp Support/Daftar.icns {{ APP }}/Contents/Resources/; fi
     codesign --force --deep --sign - {{ APP }}

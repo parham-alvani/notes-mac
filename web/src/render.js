@@ -13,6 +13,11 @@ const BLOCK_ID = /\s\^([A-Za-z0-9-]+)\s*$/;
 const TASK = /^\[([^\]\n])\][ \t]+/;
 const TAG = /^#([\p{L}\p{N}_\/-]+)/u;
 
+/** Done or cancelled. In progress and any custom status are still open. */
+export function isClosed(status) {
+  return status === "x" || status === "X" || status === "-";
+}
+
 /** The line count of the front matter, so a token's line maps back to the file. */
 export function frontMatterLines(text) {
   if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) return 0;
@@ -339,13 +344,12 @@ function tasks(md) {
       inline.children.unshift(box);
       tokens[i - 2].attrJoin("class", "task-list-item");
       tokens[i - 2].attrSet("data-task", status);
-      if (status !== " ") tokens[i - 2].attrJoin("class", "is-checked");
+      if (isClosed(status)) tokens[i - 2].attrJoin("class", "is-checked");
     }
   });
   md.renderer.rules.task_checkbox = (tokens, idx) => {
     const { status, line } = tokens[idx].meta;
-    const checked = status !== " " ? " checked" : "";
-    return `<input type="checkbox" class="task-list-item-checkbox" data-line="${line}" data-status="${escapeHtml(status)}"${checked}>`;
+    return `<input type="checkbox" class="task-list-item-checkbox" data-line="${line}" data-status="${escapeHtml(status)}"${isClosed(status) ? " checked" : ""}>`;
   };
 }
 
@@ -419,6 +423,8 @@ function fences(md) {
     const token = tokens[idx];
     const lang = token.info.trim().split(/\s+/)[0].toLowerCase();
     if (lang === "mermaid") return `<pre class="mermaid">${escapeHtml(token.content)}</pre>\n`;
+    // The app runs the query on its index; the page fills the result in.
+    if (lang === "tasks") return `<div class="tasks-query" data-source="${escapeHtml(token.content)}"></div>\n`;
     if (lang === "math" || lang === "latex") {
       return `<div class="math math-block">${katex.renderToString(token.content, { displayMode: true, throwOnError: false })}</div>\n`;
     }
@@ -433,6 +439,11 @@ export function createRenderer() {
 }
 
 const shared = createRenderer();
+
+/** One line of markdown -- a task's text in a query result -- as inline HTML. */
+export function renderInline(text, { path = "", links = {} } = {}) {
+  return shared.renderInline(text, { path, links, lineOffset: 0 });
+}
 
 /**
  * The note's body as HTML. [links] maps each wikilink target written in the

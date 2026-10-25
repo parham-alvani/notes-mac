@@ -293,6 +293,16 @@ pre.mermaid:not([data-processed]) { color: transparent; }
 pre.mermaid.mermaid-error { color: var(--red); text-align: left; }
 
 .footnotes { font-size: 0.88em; color: var(--text-muted); }
+
+.tasks-query { margin: 0 0 1em; }
+.query-list { padding-inline-start: 1.6em; margin: 0; }
+.query-group { list-style: none; margin: 0.9em 0 0.3em -1.6em; font-weight: 650; color: var(--accent); }
+.query-group.level-1 { margin-inline-start: -0.8em; color: var(--h3-color); font-weight: 600; }
+.query-group.level-2 { margin-inline-start: 0; color: var(--text-muted); }
+.query-dates { font-size: 0.8em; color: var(--text-muted); white-space: nowrap; }
+.query-source { font-size: 0.8em; opacity: 0.8; }
+.query-count, .query-empty { list-style: none; margin: 0.6em 0 0 -1.6em; font-size: 0.8em; color: var(--text-faint); }
+.query-warning ul { margin: 0.3em 0 0; }
 .footnotes-sep { border-top: 1px solid var(--rule-color); }
 
 /* Code colours: Daftar's `CodeHighlighter` roles. */
