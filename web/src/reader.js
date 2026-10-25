@@ -606,6 +606,15 @@ window.daftar = {
   },
 };
 
+// A right click on a task opens the app's edit form for it.
+document.addEventListener("contextmenu", (event) => {
+  const item = event.target.closest("li.task-list-item");
+  const box = item?.querySelector(":scope > input.task-list-item-checkbox, :scope > p > input.task-list-item-checkbox");
+  if (!box || box.disabled) return;
+  event.preventDefault();
+  post({ kind: "editTask", line: Number(box.dataset.line), path: box.dataset.path ?? "" });
+});
+
 document.addEventListener("click", (event) => {
   const box = event.target.closest("input.task-list-item-checkbox");
   if (box && !box.disabled) {

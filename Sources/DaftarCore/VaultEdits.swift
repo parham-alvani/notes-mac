@@ -25,6 +25,19 @@ public enum VaultEdits {
         return lines.joined(separator: "\n")
     }
 
+    /// The task on [line] of [text] written from [fields]. [before] is the
+    /// task the form was opened on, which the line must still hold.
+    public static func editTask(in text: String, line: Int, before: TaskFields, fields: TaskFields) throws -> String {
+        var lines = text.components(separatedBy: "\n")
+        guard line >= 0, line < lines.count else { throw Failure.taskMoved }
+        let raw = lines[line]
+        let crlf = raw.hasSuffix("\r")
+        let clean = crlf ? String(raw.dropLast()) : raw
+        guard TaskLine.fields(clean) == before, let replacement = TaskLine.edited(clean, fields) else { throw Failure.taskMoved }
+        lines[line] = crlf ? replacement + "\r" : replacement
+        return lines.joined(separator: "\n")
+    }
+
     /// Applies [edit] to the file at [path] in [root], written in place.
     public static func apply(_ path: String, in root: URL, _ edit: (String) throws -> String) throws {
         let url = root.appending(path: path)

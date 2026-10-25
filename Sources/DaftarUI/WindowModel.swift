@@ -19,6 +19,8 @@ final class WindowModel {
     var recentCommands: [String] = []
     /// The graph of the open note and its neighbours.
     var graph = false
+    /// The task whose edit form is open.
+    var taskEdit: TaskRef?
     var inspector = true
     /// The terminal pane under the note.
     var terminal = false

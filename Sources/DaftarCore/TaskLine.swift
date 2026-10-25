@@ -242,3 +242,65 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
 extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
+
+/// A task's parts, as the edit form shows them.
+public struct TaskFields: Sendable, Equatable {
+    public var status: Character = " "
+    public var text = ""
+    /// The priority's emoji, 🔺 ⏫ 🔼 🔽 or ⏬; nil for none.
+    public var priority: String?
+    public var recurring: String?
+    public var created: String?
+    public var start: String?
+    public var scheduled: String?
+    public var due: String?
+    public var cancelled: String?
+    public var done: String?
+    /// Signifiers the form does not show (🆔, ⛔), kept as they are.
+    public var other: [TaskMetadata.Meta] = []
+
+    public init() {}
+}
+
+extension TaskLine {
+    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+)\[([^\]\n])\]\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
+
+    /// The task on [raw], in parts; nil when the line is not a task.
+    public static func fields(_ raw: String) -> TaskFields? {
+        guard let match = raw.wholeMatch(of: line), let status = match.2.first else { return nil }
+        let split = TaskMetadata.split(String(match.3))
+        var fields = TaskFields()
+        fields.status = status
+        fields.text = split.text
+        for meta in split.meta {
+            let value = meta.value.isEmpty ? nil : meta.value
+            switch meta.emoji {
+            case "➕": fields.created = value
+            case "🛫": fields.start = value
+            case "⏳": fields.scheduled = value
+            case "📅": fields.due = value
+            case "❌": fields.cancelled = value
+            case "✅": fields.done = value
+            case "🔁": fields.recurring = value
+            case "🔺", "⏫", "🔼", "🔽", "⏬": fields.priority = meta.emoji
+            default: fields.other.append(meta)
+            }
+        }
+        return fields
+    }
+
+    /// [raw] with its task written from [fields]: the same indent, bullet
+    /// and block id, the signifiers in the Tasks plugin's order.
+    public static func edited(_ raw: String, _ fields: TaskFields) -> String? {
+        guard let match = raw.wholeMatch(of: line) else { return nil }
+        var parts = [fields.text.trimmingCharacters(in: .whitespaces)]
+        if let priority = fields.priority { parts.append(priority) }
+        if let rule = fields.recurring?.trimmingCharacters(in: .whitespaces), !rule.isEmpty { parts.append("🔁 " + rule) }
+        for meta in fields.other.filter({ $0.emoji == "⛔" || $0.emoji == "🆔" }) { parts.append("\(meta.emoji) \(meta.value)") }
+        for (emoji, value) in [("➕", fields.created), ("🛫", fields.start), ("⏳", fields.scheduled), ("📅", fields.due), ("❌", fields.cancelled), ("✅", fields.done)] {
+            if let value, !value.isEmpty { parts.append("\(emoji) \(value)") }
+        }
+        for meta in fields.other where meta.emoji != "⛔" && meta.emoji != "🆔" { parts.append("\(meta.emoji) \(meta.value)") }
+        return String(match.1) + "[\(fields.status)] " + parts.filter { !$0.isEmpty }.joined(separator: " ") + (match.4.map(String.init) ?? "")
+    }
+}

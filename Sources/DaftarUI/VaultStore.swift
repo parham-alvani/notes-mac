@@ -251,6 +251,23 @@ final class VaultStore {
         requestSync()
     }
 
+    /// Writes the task on [line] of [path] from [fields]. False when the
+    /// line no longer holds the task the form was opened on.
+    func editTask(path: String, line: Int, before: TaskFields, fields: TaskFields) -> Bool {
+        guard let root else { return false }
+        do {
+            try VaultEdits.apply(path, in: root) { text in
+                try VaultEdits.editTask(in: text, line: line, before: before, fields: fields)
+            }
+            changed([path])
+            requestSync()
+            return true
+        } catch {
+            changed([path])
+            return false
+        }
+    }
+
     // MARK: Git
 
     /// Commit, pull and push now.

@@ -64,6 +64,10 @@ struct TodayView: View {
             Card(title: title, symbol: symbol, color: color, count: tasks.count) {
                 ForEach(tasks) { task in
                     TaskRow(task: task, color: color) { model.open(task.path, line: task.task.line, store: store) }
+                        .contextMenu {
+                            Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+                            Button("Open the Note") { model.open(task.path, line: task.task.line, store: store) }
+                        }
                 }
             }
         }

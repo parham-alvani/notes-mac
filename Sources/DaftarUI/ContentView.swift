@@ -47,6 +47,9 @@ struct ContentView: View {
         .sheet(isPresented: $model.graph) {
             GraphView(model: model)
         }
+        .sheet(item: $model.taskEdit) { task in
+            TaskEditSheet(task: task)
+        }
         .sheet(item: $model.fileAction) { action in
             FileActionSheet(action: action, model: model)
         }
@@ -88,6 +91,7 @@ struct ContentView: View {
                     }
                 },
                 onTag: { model.searchTag($0) },
+                onEditTask: { model.taskEdit = TaskRef(path: $0, line: $1) },
                 findText: model.findText,
                 findCommand: model.readerFind)
         } else {

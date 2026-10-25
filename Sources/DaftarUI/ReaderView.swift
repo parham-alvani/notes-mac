@@ -25,6 +25,7 @@ struct ReaderView: NSViewRepresentable {
     var store: VaultStore
     var onOpen: (_ path: String, _ anchor: String?, _ newWindow: Bool) -> Void
     var onTag: (String) -> Void
+    var onEditTask: (String, Int) -> Void = { _, _ in }
     var findText: String?
     var findCommand = ReaderFind(action: .none, count: 0)
 
@@ -183,6 +184,10 @@ struct ReaderView: NSViewRepresentable {
                 }
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
+            case "editTask":
+                guard let request = shown, let line = body["line"] as? Int else { return }
+                let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
+                parent.onEditTask(path, line)
             case "copy":
                 if let text = body["text"] as? String {
                     NSPasteboard.general.clearContents()
