@@ -116,7 +116,7 @@ test("a note named as an object's own property is a link like any other", () => 
 
 test("every list item has its source line, for the reading cursor", () => {
   const html = render("Intro\n\n- one\n- two\n    - nested\n");
-  assert.match(html, /<li data-line="2">one<\/li>/);
-  assert.match(html, /<li data-line="3">two/);
-  assert.match(html, /<li data-line="4">nested<\/li>/);
+  assert.match(html, /<li dir="auto" data-line="2">one<\/li>/);
+  assert.match(html, /<li dir="auto" data-line="3">two/);
+  assert.match(html, /<li dir="auto" data-line="4">nested<\/li>/);
 });
