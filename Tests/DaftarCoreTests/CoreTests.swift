@@ -277,6 +277,30 @@ import Testing
         #expect(alpha.children?.map(\.name) == ["Plan"])
     }
 
+    @Test func aFoldersLogoIsItsIcon() {
+        let files: Set<String> = ["Companies/Acme/Acme.md", "Companies/Acme/logo.png", "Companies/Acme/Logo.SVG", "Companies/Acme/Notes.md", "Companies/Beta/b.md", "logo.svg"]
+        let tree = Vault.tree(of: files)
+        let acme = tree.first { $0.name == "Companies" }?.children?.first { $0.name == "Acme" }
+        // A drawing wins over a picture, whatever the case of its name.
+        #expect(acme?.logo == "Companies/Acme/Logo.SVG")
+        #expect(acme?.children?.map(\.name) == ["Notes"])
+        #expect(tree.first { $0.name == "Companies" }?.children?.first { $0.name == "Beta" }?.logo == nil)
+        #expect(Vault.logo(of: "Companies/Acme", in: files) == "Companies/Acme/Logo.SVG")
+        #expect(Vault.logo(of: "Companies/Beta", in: files) == nil)
+        // The vault's own logo.svg at the top is an ordinary file in the tree.
+        #expect(tree.contains { $0.path == "logo.svg" })
+    }
+
+    @Test func findsAFolderInTheTree() throws {
+        let root = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let index = Vault.index(root)
+        #expect(index.folder("")?.map(\.name) == ["Notes", "Projects", "uploads"])
+        #expect(index.folder("Projects/Alpha")?.map(\.name) == ["Plan"])
+        #expect(index.folder("Projects")?.first?.folderNote == "Projects/Alpha/Alpha.md")
+        #expect(index.folder("Nowhere") == nil)
+    }
+
     @Test func updateReadsChangesAndDropsDeletions() throws {
         let root = try makeVault()
         defer { try? FileManager.default.removeItem(at: root) }

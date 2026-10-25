@@ -91,6 +91,7 @@ struct ContentView: View {
                 model.extractReplace = replace
                 model.fileAction = .extract(folder: model.currentFolder, text: text)
             }
+            .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model) }
         } else if model.request != nil {
             ReaderView(
                 request: model.request, store: store,
@@ -114,6 +115,9 @@ struct ContentView: View {
                 },
                 findText: model.findText,
                 findCommand: model.readerFind)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let path = model.path { Breadcrumb(path: path, model: model) }
+            }
         } else {
             ContentUnavailableView {
                 Label("No note open", systemImage: "doc.text")

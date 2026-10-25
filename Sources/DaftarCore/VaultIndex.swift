@@ -31,6 +31,8 @@ public struct TreeNode: Sendable, Hashable, Identifiable {
     public var children: [TreeNode]?
     /// For a folder: its folder note `X/X.md`, which opens when the folder is clicked.
     public var folderNote: String?
+    /// For a folder: its `logo.svg` (or `.png`, `.jpg`, `.webp`), drawn as its icon.
+    public var logo: String?
     public var id: String { path }
     public var isFolder: Bool { children != nil }
 }
@@ -70,6 +72,17 @@ public struct VaultIndex: Sendable {
             if let found = resolver.resolve(link.target, from: path) { out[link.target] = found }
         }
         return out
+    }
+
+    /// The folder at [path] in the tree; "" is the vault itself.
+    public func folder(_ path: String) -> [TreeNode]? {
+        if path.isEmpty { return tree }
+        var level = tree
+        for part in path.split(separator: "/").map(String.init) {
+            guard let next = level.first(where: { $0.isFolder && $0.name == part }) else { return nil }
+            level = next.children ?? []
+        }
+        return level
     }
 
     /// Every task in the vault.
@@ -218,6 +231,23 @@ public enum Vault {
         return index
     }
 
+    /// The names a folder's logo may have, best first: a drawing before a picture.
+    public static let logoNames = ["logo.svg", "logo.png", "logo.webp", "logo.jpg", "logo.jpeg"]
+
+    /// The logo among a folder's own [files], when it has one.
+    static func logo(in files: [String]) -> String? {
+        let byName = Dictionary(files.map { (String($0.split(separator: "/").last ?? "").lowercased(), $0) }) { a, _ in a }
+        return logoNames.lazy.compactMap { byName[$0] }.first
+    }
+
+    /// The logo of the folder at [path], from the vault's files.
+    public static func logo(of folder: String, in files: Set<String>) -> String? {
+        let prefix = folder.isEmpty ? "" : folder + "/"
+        return logoNames.lazy.compactMap { name in
+            files.first { $0.count == prefix.count + name.count && $0.lowercased() == (prefix + name).lowercased() }
+        }.first
+    }
+
     /// The folder tree. A folder note `X/X.md` is not listed inside its folder;
     /// the folder opens it, as the folder-notes plugin does.
     public static func tree(of files: Set<String>) -> [TreeNode] {
@@ -244,9 +274,13 @@ public enum Vault {
                 let child = folder.folders[name]!
                 let note = path + "/" + name + ".md"
                 let hasNote = child.files.contains(note)
+                let logo = logo(in: child.files)
                 var children = build(child, prefix: path + "/")
-                if hasNote { children.removeAll { $0.path == note } }
-                return TreeNode(path: path, name: name, children: children, folderNote: hasNote ? note : nil)
+                // The folder note and the logo are the folder, not files in it.
+                children.removeAll { child in
+                    child.path == note || (!child.isFolder && logoNames.contains(child.name.lowercased()))
+                }
+                return TreeNode(path: path, name: name, children: children, folderNote: hasNote ? note : nil, logo: logo)
             }
             let leaves = folder.files.sorted { order(title(of: $0), title(of: $1)) }.map {
                 TreeNode(path: $0, name: isNote($0) ? title(of: $0) : String($0.split(separator: "/").last!), children: nil)

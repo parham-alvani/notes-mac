@@ -38,7 +38,8 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Menu bar and Dock:** today's meetings and tasks in the menu bar, and the count of tasks due on the Dock icon.
 - **Git:** commit, pull with a rebase, and push, with the system `git` and your own SSH keys. The toolbar shows the branch and the changed files. The app pulls when it starts, and automatic sync is a setting that is off at first.
 - **Terminal:** ⌃` opens your login shell in the vault's folder, under the note, in the same colors.
-- **Icons:** the folders and notes show the icons and colors of the Iconic plugin.
+- **Icons:** the folders and notes show the icons and colors of the Iconic plugin. A `logo.svg` (or `logo.png`, `.webp`, `.jpg`) in a folder is that folder's icon, for example a company's logo on its folder; the file itself is not listed. Daftar on Android shows the same logos.
+- **Breadcrumb:** a bar above the note shows the vault, its folders and the note. A folder opens a menu of what is in it, and the note's crumb has the file commands.
 
 ## Configuration
 

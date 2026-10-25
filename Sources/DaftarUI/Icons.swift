@@ -9,10 +9,17 @@ struct IconicImage: View {
     var icon: Iconic.Icon?
     var fallback: String
     var fallbackColor: Color
+    /// A folder's `logo.svg` or picture, which wins over any other icon.
+    var logo: URL?
 
     var body: some View {
         Group {
-            if let name = icon?.name, icon?.isEmoji == true {
+            if let logo, let image = Logo.image(logo) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+            } else if let name = icon?.name, icon?.isEmoji == true {
                 Text(name).font(.system(size: 12))
             } else {
                 // A Lucide name with no symbol here draws the default, not a gap.
@@ -75,4 +82,19 @@ struct IconicImage: View {
         "lucide-music": "music.note", "lucide-plane": "airplane", "lucide-code": "chevron.left.forwardslash.chevron.right",
         "lucide-terminal": "terminal", "lucide-user": "person", "lucide-users": "person.2", "lucide-settings": "gearshape",
     ]
+}
+
+/// Folder logos, read once and kept until the file changes. An SVG stays a
+/// drawing, so it is sharp at every size.
+@MainActor
+enum Logo {
+    private static var cache: [URL: (modified: Date, image: NSImage?)] = [:]
+
+    static func image(_ url: URL) -> NSImage? {
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        if let known = cache[url], known.modified == modified { return known.image }
+        let image = NSImage(contentsOf: url).flatMap { $0.size.width > 0 && $0.size.height > 0 ? $0 : nil }
+        cache[url] = (modified, image)
+        return image
+    }
 }

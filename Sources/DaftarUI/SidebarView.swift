@@ -64,9 +64,13 @@ struct FilesList: View {
                                 }
                             }
                         } icon: {
-                            Image(systemName: entry.folder ? "folder.fill" : "star.fill")
-                                .foregroundStyle(entry.folder ? Palette.accent : Palette.yellow)
-                                .frame(width: IconicImage.slot, height: IconicImage.slot)
+                            if entry.folder, let logo = Vault.logo(of: entry.path, in: store.index.files).flatMap(store.url(of:)) {
+                                IconicImage(icon: nil, fallback: "folder.fill", fallbackColor: Palette.accent, logo: logo)
+                            } else {
+                                Image(systemName: entry.folder ? "folder.fill" : "star.fill")
+                                    .foregroundStyle(entry.folder ? Palette.accent : Palette.yellow)
+                                    .frame(width: IconicImage.slot, height: IconicImage.slot)
+                            }
                         }
                         // A bookmarked folder opens its folder note.
                         .tag(SidebarItem.bookmark(entry.folder ? entry.path + "/" + (entry.path.split(separator: "/").last.map(String.init) ?? "") + ".md" : entry.path))
@@ -164,7 +168,9 @@ struct FileRow: View {
             Text(node.name).foregroundStyle(Vault.opensInApp(node.path) || node.isFolder ? .primary : .secondary)
         } icon: {
             if node.isFolder {
-                IconicImage(icon: icon, fallback: node.folderNote != nil ? "folder.fill" : "folder", fallbackColor: Palette.accent)
+                IconicImage(
+                    icon: icon, fallback: node.folderNote != nil ? "folder.fill" : "folder", fallbackColor: Palette.accent,
+                    logo: node.logo.flatMap(store.url(of:)))
             } else if Vault.isNote(node.path) {
                 IconicImage(icon: icon, fallback: "doc.text", fallbackColor: Palette.muted)
             } else {
@@ -477,10 +483,12 @@ struct QuickOpenView: View {
     @Environment(\.dismiss) private var dismiss
     @ViewState private var query = ""
     @ViewState private var selected = 0
+    /// Worked out once for each keystroke, not in `body`, which SwiftUI may
+    /// evaluate many times for one change.
+    @ViewState private var results: [String] = []
     @FocusState private var focused: Bool
 
     var body: some View {
-        let results = store.quickOpen(query, recent: model.recent)
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").font(.title2.weight(.semibold)).foregroundStyle(Palette.accent)
@@ -494,8 +502,14 @@ struct QuickOpenView: View {
                     .onKeyPress(.escape) { dismiss(); return .handled }
             }
             .padding(14)
-            if !results.isEmpty {
-                Divider()
+            Divider()
+            if results.isEmpty {
+                // One height for the panel, always: a sheet that resizes while
+                // the person types makes SwiftUI lay it out again and again.
+                Text(query.trimmingCharacters(in: .whitespaces).isEmpty ? "Type a note's name." : "No note is called “\(query)”.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
@@ -529,9 +543,13 @@ struct QuickOpenView: View {
                 }
             }
         }
-        .frame(width: 600, height: results.isEmpty ? nil : 420)
+        .frame(width: 600, height: 420)
         .background(.regularMaterial)
         .onAppear { focused = true }
+        .task(id: "\(query)|\(store.revision)") {
+            results = store.quickOpen(query, recent: model.recent)
+            selected = min(selected, max(results.count - 1, 0))
+        }
         .onChange(of: query) { selected = 0 }
     }
 
