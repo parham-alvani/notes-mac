@@ -24,6 +24,9 @@ app: web
     mkdir -p {{ APP }}/Contents/MacOS {{ APP }}/Contents/Resources
     cp "$(swift build -c release --arch arm64 --show-bin-path)/Daftar" {{ APP }}/Contents/MacOS/
     cp -R "$(swift build -c release --arch arm64 --show-bin-path)/Daftar_DaftarUI.bundle" {{ APP }}/Contents/Resources/
+    # SwiftPM can keep an old copy of the reader: the one `just web` made is the one the app gets.
+    cp -R Sources/DaftarUI/Reader/. {{ APP }}/Contents/Resources/Daftar_DaftarUI.bundle/Contents/Resources/Reader/
+    cmp -s Sources/DaftarUI/Reader/reader.js {{ APP }}/Contents/Resources/Daftar_DaftarUI.bundle/Contents/Resources/Reader/reader.js
     sed 's/VERSION/{{ VERSION }}/g' Support/Info.plist > {{ APP }}/Contents/Info.plist
     if [ -f Support/Daftar.icns ]; then cp Support/Daftar.icns {{ APP }}/Contents/Resources/; fi
     codesign --force --deep --sign - {{ APP }}

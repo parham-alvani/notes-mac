@@ -603,7 +603,7 @@ window.daftar = {
     else if (note.line != null) this.scrollToLine(note.line);
     else window.scrollTo(0, 0);
     // The reading cursor: on the line the editor was at, on the same block
-    // when the note is shown again, or nowhere in a note just opened.
+    // when the note is shown again, or at the top in a note just opened.
     reading.restore(note.line ?? (keep !== null ? reading.line : null));
     decorate(main);
     progress();
@@ -764,11 +764,13 @@ const reading = {
     this.box.classList.add("is-on");
   },
 
-  /** On the block of [line], after the note was drawn again. */
+  /** On the block of [line], after the note was drawn again; on the first
+   * block on screen in a note just opened. */
   restore(line) {
     if (line == null) {
-      this.block = null;
-      this.line = null;
+      const first = this.blocks().find((b) => b.getBoundingClientRect().bottom > 0) ?? null;
+      this.block = first;
+      this.line = first ? Number(first.dataset.line) : null;
       this.redraw();
       return;
     }

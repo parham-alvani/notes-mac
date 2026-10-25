@@ -138,6 +138,22 @@ struct ReaderView: NSViewRepresentable {
                 if let line = request.line { note["line"] = line }
             }
             view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+            if !keepScroll { takeKeys() }
+        }
+
+        /// A note just opened gets the keys, so `j` and `k` move the reading
+        /// cursor at once -- unless the person walks the sidebar with the
+        /// arrows, which keeps them there.
+        private func takeKeys() {
+            guard let view, let window = view.window else { return }
+            let responder = window.firstResponder
+            // The arrows walking the sidebar's list keep the keys there; a
+            // click, ⌘P or a link gives them to the page.
+            let event = NSApp.currentEvent
+            let walking = event?.type == .keyDown && (123...126).contains(event?.keyCode ?? 0)
+                && (responder is NSTableView || responder is NSOutlineView)
+            if walking { return }
+            window.makeFirstResponder(view)
         }
 
         /// A `.base` file: its views in place of a note's text.
