@@ -137,34 +137,64 @@ public final class NeovimClient: @unchecked Sendable {
 public struct BufferMirror: Sendable, Equatable {
     public private(set) var lines: [String]
     public var endsWithNewline: Bool
+    /// Each line's length in UTF-16, so a position is a sum, not a count of
+    /// every line above it at every key.
+    private var lengths: [Int]
 
     public init(lines: [String], endsWithNewline: Bool = true) {
         self.lines = lines.isEmpty ? [""] : lines
         self.endsWithNewline = endsWithNewline
+        lengths = self.lines.map(\.utf16.count)
     }
 
     public var text: String { lines.joined(separator: "\n") + (endsWithNewline ? "\n" : "") }
 
+    /// Where line [index] (from 0) starts in the view's text.
+    private func start(of index: Int) -> Int {
+        var offset = 0
+        for length in lengths[..<min(index, lengths.count)] { offset += length + 1 }
+        return offset
+    }
+
+    /// Lines [a, b) of [lines] as the view's text says them: with the newline
+    /// after each, and after the last one only when more follow or the file
+    /// ends with one.
+    private func segment(_ lines: [String], _ a: Int, _ b: Int) -> String {
+        guard a < b else { return "" }
+        return lines[a..<b].joined(separator: "\n") + (b < lines.count || endsWithNewline ? "\n" : "")
+    }
+
     /// `nvim_buf_lines_event`: lines [first, last) became [replacement]; a
     /// [last] of -1 is the end of the buffer. Returns the range of the view's
-    /// text that changed (UTF-16) and what it now says.
+    /// text that changed (UTF-16) and what it now says. Only the lines that
+    /// changed, and the one before them, are read.
     public mutating func apply(first: Int, last: Int, replacement: [String]) -> (range: NSRange, text: String) {
-        let old = text as NSString
         let end = last < 0 ? lines.count : min(last, lines.count)
-        let start = min(first, lines.count)
-        lines.replaceSubrange(start..<end, with: replacement)
-        if lines.isEmpty { lines = [""] }
-        let new = text as NSString
+        let begin = min(first, lines.count)
+        let from = max(0, begin - 1)
+        let offset = start(of: from)
+        let old = segment(lines, from, end)
+        lines.replaceSubrange(begin..<end, with: replacement)
+        lengths.replaceSubrange(begin..<end, with: replacement.map(\.utf16.count))
+        if lines.isEmpty {
+            // No line left: the buffer is one empty line, as Neovim keeps it.
+            lines = [""]
+            lengths = [0]
+            let all = NSRange(location: 0, length: offset + (old as NSString).length)
+            return (all, text)
+        }
+        let new = segment(lines, from, begin + replacement.count) as NSString
+        let was = old as NSString
         // The smallest range that differs, so the view keeps its attributes,
         // its scroll and its images everywhere else.
         var prefix = 0
-        let limit = min(old.length, new.length)
-        while prefix < limit, old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+        let limit = min(was.length, new.length)
+        while prefix < limit, was.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
         var suffix = 0
-        while suffix < limit - prefix, old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix) {
+        while suffix < limit - prefix, was.character(at: was.length - 1 - suffix) == new.character(at: new.length - 1 - suffix) {
             suffix += 1
         }
-        let range = NSRange(location: prefix, length: old.length - prefix - suffix)
+        let range = NSRange(location: offset + prefix, length: was.length - prefix - suffix)
         return (range, new.substring(with: NSRange(location: prefix, length: new.length - prefix - suffix)))
     }
 
@@ -172,21 +202,18 @@ public struct BufferMirror: Sendable, Equatable {
     /// UTF-16 offset into the view's text.
     public func offset(row: Int, byteColumn: Int) -> Int {
         let index = max(0, min(row - 1, lines.count - 1))
-        var offset = 0
-        for line in lines[..<index] { offset += line.utf16.count + 1 }
         let line = lines[index]
         let bytes = Array(line.utf8.prefix(max(0, byteColumn)))
         let prefix = String(decoding: bytes, as: UTF8.self)
-        return offset + min(prefix.utf16.count, line.utf16.count)
+        return start(of: index) + min(prefix.utf16.count, lengths[index])
     }
 
     /// The other way: a UTF-16 offset as a Neovim (row from 1, byte column).
     public func position(of offset: Int) -> (row: Int, byteColumn: Int) {
         var remaining = offset
-        for (index, line) in lines.enumerated() {
-            let length = line.utf16.count
+        for (index, length) in lengths.enumerated() {
             if remaining <= length {
-                let prefix = String(line.utf16.prefix(remaining)) ?? ""
+                let prefix = String(lines[index].utf16.prefix(remaining)) ?? ""
                 return (index + 1, prefix.utf8.count)
             }
             remaining -= length + 1

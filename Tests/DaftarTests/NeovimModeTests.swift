@@ -86,6 +86,43 @@ let hasNeovim = NeovimClient.locate() != nil
         #expect(!FileManager.default.fileExists(atPath: old))
     }
 
+    @Test func theViewScrollsWithNeovimsWindow() async throws {
+        let long = (1...400).map { "line \($0)" }.joined(separator: "\n") + "\n"
+        try long.write(to: root.appending(path: "Long.md"), atomically: true, encoding: .utf8)
+        controller.load("Long.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        for key in ["3", "0", "0", "G", "z", "z"] { press(key) }
+        let line = (view.string as NSString).range(of: "line 300\n").location
+        #expect(await eventually { view.selectedRange().location == line })
+        // `zz` puts the line in the middle of the view, more or less.
+        #expect(await eventually {
+            guard let rect = view.lineRect(at: line) else { return false }
+            let middle = clip.bounds.midY
+            return abs(rect.midY - middle) < clip.bounds.height / 4
+        })
+        await session.stop()
+    }
+
+    @Test func visualBlockSelectsAColumnOnEachRow() async throws {
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        try "abcd\nefgh\nijkl\n".write(to: root.appending(path: "Block.md"), atomically: true, encoding: .utf8)
+        controller.load("Block.md")
+        let block = try #require(controller.session)
+        #expect(await eventually { block.state == .running && view.string == "abcd\nefgh\nijkl\n" })
+        press("l")
+        press("v", .control)
+        press("j")
+        press("l")
+        #expect(await eventually { view.selectedRanges.count == 2 })
+        #expect(view.selectedRanges.map(\.rangeValue) == [NSRange(location: 1, length: 2), NSRange(location: 6, length: 2)])
+        await block.stop()
+        await session.stop()
+    }
+
     @Test func theCursorFollowsNeovimInPersianText() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)

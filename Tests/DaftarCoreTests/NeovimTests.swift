@@ -109,3 +109,36 @@ import Testing
         #expect(try String(contentsOf: file, encoding: .utf8) == "oneX\ntwo\n")
     }
 }
+
+/// Random edits: the mirror and a plain copy of the text never differ.
+@Suite struct BufferMirrorFuzzTests {
+    @Test func everyEditTheMirrorReturnsMakesItsText() {
+        struct Seeded: RandomNumberGenerator {
+            var state: UInt64
+            mutating func next() -> UInt64 {
+                state = state &* 6364136223846793005 &+ 1442695040888963407
+                return state
+            }
+        }
+        var random = Seeded(state: 1995)
+        let words = ["", "a", "سلام", "x y", "😀z", "# h", "- [ ] t"]
+        for eol in [true, false] {
+            var mirror = BufferMirror(lines: ["one", "دو", "three"], endsWithNewline: eol)
+            var shown = mirror.text as NSString
+            for _ in 0..<3000 {
+                let count = mirror.lines.count
+                let first = Int.random(in: 0...count, using: &random)
+                let last = Bool.random(using: &random) ? -1 : Int.random(in: first...count, using: &random)
+                let replacement = (0..<Int.random(in: 0...3, using: &random)).map { _ in words.randomElement(using: &random)! }
+                let edit = mirror.apply(first: first, last: last, replacement: replacement)
+                shown = shown.replacingCharacters(in: edit.range, with: edit.text) as NSString
+                #expect(shown as String == mirror.text, "first \(first) last \(last) \(replacement)")
+                if shown as String != mirror.text { return }
+                // A row and column there and back again.
+                let row = Int.random(in: 1...mirror.lines.count, using: &random)
+                let offset = mirror.offset(row: row, byteColumn: 0)
+                #expect(mirror.position(of: offset).row == row)
+            }
+        }
+    }
+}

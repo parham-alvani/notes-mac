@@ -95,6 +95,10 @@ final class NeovimSession {
           vim.rpcnotify(chan, 'daftar_cursor', mode, cursor[1], cursor[2], v[2], v[3] - 1)
         end
         vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'ModeChanged', 'BufEnter' }, { group = group, callback = send })
+        -- zz, <C-e>, <C-d> and the rest move the window: the view follows.
+        vim.api.nvim_create_autocmd('WinScrolled', { group = group, callback = function()
+          vim.rpcnotify(chan, 'daftar_scroll', vim.fn.line('w0'))
+        end })
         vim.o.autoread = true
         send()
         """
@@ -117,13 +121,28 @@ final class NeovimSession {
             // Leaving insert mode is when a pending save can happen.
             if wasInserting, isNormal, saveSoon != nil { scheduleSave() }
             let cursor = mirror.offset(row: row, byteColumn: col)
-            if let vRow = note.params[3].intValue, let vCol = note.params[4].intValue, !isNormal, mode.first == "v" || mode.first == "V" || mode == "\u{16}" {
+            if let vRow = note.params[3].intValue, let vCol = note.params[4].intValue, mode == "\u{16}" {
+                // Visual block: the same columns on every row, one range each.
+                let columns = (min(vCol, col), max(vCol, col))
+                let ranges = (min(vRow, row)...max(vRow, row)).map { line -> NSRange in
+                    let start = mirror.offset(row: line, byteColumn: columns.0)
+                    let end = mirror.offset(row: line, byteColumn: columns.1)
+                    let text = (view?.string ?? "") as NSString
+                    let lineEnd = NSMaxRange(text.lineRange(for: NSRange(location: min(start, text.length), length: 0)))
+                    let last = end < text.length && end < lineEnd && text.character(at: end) != 10 ? text.rangeOfComposedCharacterSequence(at: end).length : 0
+                    return NSRange(location: start, length: max(0, end - start + last))
+                }
+                view?.showSelections(ranges, cursor: cursor)
+            } else if let vRow = note.params[3].intValue, let vCol = note.params[4].intValue, !isNormal, mode.first == "v" || mode.first == "V" {
                 let anchor = mirror.offset(row: vRow, byteColumn: vCol)
                 view?.showSelection(visual(anchor: anchor, cursor: cursor, lines: mode.first == "V", rows: (vRow, row)))
             } else {
                 view?.showSelection(NSRange(location: cursor, length: 0))
             }
             onChange?()
+        case "daftar_scroll":
+            guard let top = note.params.first?.intValue else { return }
+            view?.follow(top: mirror.offset(row: top, byteColumn: 0))
         case "redraw":
             redraw(note.params)
         default:

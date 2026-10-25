@@ -61,6 +61,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private var saveTask: Task<Void, Never>?
     private var seenRevision = -1
     private var fontKey = ""
+    /// The note's block delimiters in order: fences, `$$`, `%%` and `---`
+    /// lines. An edit that changes them restyles the rest of the note; any
+    /// other edit restyles its own lines only.
+    private var structure: [String] = []
+    /// The text is being replaced whole, and styled after.
+    private var replacing = false
+    private var styling: Task<Void, Never>?
+    private var shownMode = ""
 
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
 
@@ -112,8 +120,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         view.textStorage?.delegate = self
         view.delegate = self
         view.textLayoutManager?.delegate = self
-        view.string = text
-        restyle(all: true)
+        replacing = true
+        // Plain, until it is styled: `string =` would give it the old
+        // text's attributes, a heading's perhaps.
+        view.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: base))
+        replacing = false
+        restyleProgressively()
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.scrollToBeginningOfDocument(nil)
         view.undoManager?.removeAllActions()
@@ -168,7 +180,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         case .starting: container?.setStatus("Starting Neovim…", mode: "NEOVIM")
         case .running: container?.setStatus(session.status, mode: session.modeName)
         }
-        view?.needsDisplay = true
+        // The block cursor and the bar differ: the cursor's line is drawn
+        // again when the mode changes, not the whole page at every key.
+        if session.modeName != shownMode {
+            shownMode = session.modeName
+            view?.redrawCursorLine()
+        }
     }
 
     /// The file changed on disk. A change this editor wrote is already here;
@@ -244,16 +261,23 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         countTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled, let self, let view = self.view else { return }
-            let text = view.string as NSString
+            let string = view.string
             let selection = view.selectedRange()
-            let words = Self.words(in: text, range: NSRange(location: 0, length: text.length))
-            let selected = selection.length > 0 ? Self.words(in: text, range: selection) : nil
+            // Counting a long note's words takes milliseconds: not on the main thread.
+            let (characters, words, selected) = await Task.detached {
+                let text = string as NSString
+                return (
+                    text.length, Self.words(in: text, range: NSRange(location: 0, length: text.length)),
+                    selection.length > 0 && NSMaxRange(selection) <= text.length ? Self.words(in: text, range: selection) : nil
+                )
+            }.value
+            guard !Task.isCancelled else { return }
             self.container?.setCounts(
-                words: words, characters: text.length, selectedWords: selected, selectedCharacters: selection.length > 0 ? selection.length : nil)
+                words: words, characters: characters, selectedWords: selected, selectedCharacters: selection.length > 0 ? selection.length : nil)
         }
     }
 
-    static func words(in text: NSString, range: NSRange) -> Int {
+    nonisolated static func words(in text: NSString, range: NSRange) -> Int {
         var count = 0
         text.enumerateSubstrings(in: range, options: [.byWords, .substringNotRequired]) { _, _, _, _ in count += 1 }
         return count
@@ -261,8 +285,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     func textViewDidChangeSelection(_ notification: Notification) {
         updateCounts()
-        // The tint of the cursor's line moves with it.
-        if let view { view.setNeedsDisplay(view.visibleRect) }
+        // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
+        view?.cursorLineMoved()
     }
 
     func textDidChange(_ notification: Notification) {
@@ -301,22 +325,98 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // The text view edits its storage on the main thread only.
         nonisolated(unsafe) let textStorage = textStorage
         MainActor.assumeIsolated {
+            guard !replacing else { return }
             let text = textStorage.string as NSString
             let lines = text.lineRange(for: editedRange)
-            // A fence, a comment or the front matter changes the lines after
-            // it too; anything else changes only its own lines.
-            let edited = text.substring(with: lines)
-            let all = ["```", "~~~", "%%", "$$", "---"].contains { edited.contains($0) } || lines.location == 0
-            style(textStorage, range: all ? NSRange(location: 0, length: text.length) : lines)
+            // A fence, a comment or the front matter that came or went
+            // changes the lines after it too; any other edit, only its own.
+            let now = Self.structure(of: text)
+            let rest = now != structure
+            structure = now
+            style(textStorage, range: rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines)
         }
     }
 
     func restyle(all: Bool) {
         guard let storage = view?.textStorage else { return }
+        styling?.cancel()
+        structure = Self.structure(of: storage.string as NSString)
         storage.beginEditing()
         style(storage, range: NSRange(location: 0, length: storage.length))
         storage.endEditing()
         view?.typingAttributes = base
+    }
+
+    /// The first screens at once, the rest a part at a time between frames:
+    /// a long note opens without a pause, and its end is styled a moment later.
+    func restyleProgressively() {
+        guard let storage = view?.textStorage else { return }
+        styling?.cancel()
+        structure = Self.structure(of: storage.string as NSString)
+        view?.typingAttributes = base
+        let part = 12_000
+        func next(after start: Int) -> NSRange? {
+            let length = storage.length
+            guard start < length else { return nil }
+            let text = storage.string as NSString
+            let end = NSMaxRange(text.paragraphRange(for: NSRange(location: min(start + part, length - 1), length: 0)))
+            return NSRange(location: start, length: end - start)
+        }
+        guard let first = next(after: 0) else { return style(storage, range: NSRange(location: 0, length: 0)) }
+        style(storage, range: first)
+        var done = NSMaxRange(first)
+        guard done < storage.length else { return }
+        styling = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(1))
+                guard !Task.isCancelled, let storage = self.view?.textStorage, let range = next(after: done) else { return }
+                storage.beginEditing()
+                self.style(storage, range: range)
+                storage.endEditing()
+                done = NSMaxRange(range)
+            }
+        }
+    }
+
+    /// The lines that open or close a block, as written. It runs on every
+    /// key, so it looks at each line's first letters, and finds `$$` and
+    /// `%%` with one search each over the whole text.
+    static func structure(of text: NSString) -> [String] {
+        let length = text.length
+        var marks: [(Int, String)] = []
+        for needle in ["$$", "%%"] {
+            var from = 0
+            while from < length {
+                let found = text.range(of: needle, options: .literal, range: NSRange(location: from, length: length - from))
+                guard found.location != NSNotFound else { break }
+                let line = text.lineRange(for: found)
+                marks.append((line.location, text.substring(with: line)))
+                from = NSMaxRange(line)
+            }
+        }
+        var start = 0
+        while start < length {
+            var end = 0, contents = 0
+            text.getLineStart(nil, end: &end, contentsEnd: &contents, for: NSRange(location: start, length: 0))
+            var at = start
+            while at < contents, [32, 9, 62].contains(text.character(at: at)) { at += 1 }
+            if at < contents {
+                let first = text.character(at: at)
+                // ` ~ -
+                if first == 96 || first == 126 || first == 45 {
+                    let rest = text.substring(with: NSRange(location: at, length: contents - at))
+                    if rest.hasPrefix("```") || rest.hasPrefix("~~~") {
+                        marks.append((start, rest))
+                    } else if rest.hasPrefix("---"), rest.allSatisfy({ $0 == "-" || $0 == " " }) {
+                        marks.append((start, "---"))
+                    }
+                }
+            }
+            start = end
+        }
+        // In the order of the lines; where they are does not count, so a
+        // new line above a fence keeps the structure as it was.
+        return marks.sorted { $0.0 < $1.0 }.map(\.1)
     }
 
     private var fontSize: CGFloat { CGFloat(store.settings.textSize) }
@@ -519,8 +619,71 @@ final class NoteTextView: NSTextView {
         let length = (string as NSString).length
         let clamped = NSRange(location: min(range.location, length), length: min(range.length, length - min(range.location, length)))
         setSelectedRange(clamped)
-        scrollRangeToVisible(clamped)
+        if vimActive { scrollSoon() } else { scrollRangeToVisible(clamped) }
         updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    /// Visual block mode: a range on each row, and the cursor's row in view.
+    func showSelections(_ ranges: [NSRange], cursor: Int) {
+        let length = (string as NSString).length
+        let clamped = ranges.map { NSRange(location: min($0.location, length), length: min($0.length, length - min($0.location, length))) }
+        guard !clamped.isEmpty else { return }
+        setSelectedRanges(clamped.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: false)
+        scrollSoon()
+    }
+
+    // MARK: Scrolling with Neovim
+
+    /// Where Neovim's window starts, when it moved since the last scroll.
+    private var neovimTop: Int?
+    private var scrollPending = false
+
+    /// Neovim's window moved: `zz`, `<C-e>`, `<C-d>`.
+    func follow(top offset: Int) {
+        neovimTop = offset
+        scrollSoon()
+    }
+
+    /// The cursor and the window move in the same Neovim update, as two
+    /// messages: one scroll for both, a moment later, not two jumps.
+    private func scrollSoon() {
+        guard !scrollPending else { return }
+        scrollPending = true
+        DispatchQueue.main.async { [weak self] in
+            self?.scrollPending = false
+            self?.scroll()
+        }
+    }
+
+    private func scroll() {
+        guard let scroll = enclosingScrollView else { return }
+        let clip = scroll.contentView
+        let height = clip.bounds.height
+        var y = clip.bounds.origin.y
+        if let top = neovimTop, let line = lineRect(at: top) { y = line.minY - textContainerOrigin.y }
+        neovimTop = nil
+        // Whatever Neovim's window says, the cursor stays on screen: the view
+        // fits fewer lines than Neovim thinks, under a heading.
+        if let cursor = lineRect(at: selectedRange().location) {
+            let margin = min(cursor.height * 2, height / 4)
+            if cursor.minY - margin < y { y = cursor.minY - margin } else if cursor.maxY + margin > y + height { y = cursor.maxY + margin - height }
+        }
+        y = max(0, min(y, max(0, frame.height - height)))
+        guard abs(y - clip.bounds.origin.y) > 0.5 else { return }
+        let target = NSPoint(x: clip.bounds.origin.x, y: y)
+        // A short glide within two screens; a jump, as `G`, goes at once.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || abs(y - clip.bounds.origin.y) > height * 2 {
+            clip.setBoundsOrigin(target)
+            scroll.reflectScrolledClipView(clip)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            clip.animator().setBoundsOrigin(target)
+        } completionHandler: {
+            scroll.reflectScrolledClipView(clip)
+        }
     }
 
     /// The view never edits its own text while Neovim owns it.
@@ -555,6 +718,21 @@ final class NoteTextView: NSTextView {
         if vimActive { vim?.moveCursor(to: selectedRange().location) }
     }
 
+    private var tintedLine: NSRect?
+
+    func redrawCursorLine() {
+        if let line = cursorLineRect() { setNeedsDisplay(line.insetBy(dx: 0, dy: -1)) }
+    }
+
+    /// The cursor's line before and after a move, drawn again.
+    func cursorLineMoved() {
+        let now = selectedRange().length == 0 ? cursorLineRect() : nil
+        guard now != tintedLine else { return }
+        if let tintedLine { setNeedsDisplay(tintedLine.insetBy(dx: 0, dy: -1)) }
+        if let now { setNeedsDisplay(now.insetBy(dx: 0, dy: -1)) }
+        tintedLine = now
+    }
+
     /// The line that holds the cursor, tinted, with a thin accent bar.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
@@ -565,13 +743,18 @@ final class NoteTextView: NSTextView {
         NSRect(x: line.minX, y: line.minY + 2, width: 2.5, height: max(0, line.height - 4)).fill(using: .sourceOver)
     }
 
-    private func cursorLineRect() -> NSRect? {
+    private func cursorLineRect() -> NSRect? { lineRect(at: selectedRange().location) }
+
+    /// The line of text at [offset], across the view, laid out first when
+    /// it is far from what is on screen.
+    func lineRect(at offset: Int) -> NSRect? {
         guard let layout = textLayoutManager, let content = layout.textContentManager else { return nil }
-        let offset = selectedRange().location
         let documentStart = content.documentRange.location
-        guard let location = content.location(documentStart, offsetBy: offset) ?? (offset == 0 ? documentStart : nil),
-            let fragment = layout.textLayoutFragment(for: location)
-        else { return nil }
+        guard let location = content.location(documentStart, offsetBy: offset) ?? (offset == 0 ? documentStart : nil) else { return nil }
+        if layout.textLayoutFragment(for: location) == nil || !(layout.textLayoutFragment(for: location)!.state == .layoutAvailable) {
+            layout.ensureLayout(for: NSTextRange(location: location))
+        }
+        guard let fragment = layout.textLayoutFragment(for: location) else { return nil }
         let frame = fragment.layoutFragmentFrame
         let paragraphStart = content.offset(from: documentStart, to: fragment.rangeInElement.location)
         let inParagraph = offset - paragraphStart

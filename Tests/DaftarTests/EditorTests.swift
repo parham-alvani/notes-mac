@@ -161,4 +161,47 @@ import Testing
         let font = view.textStorage?.attribute(.font, at: 2, effectiveRange: nil) as? NSFont
         #expect((font?.pointSize ?? 0) > CGFloat(store.settings.textSize))
     }
+
+    func isCode(_ word: String) -> Bool {
+        let at = (view.string as NSString).range(of: word).location
+        let font = view.textStorage?.attribute(.font, at: at, effectiveRange: nil) as? NSFont
+        return font?.fontDescriptor.symbolicTraits.contains(.monoSpace) == true
+    }
+
+    @Test func aFenceRestylesWhatFollowsItAndNothingElseDoes() throws {
+        try "intro\nlater words\n\nmore prose\n".write(to: root.appending(path: "Notes/Fence.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Fence.md")
+        #expect(!isCode("later"))
+        view.setSelectedRange(NSRange(location: 6, length: 0))
+        view.insertText("```\n", replacementRange: view.selectedRange())
+        #expect(isCode("later") && isCode("more"))
+        #expect(!isCode("intro"))
+        // One backtick less, and there is no fence: the rest is prose again.
+        view.setSelectedRange(NSRange(location: 7, length: 1))
+        view.insertText("", replacementRange: view.selectedRange())
+        #expect(!isCode("later") && !isCode("more"))
+    }
+
+    @Test func theStructureIsTheBlockLinesInOrder() {
+        let text = "---\ntags: [a]\n---\n# T\n> ```swift\ncode\n```\n$$ x $$\na %% b\n| --- |\n- [ ] task\n"
+        #expect(EditorController.structure(of: text as NSString) == ["---", "---", "```swift", "```", "$$ x $$\n", "a %% b\n"])
+        // A new line above a fence changes where it is, not the structure.
+        #expect(EditorController.structure(of: ("\n" + text) as NSString) == EditorController.structure(of: text as NSString))
+    }
+
+    @Test func aLongNoteIsStyledToItsEnd() async throws {
+        let long = String(repeating: "Some prose to fill the note with words.\n", count: 1500) + "# The last heading\n"
+        try long.write(to: root.appending(path: "Notes/Long.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Long.md")
+        let at = (view.string as NSString).range(of: "The last heading").location
+        func size() -> CGFloat { (view.textStorage?.attribute(.font, at: at, effectiveRange: nil) as? NSFont)?.pointSize ?? 0 }
+        let heading = CGFloat(store.settings.textSize) * 1.75
+        // The first screens are styled at once; the end comes a moment later.
+        #expect(abs(size() - heading) > 0.5)
+        for _ in 0..<100 {
+            if abs(size() - heading) < 0.5 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(abs(size() - heading) < 0.5)
+    }
 }
