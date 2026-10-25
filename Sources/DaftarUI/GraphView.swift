@@ -101,11 +101,11 @@ struct GraphView: View {
         guard let minX = layout.x.min(), let maxX = layout.x.max(), let minY = layout.y.min(), let maxY = layout.y.max() else {
             return (1, size.width / 2, size.height / 2)
         }
-        let width = max(maxX - minX, 1), height = max(maxY - minY, 1)
-        let fit = min((size.width - 80) / width, (size.height - 80) / height, 2.2)
-        let scale = fit * zoom
-        let dx = size.width / 2 - (minX + maxX) / 2 * scale + pan.width
-        let dy = size.height / 2 - (minY + maxY) / 2 * scale + pan.height
+        let width = CGFloat(max(maxX - minX, 1)), height = CGFloat(max(maxY - minY, 1))
+        let fit: CGFloat = min((size.width - 80) / width, (size.height - 80) / height, 2.2)
+        let scale: CGFloat = fit * zoom
+        let dx: CGFloat = size.width / 2 - CGFloat(minX + maxX) / 2 * scale + pan.width
+        let dy: CGFloat = size.height / 2 - CGFloat(minY + maxY) / 2 * scale + pan.height
         return (scale, dx, dy)
     }
 
@@ -115,7 +115,7 @@ struct GraphView: View {
 
     private func canvas(_ layout: GraphLayout, size: CGSize) -> some View {
         let t = transform(layout, size: size)
-        let point = { (i: Int) in CGPoint(x: layout.x[i] * t.scale + t.dx, y: layout.y[i] * t.scale + t.dy) }
+        let point = { (i: Int) -> CGPoint in CGPoint(x: CGFloat(layout.x[i]) * t.scale + t.dx, y: CGFloat(layout.y[i]) * t.scale + t.dy) }
         let lit: Set<Int> = hovered.map { hover in
             Set(graph.edges.compactMap { $0.from == hover ? $0.to : $0.to == hover ? $0.from : nil } + [hover])
         } ?? []
@@ -185,12 +185,15 @@ struct GraphView: View {
     }
 
     private func nearest(to location: CGPoint, _ layout: GraphLayout, _ t: (scale: CGFloat, dx: CGFloat, dy: CGFloat)) -> Int? {
-        var best: (Int, CGFloat)?
+        var best: (index: Int, distance: Double)?
         for i in graph.nodes.indices {
-            let distance = hypot(layout.x[i] * t.scale + t.dx - location.x, layout.y[i] * t.scale + t.dy - location.y)
-            if distance < max(12, radius(graph.nodes[i]) + 4), best == nil || distance < best!.1 { best = (i, distance) }
+            let x = Double(layout.x[i]) * Double(t.scale) + Double(t.dx) - Double(location.x)
+            let y = Double(layout.y[i]) * Double(t.scale) + Double(t.dy) - Double(location.y)
+            let distance: Double = (x * x + y * y).squareRoot()
+            let reach = max(12.0, Double(radius(graph.nodes[i])) + 4)
+            if distance < reach, best == nil || distance < best!.distance { best = (i, distance) }
         }
-        return best?.0
+        return best?.index
     }
 
     // MARK: Data
