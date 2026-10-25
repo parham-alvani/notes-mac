@@ -193,7 +193,8 @@ public struct ConfigFile: Sendable, Equatable {
         vim_mode = false
         # Empty finds nvim in /opt/homebrew/bin, /usr/local/bin or /usr/bin.
         nvim = ""
-        # "user" loads your init.lua (with g:daftar set); "clean" loads none.
+        # "user" loads your init.lua (with g:daftar set); "clean" loads none;
+        # a path, as "~/.config/daftar/init.lua", loads that file instead.
         nvim_config = "user"
 
         [git]

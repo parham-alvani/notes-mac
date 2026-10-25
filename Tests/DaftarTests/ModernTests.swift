@@ -43,4 +43,10 @@ import Testing
         #expect(WindowModel.withoutProperties("---\ntags: [a]\n---\n# Title\nBody") == "# Title\nBody")
         #expect(WindowModel.withoutProperties("# No properties") == "# No properties")
     }
+
+    @Test func theNeovimConfigCanBeAFile() {
+        #expect(NeovimSession.arguments(config: "user") == ["--cmd", "let g:daftar = 1"])
+        #expect(NeovimSession.arguments(config: "clean") == ["--cmd", "let g:daftar = 1", "--clean"])
+        #expect(NeovimSession.arguments(config: "~/.config/daftar/init.lua") == ["--cmd", "let g:daftar = 1", "-u", NSHomeDirectory() + "/.config/daftar/init.lua"])
+    }
 }

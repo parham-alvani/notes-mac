@@ -27,14 +27,25 @@ final class NeovimSession {
     /// Nil when there is no `nvim` to run.
     init?(path: String, root: URL, view: NoteTextView, settings: AppSettings) {
         guard let executable = NeovimClient.locate(settings.nvimPath) else { return nil }
-        var arguments = ["--cmd", "let g:daftar = 1"]
-        if settings.nvimConfig == "clean" { arguments.append("--clean") }
+        let arguments = Self.arguments(config: settings.nvimConfig)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
         client = NeovimClient(executable: executable, arguments: arguments, directory: root, environment: environment)
         self.path = path
         self.root = root
         self.view = view
+    }
+
+    /// `nvim_config`: "user" is your init.lua, "clean" is none, and any
+    /// other value is a Lua or Vim file to start with instead, as `-u`.
+    static func arguments(config: String) -> [String] {
+        var arguments = ["--cmd", "let g:daftar = 1"]
+        switch config.trimmingCharacters(in: .whitespaces) {
+        case "clean": arguments.append("--clean")
+        case "user", "": break
+        case let file: arguments += ["-u", (file as NSString).expandingTildeInPath]
+        }
+        return arguments
     }
 
     var isNormal: Bool { !mode.hasPrefix("i") && !mode.hasPrefix("R") && !mode.hasPrefix("v") && !mode.hasPrefix("V") && mode != "\u{16}" }

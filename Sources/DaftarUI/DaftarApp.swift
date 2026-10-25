@@ -200,6 +200,11 @@ struct SettingsView: View {
         .frame(width: 520)
         .tint(Palette.accent)
     }
+
+    /// The Neovim config beside Daftar's own settings file, as the file names it.
+    static func daftarInit(_ settings: AppSettings) -> String {
+        settings.url.deletingLastPathComponent().appending(path: "init.lua").path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+    }
 }
 
 private struct GeneralSettings: View {
@@ -352,7 +357,11 @@ private struct EditorSettings: View {
                 TextField("Path", text: $settings.nvimPath, prompt: Text("Found on its own"))
                 Picker("Configuration", selection: $settings.nvimConfig) {
                     Text("Mine (init.lua)").tag("user")
+                    Text("Daftar's (\(SettingsView.daftarInit(settings)))").tag(SettingsView.daftarInit(settings))
                     Text("None (--clean)").tag("clean")
+                    if !["user", "clean", SettingsView.daftarInit(settings)].contains(settings.nvimConfig) {
+                        Text(settings.nvimConfig).tag(settings.nvimConfig)
+                    }
                 }
             } footer: {
                 Text("Your Neovim owns the buffer and writes the file; the editor shows it, with its colours, images and right-to-left text. Your config sees g:daftar = 1. ⌘ shortcuts stay with the app.")
