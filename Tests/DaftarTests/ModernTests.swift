@@ -69,4 +69,25 @@ import Testing
         model.open("N.md", line: nil, store: store)
         #expect(model.cursorLine == nil)
     }
+
+    @Test func everyIconInTheMapIsASymbolHere() {
+        let missing = IconicImage.symbols.filter { NSImage(systemSymbolName: $0.value, accessibilityDescription: nil) == nil }
+        #expect(missing.isEmpty, "\(missing.sorted { $0.key < $1.key })")
+    }
+
+    @Test func anIconSetHereGoesToIconicAndFollowsARename() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "daftar-icon-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: "Cars"), withIntermediateDirectories: true)
+        try "x".write(to: root.appending(path: "Cars/Fiat.md"), atomically: true, encoding: .utf8)
+        let store = VaultStore(settings: AppSettings(url: root.appending(path: "c/config.toml")), openVault: false)
+        store.openSynchronously(root)
+        store.setIcon("Cars", icon: "lucide-car", color: "blue")
+        store.setIcon("Cars/Fiat.md", icon: "🚗", color: nil)
+        #expect(store.iconic.icon(for: "Cars", folder: true) == Iconic.Icon(name: "lucide-car", color: "blue"))
+        _ = try await store.move("Cars", to: "Vehicles")
+        let data = try Data(contentsOf: root.appending(path: ".obsidian/plugins/iconic/data.json"))
+        #expect(Iconic.parse(data).icon(for: "Vehicles/Fiat.md", folder: false)?.name == "🚗")
+        #expect(store.iconic.icon(for: "Vehicles", folder: true)?.color == "blue")
+        #expect(store.iconic.icon(for: "Cars", folder: true) == nil)
+    }
 }

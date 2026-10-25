@@ -723,7 +723,8 @@ final class NoteTextView: NSTextView {
         guard abs(y - clip.bounds.origin.y) > 0.5 else { return }
         let target = NSPoint(x: clip.bounds.origin.x, y: y)
         // A short glide within two screens; a jump, as `G`, goes at once.
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || abs(y - clip.bounds.origin.y) > height * 2 {
+        // A window not on screen runs no animation: it would never get there.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || abs(y - clip.bounds.origin.y) > height * 2 || window?.isVisible != true {
             clip.setBoundsOrigin(target)
             scroll.reflectScrolledClipView(clip)
             return

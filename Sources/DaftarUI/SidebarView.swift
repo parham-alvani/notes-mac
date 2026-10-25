@@ -238,6 +238,7 @@ struct FileMenu: View {
         Button("New Note") { model.fileAction = .newNote(folder: parent) }
         Button("New Folder…") { model.fileAction = .newFolder(parent: parent) }
         Divider()
+        Button("Set Icon…") { model.iconTarget = IconTarget(path: item, folder: folder != nil || !store.index.files.contains(item)) }
         Button("Rename…") { model.fileAction = .rename(item) }
         Button("Move to…") { model.fileAction = .move(item) }
         Divider()

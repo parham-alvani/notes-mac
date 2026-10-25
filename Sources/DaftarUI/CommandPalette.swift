@@ -57,6 +57,9 @@ enum PaletteCommands {
             PaletteCommand(id: "vault-graph", title: "Show the Graph", group: "View", symbol: "point.3.connected.trianglepath.dotted", color: Palette.purple, shortcut: "⌥⌘G") {
                 model.graph = true
             },
+            PaletteCommand(id: "icon", title: "Set Icon for This Note", group: "Note", symbol: "face.smiling", color: Palette.yellow) {
+                if let note { model.iconTarget = IconTarget(path: note, folder: false) }
+            },
             PaletteCommand(id: "translate", title: "Translate the Selection or the Note", group: "Note", symbol: "translate", color: Palette.blue, shortcut: "⌃⌘T") {
                 model.translate(store: store)
             },

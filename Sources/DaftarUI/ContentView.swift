@@ -54,6 +54,7 @@ struct ContentView: View {
         .sheet(isPresented: $model.assistant) {
             AssistantSheet(model: model)
         }
+        .sheet(item: $model.iconTarget) { IconPicker(target: $0) }
         .translationPresentation(isPresented: Binding { model.translation != nil } set: { if !$0 { model.translation = nil } }, text: model.translation ?? "")
         .sheet(item: $model.taskEdit) { task in
             TaskEditSheet(task: task)

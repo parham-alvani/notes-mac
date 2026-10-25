@@ -114,6 +114,8 @@ final class WindowModel {
     var graph = false
     /// ⌥⌘A: Apple Intelligence on the open note.
     var assistant = false
+    /// "Set Icon…": the note or folder the icon picker is open on.
+    var iconTarget: IconTarget?
     /// ⌃⌘T: the text the system's translation panel shows.
     var translation: String?
 

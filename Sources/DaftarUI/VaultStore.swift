@@ -208,6 +208,26 @@ final class VaultStore {
 
     // MARK: Files
 
+    /// Iconic's file in the vault, which Obsidian and the phone read too.
+    private func iconicFile(_ root: URL) -> URL { root.appending(path: ".obsidian/plugins/iconic/data.json") }
+
+    /// Gives [path] an icon -- a Lucide name or an emoji -- and a colour, in
+    /// Iconic's own file; with both nil, takes them away.
+    func setIcon(_ path: String, icon: String?, color: String?) {
+        guard let root else { return }
+        let file = iconicFile(root)
+        do {
+            let data = try Iconic.setting(path, icon: icon, color: color, in: try? Data(contentsOf: file))
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file, options: .atomic)
+            iconic = Iconic.parse(data)
+            revision += 1
+            requestSync()
+        } catch {
+            notice = "The icon could not be saved: Iconic's file could not be read."
+        }
+    }
+
     /// Bookmarks the file, or takes the bookmark away.
     func toggleBookmark(_ path: String) {
         guard let root else { return }
@@ -302,6 +322,13 @@ final class VaultStore {
         changed(touched)
         requestSync()
         if bookmarks.follow(moves, folder: index.files.contains(to) ? nil : (from, to)) { saveBookmarks(root) }
+        // The icons follow too, as Iconic makes them follow in Obsidian.
+        if let data = try? Data(contentsOf: iconicFile(root)),
+            let moved = try? Iconic.moving(moves, folder: index.files.contains(to) ? nil : (from, to), in: data)
+        {
+            try? moved.write(to: iconicFile(root), options: .atomic)
+            iconic = Iconic.parse(moved)
+        }
         let count = moves.count
         notice = count > 1 ? "Moved \(count) files; the links to them follow." : nil
         return moves

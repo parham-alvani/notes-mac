@@ -11,6 +11,11 @@ public struct Iconic: Sendable {
         public var color: String?
 
         public var isEmoji: Bool { name.map { !$0.hasPrefix("lucide-") } ?? false }
+
+        public init(name: String?, color: String?) {
+            self.name = name
+            self.color = color
+        }
     }
 
     /// A compiled `Regex` is not `Sendable`, but it is only ever read.
@@ -73,5 +78,44 @@ public struct Iconic: Sendable {
             if rule.all ? hits.allSatisfy({ $0 }) : hits.contains(true) { return rule.icon }
         }
         return nil
+    }
+
+    // MARK: Writing
+
+    /// The colours Iconic offers by name, in its order.
+    public static let colors = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink", "gray"]
+
+    /// Iconic's file with [path]'s icon set to [icon] and [color]; with
+    /// both nil the entry goes. Iconic keeps files and folders alike in
+    /// `fileIcons`, and its own keys in an entry (`unsynced`) stay.
+    public static func setting(_ path: String, icon: String?, color: String?, in data: Data?) throws -> Data {
+        var json = try data.map { try OrderedJSON.parse(String(decoding: $0, as: UTF8.self)) } ?? .object([])
+        var icons = json["fileIcons"] ?? .object([])
+        var entry = icons[path] ?? .object([])
+        entry["icon"] = icon.map(OrderedJSON.string)
+        entry["color"] = color.map(OrderedJSON.string)
+        icons[path] = entry["icon"] == nil && entry["color"] == nil ? nil : entry
+        json["fileIcons"] = icons
+        return Data(json.text.utf8)
+    }
+
+    /// Iconic's file after files and folders moved: each entry under its new
+    /// path, where it was in the file. Nil when no entry moved.
+    public static func moving(_ moves: [String: String], folder: (from: String, to: String)?, in data: Data) throws -> Data? {
+        var json = try OrderedJSON.parse(String(decoding: data, as: UTF8.self))
+        guard case .object(let members) = json["fileIcons"] else { return nil }
+        var changed = false
+        let renamed = members.map { key, value -> (String, OrderedJSON) in
+            var new = moves[key]
+            if new == nil, let folder, key == folder.from || key.hasPrefix(folder.from + "/") {
+                new = folder.to + key.dropFirst(folder.from.count)
+            }
+            guard let new, new != key else { return (key, value) }
+            changed = true
+            return (new, value)
+        }
+        guard changed else { return nil }
+        json["fileIcons"] = .object(renamed)
+        return Data(json.text.utf8)
     }
 }

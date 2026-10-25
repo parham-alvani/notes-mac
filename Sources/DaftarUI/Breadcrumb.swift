@@ -95,6 +95,7 @@ struct Breadcrumb: View {
     /// The note itself: its name, bold, and the commands on the file.
     private var noteCrumb: some View {
         Menu {
+            Button("Set Icon…") { model.iconTarget = IconTarget(path: path, folder: false) }
             Button("Rename…") { model.fileAction = .rename(path) }
             Button("Move to…") { model.fileAction = .move(path) }
             Button(store.bookmarks.contains(path) ? "Remove Bookmark" : "Bookmark") { store.toggleBookmark(path) }

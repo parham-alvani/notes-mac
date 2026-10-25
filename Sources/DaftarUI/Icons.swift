@@ -36,7 +36,7 @@ struct IconicImage: View {
 
     static let slot: CGFloat = 18
 
-    private static func known(_ symbol: String) -> String? {
+    static func known(_ symbol: String) -> String? {
         NSImage(systemSymbolName: symbol, accessibilityDescription: nil) == nil ? nil : symbol
     }
 
@@ -81,6 +81,28 @@ struct IconicImage: View {
         "lucide-file": "doc", "lucide-file-text": "doc.text", "lucide-calendar": "calendar", "lucide-star": "star",
         "lucide-music": "music.note", "lucide-plane": "airplane", "lucide-code": "chevron.left.forwardslash.chevron.right",
         "lucide-terminal": "terminal", "lucide-user": "person", "lucide-users": "person.2", "lucide-settings": "gearshape",
+        // More of Lucide's common ones, for the icon picker.
+        "lucide-archive": "archivebox", "lucide-award": "rosette", "lucide-baby": "figure.and.child.holdinghands",
+        "lucide-bell": "bell", "lucide-bike": "bicycle", "lucide-bookmark": "bookmark", "lucide-bot": "cpu",
+        "lucide-box": "shippingbox", "lucide-bug": "ant", "lucide-cake": "birthday.cake", "lucide-calculator": "plus.forwardslash.minus",
+        "lucide-camera": "camera", "lucide-check": "checkmark", "lucide-clipboard": "clipboard", "lucide-clock": "clock",
+        "lucide-cloud": "cloud", "lucide-coffee": "cup.and.saucer", "lucide-coins": "dollarsign.circle", "lucide-compass": "safari",
+        "lucide-cpu": "cpu", "lucide-credit-card": "creditcard", "lucide-dumbbell": "dumbbell", "lucide-film": "film",
+        "lucide-flag": "flag", "lucide-flask-conical": "flask", "lucide-folder-open": "folder.badge.gearshape", "lucide-gamepad-2": "gamecontroller",
+        "lucide-gift": "gift", "lucide-git-branch": "arrow.triangle.branch", "lucide-hammer": "hammer", "lucide-headphones": "headphones",
+        "lucide-hospital": "cross.case", "lucide-inbox": "tray", "lucide-key": "key", "lucide-languages": "character.bubble",
+        "lucide-leaf": "leaf", "lucide-lightbulb": "lightbulb", "lucide-link": "link", "lucide-list": "list.bullet",
+        "lucide-list-todo": "checklist", "lucide-megaphone": "megaphone", "lucide-message-circle": "message", "lucide-mic": "mic",
+        "lucide-monitor": "display", "lucide-mountain": "mountain.2", "lucide-newspaper": "newspaper", "lucide-notebook": "book.pages",
+        "lucide-package": "shippingbox", "lucide-palette": "paintpalette", "lucide-paperclip": "paperclip", "lucide-pen": "pencil",
+        "lucide-phone": "phone", "lucide-pill": "pills", "lucide-pin": "pin", "lucide-rocket": "airplane.departure",
+        "lucide-scale": "scalemass", "lucide-school": "building", "lucide-search": "magnifyingglass", "lucide-server": "server.rack",
+        "lucide-shield": "shield", "lucide-ship": "ferry", "lucide-shirt": "tshirt", "lucide-smartphone": "iphone",
+        "lucide-sparkles": "sparkles", "lucide-sprout": "leaf.arrow.triangle.circlepath", "lucide-stethoscope": "stethoscope",
+        "lucide-swords": "shield.lefthalf.filled", "lucide-tag": "tag", "lucide-target": "target", "lucide-tent": "tent",
+        "lucide-thumbs-up": "hand.thumbsup", "lucide-trash-2": "trash", "lucide-trending-up": "chart.line.uptrend.xyaxis",
+        "lucide-trophy": "trophy", "lucide-umbrella": "umbrella", "lucide-wallet": "wallet.bifold", "lucide-waves": "water.waves",
+        "lucide-wifi": "wifi", "lucide-zap": "bolt",
     ]
 }
 
