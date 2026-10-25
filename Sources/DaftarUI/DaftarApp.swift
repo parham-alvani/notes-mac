@@ -44,13 +44,13 @@ public struct DaftarApp: App {
                 Divider()
                 Button("Find…") { window?.find(.showFindInterface) }
                     .keyboardShortcut("f")
-                    .disabled(window?.path == nil || window?.showsToday == true)
+                    .disabled(window?.path == nil || window?.showsPage == true)
                 Button("Find Next") { window?.find(.nextMatch) }
                     .keyboardShortcut("g")
-                    .disabled(window?.path == nil || window?.showsToday == true)
+                    .disabled(window?.path == nil || window?.showsPage == true)
                 Button("Find Previous") { window?.find(.previousMatch) }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
-                    .disabled(window?.path == nil || window?.showsToday == true)
+                    .disabled(window?.path == nil || window?.showsPage == true)
             }
             CommandGroup(after: .newItem) {
                 Button("Open Vault…") { chooseVault(store) }
@@ -75,14 +75,14 @@ public struct DaftarApp: App {
                     .disabled(window == nil)
                 Button("Translate…") { window?.translate(store: store) }
                     .keyboardShortcut("t", modifiers: [.command, .control])
-                    .disabled(window?.path == nil || window?.showsToday == true)
+                    .disabled(window?.path == nil || window?.showsPage == true)
                 Button("Apple Intelligence…") { window?.assistant = true }
                     .keyboardShortcut("a", modifiers: [.command, .option])
-                    .disabled(window?.path == nil || window?.showsToday == true)
+                    .disabled(window?.path == nil || window?.showsPage == true)
                 Divider()
                 Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
                     .keyboardShortcut("e")
-                    .disabled(window?.path == nil || window?.showsToday == true)
+                    .disabled(window?.path == nil || window?.showsPage == true)
                 Divider()
                 Button("Bigger Text") { store.settings.textSize = min(store.settings.textSize + 1, 28) }
                     .keyboardShortcut("+")
@@ -101,6 +101,8 @@ public struct DaftarApp: App {
                 Divider()
                 Button("Today") { window?.showsToday = true }
                     .keyboardShortcut("1")
+                Button("Board") { window?.showsBoard = true }
+                    .keyboardShortcut("2")
                 Divider()
                 Button("Sync Now") { Task { await store.sync() } }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
@@ -436,30 +438,30 @@ struct FileCommands: Commands {
             Button("New Folder…") { window?.fileAction = .newFolder(parent: window?.currentFolder ?? "") }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(window == nil)
-            Button("New Tab") { openWindow(value: TabRequest(path: window?.showsToday == true ? nil : window?.path)) }
+            Button("New Tab") { openWindow(value: TabRequest(path: window?.showsPage == true ? nil : window?.path)) }
                 .keyboardShortcut("t")
             Button("New Window") { openWindow(id: "main") }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             Divider()
             Button("Rename…") { if let path = window?.path { window?.fileAction = .rename(path) } }
                 .keyboardShortcut("r")
-                .disabled(window?.path == nil || window?.showsToday == true)
+                .disabled(window?.path == nil || window?.showsPage == true)
             Button("Move to…") { if let path = window?.path { window?.fileAction = .move(path) } }
                 .keyboardShortcut("m", modifiers: [.command, .option])
-                .disabled(window?.path == nil || window?.showsToday == true)
+                .disabled(window?.path == nil || window?.showsPage == true)
             Button("Extract Selection to New Note…") {
                 NSApp.sendAction(#selector(NoteTextView.extractSelection(_:)), to: nil, from: nil)
             }
             .keyboardShortcut("x", modifiers: [.command, .option])
-            .disabled(window?.editing != true || window?.showsToday == true)
+            .disabled(window?.editing != true || window?.showsPage == true)
             Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
-                .disabled(window?.path == nil || window?.showsToday == true)
+                .disabled(window?.path == nil || window?.showsPage == true)
             Divider()
             Button(window?.path.map { store.bookmarks.contains($0) } == true ? "Remove Bookmark" : "Bookmark") {
                 if let path = window?.path { store.toggleBookmark(path) }
             }
             .keyboardShortcut("d")
-            .disabled(window?.path == nil || window?.showsToday == true)
+            .disabled(window?.path == nil || window?.showsPage == true)
         }
     }
 }

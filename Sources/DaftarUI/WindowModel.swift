@@ -7,8 +7,19 @@ import WebKit
 /// What one window is showing, and where it has been.
 @MainActor @Observable
 final class WindowModel {
-    /// What the detail column shows: the Today page, or the note in [request].
-    var showsToday = false
+    /// What the detail column shows: a page, Today or the board, or else
+    /// the note in [request].
+    var page: Page?
+    var showsToday: Bool {
+        get { page == .today }
+        set { page = newValue ? .today : (page == .today ? nil : page) }
+    }
+    var showsBoard: Bool {
+        get { page == .board }
+        set { page = newValue ? .board : (page == .board ? nil : page) }
+    }
+    /// A page, not a note, is on screen.
+    var showsPage: Bool { page != nil }
     var request: ReaderRequest?
     /// The note is open in the editor rather than the reader.
     var editing = false
@@ -160,7 +171,7 @@ final class WindowModel {
         }
         forward.removeAll()
         request = next
-        showsToday = false
+        page = nil
         recent.removeAll { $0 == path }
         recent.insert(path, at: 0)
         if recent.count > 30 { recent.removeLast() }
@@ -170,14 +181,14 @@ final class WindowModel {
         guard let previous = back.popLast() else { return }
         if let request { forward.append(request) }
         request = previous
-        showsToday = false
+        page = nil
     }
 
     func goForward() {
         guard let next = forward.popLast() else { return }
         if let request { back.append(request) }
         request = next
-        showsToday = false
+        page = nil
     }
 
     /// `daftar://open?path=Folder/Note.md[&mode=edit]`, which the
@@ -190,8 +201,8 @@ final class WindowModel {
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard url.host == "open", let path = items.first(where: { $0.name == "path" })?.value else { return }
-        if path == "today" {
-            showsToday = true
+        if path == "today" || path == "board" {
+            page = path == "today" ? .today : .board
             return
         }
         open(path, store: store)
@@ -204,7 +215,7 @@ final class WindowModel {
 
     /// Edit › Find: the editor's own find bar, or the reader's.
     func find(_ action: NSTextFinder.Action) {
-        guard !showsToday, path != nil else { return }
+        guard !showsPage, path != nil else { return }
         if editing {
             let item = NSMenuItem()
             item.tag = action.rawValue
@@ -222,7 +233,7 @@ final class WindowModel {
     /// The folder a new note goes in: the open note's, as Obsidian's
     /// "new file location: current" does.
     var currentFolder: String {
-        guard let path, !showsToday else { return "" }
+        guard let path, !showsPage else { return "" }
         return path.split(separator: "/").dropLast().joined(separator: "/")
     }
 
@@ -436,4 +447,9 @@ enum NSPalette {
             srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
             blue: CGFloat(value & 0xFF) / 255, alpha: alpha)
     }
+}
+
+/// A page the detail column shows in place of a note.
+enum Page: Hashable {
+    case today, board
 }

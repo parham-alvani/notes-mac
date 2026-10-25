@@ -114,4 +114,13 @@ import Testing
         // A folder found on disk, as at launch, is listed too.
         #expect(Vault.index(root).emptyFolders == ["Notes/Ideas", "Notes/Ideas/Later"])
     }
+
+    @Test func aCardDroppedOnAColumnChangesOnlyItsLine() throws {
+        let task = try #require(store.index.tasks.first { $0.task.text == "Second" })
+        #expect(store.moveTask(task, to: .status("/")))
+        #expect(try text("Notes/Plan.md") == "# Plan\n- [ ] First 📅 2026-10-30\n- [/] Second\n")
+        // The card is old now: its line says something else, and nothing is written.
+        #expect(!store.moveTask(task, to: .status("x")))
+        #expect(try text("Notes/Plan.md") == "# Plan\n- [ ] First 📅 2026-10-30\n- [/] Second\n")
+    }
 }

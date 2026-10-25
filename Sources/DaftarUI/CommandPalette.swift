@@ -18,13 +18,16 @@ struct PaletteCommand: Identifiable {
 @MainActor
 enum PaletteCommands {
     static func all(model: WindowModel, store: VaultStore, openWindow: OpenWindowAction, openSettings: OpenSettingsAction) -> [PaletteCommand] {
-        let note = model.showsToday ? nil : model.path
+        let note = model.showsPage ? nil : model.path
         var out: [PaletteCommand] = [
             PaletteCommand(id: "open", title: "Quick Open", group: "Go", symbol: "magnifyingglass", color: Palette.accent, shortcut: "⌘P") {
                 model.openSwitcher()
             },
             PaletteCommand(id: "today", title: "Today", group: "Go", symbol: "sun.max.fill", color: Palette.yellow, shortcut: "⌘1") {
                 model.showsToday = true
+            },
+            PaletteCommand(id: "board", title: "Task Board", group: "Go", symbol: "rectangle.split.3x1.fill", color: Palette.purple, shortcut: "⌘2") {
+                model.showsBoard = true
             },
             PaletteCommand(id: "random", title: "Open Random Note", group: "Go", symbol: "dice.fill", color: Palette.purple) {
                 let notes = store.index.notes.keys.filter { !store.excluded.contains($0) }

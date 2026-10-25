@@ -5,6 +5,7 @@ import SwiftUI
 /// What a sidebar row stands for.
 enum SidebarItem: Hashable {
     case today
+    case board
     case file(String)
     /// A bookmark: the same file as its row in the tree, a row of its own.
     case bookmark(String)
@@ -50,6 +51,14 @@ struct FilesList: View {
                 }
                 .badge(groups.today.count + groups.overdue.count)
                     .tag(SidebarItem.today)
+                Label {
+                    Text("Board")
+                } icon: {
+                    Image(systemName: "rectangle.split.3x1.fill").resizable().scaledToFit().foregroundStyle(Palette.purple)
+                        .frame(width: IconicImage.slot, height: IconicImage.slot)
+                }
+                .badge(groups.inProgress.count)
+                .tag(SidebarItem.board)
             }
             let bookmarks = store.bookmarks.entries.filter { $0.folder || store.index.files.contains($0.path) }
             if !bookmarks.isEmpty {
@@ -147,14 +156,16 @@ struct FilesList: View {
     private var selection: Binding<SidebarItem?> {
         Binding {
             if model.showsToday { return .today }
+            if model.showsBoard { return .board }
             return model.path.map { .file($0) }
         } set: { item in
             switch item {
             case .today: model.showsToday = true
+            case .board: model.showsBoard = true
             case .tag(let tag): model.searchTag(tag)
             case .file(let path) where store.index.files.contains(path),
                 .bookmark(let path) where store.index.files.contains(path):
-                if path != model.path || model.showsToday { model.open(path, store: store) }
+                if path != model.path || model.showsPage { model.open(path, store: store) }
             default: break
             }
         }
@@ -342,7 +353,7 @@ struct InspectorView: View {
     }
 
     var body: some View {
-        if !model.showsToday, let path = model.path, let note = store.index.notes[path] {
+        if !model.showsPage, let path = model.path, let note = store.index.notes[path] {
             List {
                 if !note.parsed.headings.isEmpty {
                     Section("Outline") {

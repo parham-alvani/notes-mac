@@ -32,7 +32,7 @@ struct ContentView: View {
                         detail
                     }
                 }
-                .inspector(isPresented: Binding { model.inspector && !model.showsToday } set: { model.inspector = $0 }) {
+                .inspector(isPresented: Binding { model.inspector && !model.showsPage } set: { model.inspector = $0 }) {
                     InspectorView(model: model)
                         .inspectorColumnWidth(min: 200, ideal: 260, max: 400)
                 }
@@ -40,7 +40,7 @@ struct ContentView: View {
         }
         .tint(Palette.accent)
         .navigationTitle(title)
-        .navigationSubtitle(model.showsToday ? store.name : model.path.map { folder(of: $0) } ?? "")
+        .navigationSubtitle(model.showsPage ? store.name : model.path.map { folder(of: $0) } ?? "")
         .toolbar { toolbar }
         .sheet(isPresented: $model.quickOpen) {
             QuickOpenView(model: model)
@@ -93,6 +93,7 @@ struct ContentView: View {
 
     private var title: String {
         if model.showsToday { return "Today" }
+        if model.showsBoard { return "Board" }
         return model.path.map(Vault.title(of:)) ?? store.name
     }
 
@@ -101,6 +102,8 @@ struct ContentView: View {
             ProgressView("Reading \(store.name)…")
         } else if model.showsToday {
             TodayView(model: model)
+        } else if model.showsBoard {
+            BoardView(model: model)
         } else if let path = model.path, model.editing {
             EditorView(path: path, store: store) { text, replace in
                 model.extractReplace = replace
@@ -151,7 +154,7 @@ struct ContentView: View {
                 .disabled(!model.canGoForward)
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            if let path = model.path, !model.showsToday {
+            if let path = model.path, !model.showsPage {
                 Picker("Mode", selection: $model.editing) {
                     Label("Read", systemImage: "book").tag(false)
                     Label("Edit", systemImage: "square.and.pencil").tag(true)

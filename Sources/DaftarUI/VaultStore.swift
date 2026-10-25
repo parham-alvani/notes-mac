@@ -329,6 +329,24 @@ final class VaultStore {
         requestSync()
     }
 
+    /// Moves [task] to a board column. False when its line no longer holds
+    /// the task the card showed.
+    func moveTask(_ task: VaultTask, to drop: TaskBoard.Drop) -> Bool {
+        guard let root, url(of: task.path) != nil, index.files.contains(task.path) else { return false }
+        do {
+            try VaultEdits.apply(task.path, in: root) { text in
+                try VaultEdits.moveTask(in: text, line: task.task.line, task: task.task, to: drop, today: .today())
+            }
+            changed([task.path])
+            requestSync()
+            return true
+        } catch {
+            notice = "\(TaskRow.plain(task.task.text)) changed in its note before the drop. Nothing was written."
+            changed([task.path])
+            return false
+        }
+    }
+
     /// Writes the task on [line] of [path] from [fields]. False when the
     /// line no longer holds the task the form was opened on.
     func editTask(path: String, line: Int, before: TaskFields, fields: TaskFields) -> Bool {
