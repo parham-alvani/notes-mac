@@ -602,12 +602,16 @@ window.daftar = {
     else if (note.heading) this.scrollTo(note.heading);
     else if (note.line != null) this.scrollToLine(note.line);
     else window.scrollTo(0, 0);
+    // The reading cursor: on the line the editor was at, on the same block
+    // when the note is shown again, or nowhere in a note just opened.
+    reading.restore(note.line ?? (keep !== null ? reading.line : null));
     decorate(main);
     progress();
     await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
     decorate(main);
     // Embeds, queries and pictures made the page longer.
     progress();
+    reading.redraw();
     if (finder.bar?.classList.contains("is-open")) search(finder.input.value);
   },
 
@@ -699,6 +703,120 @@ document.addEventListener("click", (event) => {
   }
   post({ kind: "external", url: link.href });
 });
+
+/**
+ * The reading cursor: one block at a time -- a paragraph, a list item, a
+ * heading -- tinted, with the accent bar the editor's cursor line has.
+ * `j` and `k` or the arrows move it, `g` and `G` or Home and End go to the
+ * ends, a click puts it there. The app hears its line, so the editor opens
+ * where the reading is.
+ */
+const reading = {
+  block: null,
+  line: null,
+  box: null,
+
+  /** The blocks in order: the innermost with a source line, not an embed's. */
+  blocks() {
+    return [...document.querySelectorAll("#note [data-line]")].filter(
+      (el) => el.tagName !== "INPUT" && !el.parentElement.closest(".embed-body, .preview") && (el.tagName === "LI" || !el.querySelector("[data-line]:not(input)")),
+    );
+  },
+
+  /** Where [block] is on the page: a list item without the list in it. */
+  rect(block) {
+    const box = block.getBoundingClientRect();
+    let bottom = box.bottom;
+    const nested = block.tagName === "LI" ? block.querySelector(":scope > ul, :scope > ol") : null;
+    if (nested) bottom = nested.getBoundingClientRect().top;
+    const main = document.getElementById("note").getBoundingClientRect();
+    return { top: box.top + window.scrollY, height: Math.max(bottom - box.top, 4), left: main.left + window.scrollX, width: main.width };
+  },
+
+  place(block, scroll) {
+    if (!block) return;
+    this.block = block;
+    this.line = Number(block.dataset.line);
+    if (!this.box) {
+      this.box = Object.assign(document.createElement("div"), { id: "reading-cursor" });
+      document.body.appendChild(this.box);
+    }
+    this.redraw();
+    if (scroll) {
+      const { top, height } = this.rect(block);
+      const above = top - 80 < window.scrollY;
+      const below = top + height + 60 > window.scrollY + window.innerHeight;
+      // A block taller than the window starts at the top.
+      if (above || (below && height > window.innerHeight - 140)) window.scrollTo({ top: top - 80, behavior: "smooth" });
+      else if (below) window.scrollTo({ top: top + height + 60 - window.innerHeight, behavior: "smooth" });
+    }
+    post({ kind: "cursor", line: this.line });
+  },
+
+  redraw() {
+    if (!this.box) return;
+    if (!this.block?.isConnected) {
+      this.box.classList.remove("is-on");
+      return;
+    }
+    const { top, height, left, width } = this.rect(this.block);
+    Object.assign(this.box.style, { top: `${top - 3}px`, height: `${height + 6}px`, left: `${left - 14}px`, width: `${width + 28}px` });
+    this.box.classList.add("is-on");
+  },
+
+  /** On the block of [line], after the note was drawn again. */
+  restore(line) {
+    if (line == null) {
+      this.block = null;
+      this.line = null;
+      this.redraw();
+      return;
+    }
+    const block = this.blocks().filter((b) => Number(b.dataset.line) <= line).pop() ?? this.blocks()[0];
+    this.block = block ?? null;
+    this.line = block ? Number(block.dataset.line) : null;
+    this.redraw();
+  },
+
+  move(step) {
+    const blocks = this.blocks();
+    if (blocks.length === 0) return;
+    let at = blocks.indexOf(this.block);
+    const top = this.block?.getBoundingClientRect().top;
+    // Scrolled away from it: the cursor starts again from what is on screen.
+    if (at < 0 || top < -40 || top > window.innerHeight) {
+      at = blocks.findIndex((b) => b.getBoundingClientRect().bottom > 60);
+      if (at < 0) at = blocks.length - 1;
+      return this.place(blocks[at], true);
+    }
+    this.place(blocks[Math.max(0, Math.min(blocks.length - 1, at + step))], true);
+  },
+
+  end(last) {
+    const blocks = this.blocks();
+    this.place(last ? blocks.at(-1) : blocks[0], true);
+  },
+};
+
+document.addEventListener("keydown", (event) => {
+  if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+  if (event.target.closest?.("input, textarea, [contenteditable], .find-bar") || document.querySelector(".zoom")) return;
+  const moves = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
+  if (event.key in moves) reading.move(moves[event.key]);
+  else if (event.key === "g" || event.key === "Home") reading.end(false);
+  else if (event.key === "G" || event.key === "End") reading.end(true);
+  else return;
+  event.preventDefault();
+});
+
+document.addEventListener("mousedown", (event) => {
+  if (event.button !== 0) return;
+  const blocks = reading.blocks();
+  for (let el = event.target; el && el.id !== "note"; el = el.parentElement) {
+    if (blocks.includes(el)) return reading.place(el, false);
+  }
+});
+window.addEventListener("resize", () => reading.redraw());
 
 /** A percent-encoded part of a link, or the text as it is when it is not. */
 function decoded(text) {

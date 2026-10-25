@@ -204,4 +204,15 @@ import Testing
         }
         #expect(abs(size() - heading) < 0.5)
     }
+
+    @Test func theEditorOpensAtTheReadingLineAndSaysWhereItIs() async throws {
+        try "zero\none\ntwo\nthree\n".write(to: root.appending(path: "Notes/Lines.md"), atomically: true, encoding: .utf8)
+        var reported: [Int] = []
+        controller.onCursor = { reported.append($0) }
+        controller.load("Notes/Lines.md")
+        controller.go(toLine: 2)
+        #expect(view.selectedRange().location == ("zero\none\n" as NSString).length)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(reported.last == 2)
+    }
 }

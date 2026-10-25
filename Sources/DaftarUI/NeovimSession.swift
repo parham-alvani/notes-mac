@@ -87,6 +87,10 @@ final class NeovimSession {
             try await client.request("nvim_buf_attach", [0, false, [:]])
             try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel))]])
             state = .running
+            if let offset = startOffset {
+                startOffset = nil
+                go(to: offset)
+            }
         } catch {
             state = .failed(String(describing: error))
             status = "Neovim did not start: \(error)"
@@ -280,6 +284,20 @@ final class NeovimSession {
         saveSoon?.cancel()
         guard case .running = state else { return }
         _ = try? await client.request("nvim_command", ["silent! update"])
+    }
+
+    /// Where the cursor goes once Neovim runs: the line the reader was on.
+    private var startOffset: Int?
+
+    /// The cursor to [offset], with its line in the middle, as `zz` puts it.
+    func go(to offset: Int) {
+        guard case .running = state else {
+            startOffset = offset
+            return
+        }
+        let position = mirror.position(of: offset)
+        client.notify("nvim_win_set_cursor", [0, [.int(Int64(position.row)), .int(Int64(position.byteColumn))]])
+        client.notify("nvim_command", ["normal! zz"])
     }
 
     /// The note moved: the buffer takes the new name, so no later save

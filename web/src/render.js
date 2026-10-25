@@ -429,7 +429,10 @@ function sourceLines(md) {
   md.core.ruler.push("source_lines", (state) => {
     const offset = state.env.lineOffset ?? 0;
     for (const token of state.tokens) {
-      if (token.map && token.nesting === 1 && token.level === 0 && !token.attrGet("data-line")) {
+      // Top-level blocks, and every list item: the reading cursor steps
+      // through a list one item at a time.
+      const block = token.level === 0 || token.type === "list_item_open";
+      if (token.map && token.nesting === 1 && block && !token.attrGet("data-line")) {
         token.attrSet("data-line", String(token.map[0] + offset));
       }
     }

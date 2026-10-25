@@ -666,3 +666,18 @@ li.task-list-item.is-checked .query-date { text-decoration: none; opacity: 0.75;
 .preview-body > :last-child { margin-bottom: 0; }
 .preview-body h1, .preview-body h2, .preview-body h3 { margin-top: 0.8em; }
 .preview-empty { color: var(--text-faint); font-style: italic; }
+
+/* The reading cursor: the block being read, as the editor tints its line. */
+#reading-cursor {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 80%, transparent);
+  opacity: 0;
+  transition: top 0.14s ease-out, height 0.14s ease-out, opacity 0.2s;
+}
+#reading-cursor.is-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  #reading-cursor { transition: none; }
+}

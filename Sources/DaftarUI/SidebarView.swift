@@ -250,12 +250,39 @@ struct SearchResults: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
     @ViewState private var hits: [SearchIndex.Hit] = []
-    @ViewState private var searched = false
+    /// The query [hits] are for: the list never shows another one's.
+    @ViewState private var searchedFor: String?
+    /// Notes by name, as ⌘P finds them, at once on each key.
+    @ViewState private var names: [String] = []
+
+    private var searched: Bool { searchedFor == model.query }
 
     var body: some View {
         List {
-            Section(searched ? "\(hits.count == 100 ? "100+" : String(hits.count)) notes" : "Searching…") {
-                ForEach(hits, id: \.path) { hit in
+            if !names.isEmpty {
+                Section("Notes") {
+                    ForEach(names, id: \.self) { path in
+                        Button {
+                            model.open(path, store: store)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: Base.isBase(path) ? "tablecells" : "doc.text").foregroundStyle(Base.isBase(path) ? Palette.green : Palette.accent)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(Vault.title(of: path)).font(.headline).lineLimit(1)
+                                    Text(path.split(separator: "/").dropLast().joined(separator: " › "))
+                                        .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { FileMenu(path: path, model: model) }
+                    }
+                }
+            }
+            Section(searched ? "In the text · \(hits.count == 100 ? "100+" : String(hits.count))" : "Searching the text…") {
+                ForEach(searched ? hits : [], id: \.path) { hit in
                     Button {
                         model.findText = firstWord
                         model.open(hit.path, store: store)
@@ -279,8 +306,10 @@ struct SearchResults: View {
         }
         .listStyle(.sidebar)
         .overlay {
-            if searched && hits.isEmpty { ContentUnavailableView.search(text: model.query) }
+            if searched && hits.isEmpty && names.isEmpty { ContentUnavailableView.search(text: model.query) }
         }
+        .onAppear { findNames() }
+        .onChange(of: model.query) { findNames() }
         .task(id: "\(model.query)|\(store.revision)") { await run() }
     }
 
@@ -289,7 +318,15 @@ struct SearchResults: View {
         return word?.isEmpty == false ? word : nil
     }
 
+    /// The notes whose name, aliases or folders hold the words: what a
+    /// person typing a note's name is looking for, first.
+    private func findNames() {
+        let query = model.query.trimmingCharacters(in: .whitespaces)
+        names = query.isEmpty || query.hasPrefix("#") ? [] : store.quickOpen(query, recent: model.recent, limit: 8)
+    }
+
     private func run() async {
+        let asked = model.query
         let query = model.query.trimmingCharacters(in: .whitespaces)
         if query.hasPrefix("#"), !query.contains(" ") {
             let tag = Slugs.fold(String(query.dropFirst()))
@@ -298,15 +335,18 @@ struct SearchResults: View {
                 .filter { $0.parsed.tags.contains { Slugs.fold($0) == tag || Slugs.fold($0).hasPrefix(tag + "/") } }
                 .map { SearchIndex.Hit(path: $0.path, snippet: "") }
                 .sorted { $0.path < $1.path }
-            searched = true
+            searchedFor = asked
             return
         }
         try? await Task.sleep(for: .milliseconds(120))
         guard !Task.isCancelled else { return }
         let search = store.search
         let excluded = store.excluded
-        hits = await Task.detached { search.search(query).filter { !excluded.contains($0.path) } }.value
-        searched = true
+        let shown = Set(names)
+        let found = await Task.detached { search.search(query).filter { !excluded.contains($0.path) && !shown.contains($0.path) } }.value
+        guard !Task.isCancelled, asked == model.query else { return }
+        hits = found
+        searchedFor = asked
     }
 
     /// FTS5 marks each match between `\u{1}` and `\u{2}`.

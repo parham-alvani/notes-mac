@@ -30,6 +30,8 @@ struct ReaderView: NSViewRepresentable {
     var onCreate: ((_ target: String, _ from: String) -> Void)?
     var findText: String?
     var findCommand = ReaderFind(action: .none, count: 0)
+    /// The reading cursor moved to a source line.
+    var onCursor: ((Int) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -205,6 +207,8 @@ struct ReaderView: NSViewRepresentable {
                 }
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
+            case "cursor":
+                if let line = body["line"] as? Int { parent.onCursor?(line) }
             case "editTask":
                 guard let request = shown, let line = body["line"] as? Int else { return }
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path

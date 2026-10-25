@@ -22,7 +22,19 @@ final class WindowModel {
     var showsPage: Bool { page != nil }
     var request: ReaderRequest?
     /// The note is open in the editor rather than the reader.
-    var editing = false
+    var editing = false {
+        // Back to reading: the reader opens where the editor's cursor was.
+        didSet {
+            guard oldValue, !editing, let line = cursorLine, var next = request else { return }
+            next.line = line
+            next.heading = nil
+            next.generation += 1
+            request = next
+        }
+    }
+    /// The source line the reading cursor or the editor's cursor is on, so
+    /// the other one opens there.
+    @ObservationIgnored var cursorLine: Int?
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
     var quickOpen = false {
@@ -171,6 +183,7 @@ final class WindowModel {
         }
         forward.removeAll()
         request = next
+        cursorLine = line
         page = nil
         recent.removeAll { $0 == path }
         recent.insert(path, at: 0)

@@ -113,3 +113,10 @@ test("a note named as an object's own property is a link like any other", () => 
   assert.match(html, /data-target="toString"/);
   assert.match(render("[[constructor]]", { links: { constructor: "constructor.md" } }), /data-path="constructor.md"/);
 });
+
+test("every list item has its source line, for the reading cursor", () => {
+  const html = render("Intro\n\n- one\n- two\n    - nested\n");
+  assert.match(html, /<li data-line="2">one<\/li>/);
+  assert.match(html, /<li data-line="3">two/);
+  assert.match(html, /<li data-line="4">nested<\/li>/);
+});

@@ -49,4 +49,24 @@ import Testing
         #expect(NeovimSession.arguments(config: "clean") == ["--cmd", "let g:daftar = 1", "--clean"])
         #expect(NeovimSession.arguments(config: "~/.config/daftar/init.lua") == ["--cmd", "let g:daftar = 1", "-u", NSHomeDirectory() + "/.config/daftar/init.lua"])
     }
+
+    @Test func readingAgainOpensWhereTheEditorWas() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "daftar-read-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "a\nb\nc\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        let store = VaultStore(settings: AppSettings(url: root.appending(path: "c/config.toml")), openVault: false)
+        store.openSynchronously(root)
+        let model = WindowModel()
+        model.open("N.md", store: store)
+        #expect(model.cursorLine == nil)
+        model.editing = true
+        model.cursorLine = 2
+        let before = try #require(model.request)
+        model.editing = false
+        #expect(model.request?.line == 2)
+        #expect(model.request?.generation == before.generation + 1)
+        // Another note opens at its top, not at this one's line.
+        model.open("N.md", line: nil, store: store)
+        #expect(model.cursorLine == nil)
+    }
 }

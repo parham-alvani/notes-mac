@@ -8,6 +8,10 @@ import SwiftUI
 struct EditorView: NSViewRepresentable {
     var path: String
     var store: VaultStore
+    /// The source line to open at: where the reading cursor was.
+    var line: Int?
+    /// The cursor moved to a source line.
+    var onCursor: ((Int) -> Void)?
     /// The selection to become a note: its text, and how to put the link back.
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
 
@@ -21,7 +25,9 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.view = view
         context.coordinator.container = container
         container.onLayout = { [weak controller = context.coordinator] in controller?.session?.resize() }
+        context.coordinator.onCursor = onCursor
         context.coordinator.load(path)
+        if let line { context.coordinator.go(toLine: line) }
         context.coordinator.onExtract = onExtract
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return container
@@ -30,6 +36,7 @@ struct EditorView: NSViewRepresentable {
     func updateNSView(_ container: EditorContainer, context: Context) {
         let controller = context.coordinator
         controller.onExtract = onExtract
+        controller.onCursor = onCursor
         if controller.path != path {
             controller.saveNow()
             controller.load(path)
@@ -283,7 +290,42 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         return count
     }
 
+    var onCursor: ((Int) -> Void)?
+    private var cursorTask: Task<Void, Never>?
+
+    /// The cursor's source line, a moment after it stops, for the reader.
+    private func reportLine() {
+        guard onCursor != nil else { return }
+        cursorTask?.cancel()
+        cursorTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let self, let view = self.view else { return }
+            let location = min(view.selectedRange().location, (view.string as NSString).length)
+            let before = (view.string as NSString).substring(to: location)
+            self.onCursor?(before.utf8.reduce(0) { $1 == 10 ? $0 + 1 : $0 })
+        }
+    }
+
+    /// The cursor at the start of source line [line], in the middle of the view.
+    func go(toLine line: Int) {
+        guard let view else { return }
+        let text = view.string as NSString
+        var offset = 0
+        for _ in 0..<line {
+            guard offset < text.length else { break }
+            offset = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
+        }
+        offset = min(offset, text.length)
+        if let session {
+            session.go(to: offset)
+            return
+        }
+        view.setSelectedRange(NSRange(location: offset, length: 0))
+        view.center(offset)
+    }
+
     func textViewDidChangeSelection(_ notification: Notification) {
+        reportLine()
         updateCounts()
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
         view?.cursorLineMoved()
@@ -621,6 +663,15 @@ final class NoteTextView: NSTextView {
         setSelectedRange(clamped)
         if vimActive { scrollSoon() } else { scrollRangeToVisible(clamped) }
         updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    /// [offset]'s line in the middle of the view, at once.
+    func center(_ offset: Int) {
+        guard let scroll = enclosingScrollView, let line = lineRect(at: offset) else { return scrollRangeToVisible(NSRange(location: offset, length: 0)) }
+        let clip = scroll.contentView
+        let y = max(0, min(line.midY - clip.bounds.height / 2, max(0, frame.height - clip.bounds.height)))
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
+        scroll.reflectScrolledClipView(clip)
     }
 
     /// Visual block mode: a range on each row, and the cursor's row in view.

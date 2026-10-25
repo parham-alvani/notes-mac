@@ -105,7 +105,7 @@ struct ContentView: View {
         } else if model.showsBoard {
             BoardView(model: model)
         } else if let path = model.path, model.editing {
-            EditorView(path: path, store: store) { text, replace in
+            EditorView(path: path, store: store, line: model.cursorLine, onCursor: { model.cursorLine = $0 }) { text, replace in
                 model.extractReplace = replace
                 model.fileAction = .extract(folder: model.currentFolder, text: text)
             }
@@ -132,7 +132,8 @@ struct ContentView: View {
                     }
                 },
                 findText: model.findText,
-                findCommand: model.readerFind)
+                findCommand: model.readerFind,
+                onCursor: { model.cursorLine = $0 })
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = model.path { Breadcrumb(path: path, model: model) }
             }
