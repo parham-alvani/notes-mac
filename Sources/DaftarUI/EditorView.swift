@@ -11,17 +11,20 @@ struct EditorView: NSViewRepresentable {
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> EditorContainer {
         let scroll = NoteTextView.scrollableNoteView()
         let view = scroll.documentView as! NoteTextView
+        let container = EditorContainer(scroll: scroll)
         view.controller = context.coordinator
         context.coordinator.view = view
+        context.coordinator.container = container
+        container.onLayout = { [weak controller = context.coordinator] in controller?.session?.resize() }
         context.coordinator.load(path)
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
-        return scroll
+        return container
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ container: EditorContainer, context: Context) {
         let controller = context.coordinator
         if controller.path != path {
             controller.saveNow()
@@ -30,10 +33,12 @@ struct EditorView: NSViewRepresentable {
             controller.followDisk()
         }
         controller.applyTextSize()
+        controller.followVimSetting()
     }
 
-    static func dismantleNSView(_ scroll: NSScrollView, coordinator: EditorController) {
+    static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
         coordinator.saveNow()
+        coordinator.stopVim()
     }
 }
 
@@ -41,7 +46,10 @@ struct EditorView: NSViewRepresentable {
 final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegate {
     let store: VaultStore
     weak var view: NoteTextView?
+    weak var container: EditorContainer?
     private(set) var path: String?
+    /// Neovim, in Neovim mode: it owns the buffer and writes the file.
+    private(set) var session: NeovimSession?
     /// What the file said when it was last read or written.
     private var saved = ""
     private var saveTask: Task<Void, Never>?
@@ -64,6 +72,53 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.scrollToBeginningOfDocument(nil)
         view.undoManager?.removeAllActions()
+        stopVim()
+        if store.settings.vimMode { startVim() }
+    }
+
+    // MARK: Neovim mode
+
+    func followVimSetting() {
+        if store.settings.vimMode, session == nil, path != nil { startVim() }
+        if !store.settings.vimMode, session != nil {
+            stopVim()
+            if let path { load(path) }
+        }
+    }
+
+    private func startVim() {
+        guard let path, let root = store.root, let view else { return }
+        saveNow()
+        guard let session = NeovimSession(path: path, root: root, view: view, settings: store.settings) else {
+            store.notice = "Neovim mode is on, but there is no nvim. Install it with `brew install neovim`, or set `nvim` in the config file."
+            return
+        }
+        self.session = session
+        view.vim = session
+        view.allowsUndo = false
+        session.onChange = { [weak self] in self?.showStatus() }
+        showStatus()
+        Task { await session.start() }
+    }
+
+    func stopVim() {
+        guard let session else { return }
+        self.session = nil
+        view?.vim = nil
+        view?.allowsUndo = true
+        container?.setStatus(nil, mode: nil)
+        Task { await session.stop() }
+    }
+
+    private func showStatus() {
+        guard let session else { return container?.setStatus(nil, mode: nil) ?? () }
+        switch session.state {
+        case .failed(let message): container?.setStatus(message, mode: "NEOVIM")
+        case .ended: container?.setStatus("Neovim ended. Open the note again to start it.", mode: "NEOVIM")
+        case .starting: container?.setStatus("Starting Neovim…", mode: "NEOVIM")
+        case .running: container?.setStatus(session.status, mode: session.modeName)
+        }
+        view?.needsDisplay = true
     }
 
     /// The file changed on disk. A change this editor wrote is already here;
@@ -72,6 +127,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     func followDisk() {
         guard let path, let view, store.revision != seenRevision else { return }
         seenRevision = store.revision
+        if let session {
+            // Neovim wrote it (the view already says so), or someone else
+            // did, and Neovim reads it again.
+            if store.lastChanged.contains(path), store.text(of: path) != view.string { session.checkDisk() }
+            return
+        }
         guard store.lastChanged.contains(path), let disk = store.text(of: path), disk != saved else { return }
         if view.string == saved {
             let selection = view.selectedRange()
@@ -105,6 +166,10 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     func saveNow() {
         saveTask?.cancel()
+        if let session {
+            session.save()
+            return
+        }
         guard let path, let view, view.string != saved else { return }
         let text = view.string
         do {
@@ -279,6 +344,81 @@ final class NoteTextView: NSTextView {
     weak var controller: EditorController?
     /// True while `[[` completion is open, so the delegate offers notes.
     private(set) var completingLink = false
+    /// Neovim mode: the keys go here, and the text changes only when Neovim says.
+    weak var vim: NeovimSession?
+    private var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
+
+    // MARK: Neovim mode
+
+    /// An edit Neovim made, applied as it is: no undo, no autosave.
+    func applyRemote(_ range: NSRange, _ text: String) {
+        guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return }
+        storage.replaceCharacters(in: range, with: text)
+    }
+
+    func showSelection(_ range: NSRange) {
+        let length = (string as NSString).length
+        let clamped = NSRange(location: min(range.location, length), length: min(range.length, length - min(range.location, length)))
+        setSelectedRange(clamped)
+        scrollRangeToVisible(clamped)
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    /// The view never edits its own text while Neovim owns it.
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        vimActive ? false : super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard let vim, vimActive else { return super.keyDown(with: event) }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        var modifiers: VimKeys.Modifiers = []
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        let raw = event.charactersIgnoringModifiers ?? ""
+        if flags.contains(.control) || flags.contains(.command) || VimKeys.isSpecial(raw) {
+            if let keys = VimKeys.notation(characters: raw, modifiers: modifiers) { vim.input(keys) }
+            return
+        }
+        // Text goes through the input system, so an input method and the
+        // Persian layout type what they type; `insertText` sends it.
+        interpretKeyEvents([event])
+    }
+
+    override func doCommand(by selector: Selector) {
+        if vimActive { return }
+        super.doCommand(by: selector)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        if vimActive { vim?.moveCursor(to: selectedRange().location) }
+    }
+
+    /// Normal mode draws a block over the character, as Neovim does.
+    private var blockWidth: CGFloat {
+        let font = self.font ?? NSFont.systemFont(ofSize: 14)
+        return ("m" as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        guard vimActive, vim?.isNormal == true else { return super.drawInsertionPoint(in: rect, color: color, turnedOn: flag) }
+        var block = rect
+        block.size.width = blockWidth
+        if flag {
+            color.withAlphaComponent(0.45).setFill()
+            block.fill(using: .sourceOver)
+        } else {
+            setNeedsDisplay(block, avoidAdditionalLayout: true)
+        }
+    }
+
+    override func setNeedsDisplay(_ invalidRect: NSRect, avoidAdditionalLayout flag: Bool) {
+        var rect = invalidRect
+        if vimActive { rect.size.width += blockWidth }
+        super.setNeedsDisplay(rect, avoidAdditionalLayout: flag)
+    }
 
     static func scrollableNoteView() -> NSScrollView {
         let scroll = NSScrollView()
@@ -385,7 +525,7 @@ final class NoteTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
+        guard window?.firstResponder === self, !vimActive else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == .command {
             switch event.charactersIgnoringModifiers {
@@ -434,6 +574,11 @@ final class NoteTextView: NSTextView {
     // MARK: `[[` completion
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
+        if vimActive {
+            let text = (string as? NSAttributedString)?.string ?? string as? String ?? ""
+            vim?.input(VimKeys.escape(text))
+            return
+        }
         super.insertText(string, replacementRange: replacementRange)
         guard let typed = string as? String, typed == "[" else { return }
         let at = selectedRange().location
@@ -469,6 +614,10 @@ final class NoteTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         let board = NSPasteboard.general
+        if vimActive, let text = board.string(forType: .string) {
+            vim?.paste(text)
+            return
+        }
         guard board.string(forType: .string) == nil, let controller, let root = controller.store.root,
             let image = NSImage(pasteboard: board), let tiff = image.tiffRepresentation,
             let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
@@ -480,9 +629,84 @@ final class NoteTextView: NSTextView {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try png.write(to: url, options: .atomic)
-            insertText("![[\(name)]]", replacementRange: selectedRange())
+            if vimActive { vim?.paste("![[\(name)]]") } else { insertText("![[\(name)]]", replacementRange: selectedRange()) }
         } catch {
             controller.store.notice = "The image could not be saved: \(error.localizedDescription)"
         }
+    }
+}
+
+/// The editor and, in Neovim mode, a bar under it with the mode and the
+/// command line, as Neovim's own status and command lines are.
+final class EditorContainer: NSView {
+    let scroll: NSScrollView
+    private let bar = NSView()
+    private let mode = NSTextField(labelWithString: "")
+    private let message = NSTextField(labelWithString: "")
+    private var barHeight: NSLayoutConstraint!
+    var onLayout: (() -> Void)?
+
+    init(scroll: NSScrollView) {
+        self.scroll = scroll
+        super.init(frame: .zero)
+        for view in [scroll, bar, mode, message] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
+        addSubview(scroll)
+        addSubview(bar)
+        bar.addSubview(mode)
+        bar.addSubview(message)
+        bar.wantsLayer = true
+        bar.layer?.backgroundColor = NSPalette.panel.cgColor
+        mode.font = Fonts.code(size: 11)
+        mode.textColor = NSPalette.background
+        mode.wantsLayer = true
+        mode.layer?.cornerRadius = 4
+        mode.alignment = .center
+        message.font = Fonts.code(size: 12)
+        message.textColor = NSPalette.text
+        message.lineBreakMode = .byTruncatingTail
+        barHeight = bar.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bar.topAnchor),
+            bar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            barHeight,
+            mode.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
+            mode.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            mode.widthAnchor.constraint(greaterThanOrEqualToConstant: 64),
+            message.leadingAnchor.constraint(equalTo: mode.trailingAnchor, constant: 10),
+            message.trailingAnchor.constraint(lessThanOrEqualTo: bar.trailingAnchor, constant: -10),
+            message.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// Nil hides the bar: the editor is not in Neovim mode.
+    func setStatus(_ text: String?, mode name: String?) {
+        guard let name else {
+            barHeight.constant = 0
+            bar.isHidden = true
+            return
+        }
+        bar.isHidden = false
+        barHeight.constant = 24
+        mode.stringValue = " \(name) "
+        let color: NSColor = switch name {
+        case "INSERT": NSPalette.link
+        case "VISUAL", "V-LINE", "V-BLOCK": NSPalette.purple
+        case "REPLACE": NSPalette.red
+        default: NSPalette.accent
+        }
+        mode.layer?.backgroundColor = color.cgColor
+        message.stringValue = text ?? ""
+    }
+
+    override func layout() {
+        super.layout()
+        onLayout?()
     }
 }

@@ -32,6 +32,9 @@ final class AppSettings {
     /// Minutes after midnight.
     var digestTime: Int { didSet { write("notifications.digest_time", .string(Self.clock(digestTime))) } }
     var shell: String { didSet { write("terminal.shell", .string(shell)) } }
+    var vimMode: Bool { didSet { write("editor.vim_mode", .bool(vimMode)) } }
+    var nvimPath: String { didSet { write("editor.nvim", .string(nvimPath)) } }
+    var nvimConfig: String { didSet { write("editor.nvim_config", .string(nvimConfig)) } }
     var terminalFontSize: Int { didSet { write("terminal.font_size", .int(terminalFontSize)) } }
 
     enum Appearance: String, CaseIterable, Identifiable {
@@ -63,6 +66,9 @@ final class AppSettings {
         digestTime = 9 * 60
         shell = ""
         terminalFontSize = 13
+        vimMode = false
+        nvimPath = ""
+        nvimConfig = "user"
         load()
         watch()
     }
@@ -92,6 +98,9 @@ final class AppSettings {
         taskDigest = file.bool("notifications.digest") ?? true
         digestTime = file.string("notifications.digest_time").flatMap(Self.minutes) ?? 9 * 60
         shell = file.string("terminal.shell") ?? ""
+        vimMode = file.bool("editor.vim_mode") ?? false
+        nvimPath = file.string("editor.nvim") ?? ""
+        nvimConfig = file.string("editor.nvim_config") ?? "user"
         terminalFontSize = file.int("terminal.font_size") ?? 13
     }
 

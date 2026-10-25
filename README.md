@@ -13,6 +13,7 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 
 - **Reader:** Obsidian's markdown with wikilinks, embeds, callouts, highlights, tags, footnotes, math (KaTeX), Mermaid diagrams and colored code. Each paragraph takes its own direction, so Persian text reads right to left with no plugin.
 - **Editor:** ⌘E opens the note's markdown, styled as you type in the same colors. It saves a second after you stop typing. It shows embedded images, completes `[[` links from the vault's notes, continues lists on Return, moves list items by four spaces with Tab, ticks a task with ⌘↩, and saves a pasted image to the attachment folder.
+- **Neovim mode:** a setting that makes your own Neovim the editor. Neovim owns the buffer and writes the file, with your `init.lua`, motions, macros and plugins; the editor shows it with its colors, images and right-to-left text, a block cursor in Normal mode, and a bar with the mode and the command line.
 - **Task queries:** ` ```tasks ` blocks show their tasks, grouped and sorted as the Tasks plugin does, with a checkbox that ticks the task in its own note. A line the app cannot read is shown above the result.
 - **Fonts:** New York for notes and JetBrains Mono for code by default, both settings, with Vazirmatn for Persian.
 - **Sidebar:** the folder tree with folder notes, full-text search (SQLite FTS5) in the system search field, and `#tag` search.

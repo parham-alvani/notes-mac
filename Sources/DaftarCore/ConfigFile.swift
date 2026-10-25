@@ -184,6 +184,15 @@ public struct ConfigFile: Sendable, Equatable {
         # Count the tasks due today and overdue on the Dock icon.
         dock_badge = true
 
+        [editor]
+        # Edit with your own Neovim: it owns the buffer and the file, and the
+        # editor shows it. Needs `nvim` (brew install neovim).
+        vim_mode = false
+        # Empty finds nvim in /opt/homebrew/bin, /usr/local/bin or /usr/bin.
+        nvim = ""
+        # "user" loads your init.lua (with g:daftar set); "clean" loads none.
+        nvim_config = "user"
+
         [git]
         # Minutes between commit-pull-push runs; 0 is off. Keep it off while
         # Obsidian's git plugin syncs the same folder.

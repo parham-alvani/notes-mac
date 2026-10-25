@@ -123,6 +123,7 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             NotificationSettings().tabItem { Label("Notifications", systemImage: "bell.badge") }
+            EditorSettings().tabItem { Label("Editor", systemImage: "character.cursor.ibeam") }
             GitSettings().tabItem { Label("Git", systemImage: "arrow.triangle.2.circlepath") }
             TerminalSettings().tabItem { Label("Terminal", systemImage: "apple.terminal") }
         }
@@ -258,6 +259,31 @@ private struct GitSettings: View {
                 }
             } else if let last = store.lastSync {
                 LabeledContent("Last sync", value: last.formatted(date: .abbreviated, time: .shortened))
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct EditorSettings: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        @Bindable var settings = store.settings
+        let found = NeovimClient.locate(settings.nvimPath)
+        Form {
+            Section {
+                Toggle("Edit with Neovim", isOn: $settings.vimMode)
+                LabeledContent("nvim") {
+                    Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)
+                }
+                TextField("Path", text: $settings.nvimPath, prompt: Text("Found on its own"))
+                Picker("Configuration", selection: $settings.nvimConfig) {
+                    Text("Mine (init.lua)").tag("user")
+                    Text("None (--clean)").tag("clean")
+                }
+            } footer: {
+                Text("Your Neovim owns the buffer and writes the file; the editor shows it, with its colours, images and right-to-left text. Your config sees g:daftar = 1. ⌘ shortcuts stay with the app.")
             }
         }
         .formStyle(.grouped)

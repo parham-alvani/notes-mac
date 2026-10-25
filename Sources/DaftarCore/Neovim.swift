@@ -238,6 +238,11 @@ public enum VimKeys {
         return "<\(prefix)\(key)>"
     }
 
+    /// Return, Escape, the arrows and the other keys that type no text.
+    public static func isSpecial(_ characters: String) -> Bool {
+        characters.unicodeScalars.first.map { special[$0.value] != nil } ?? false
+    }
+
     /// Typed text -- from the keyboard or an input method -- for `nvim_input`,
     /// where `<` starts a key name.
     public static func escape(_ text: String) -> String {
