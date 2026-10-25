@@ -169,7 +169,7 @@ struct MeetingRow: View {
             Spacer()
             if let join = meeting.join, !past {
                 Button { NSWorkspace.shared.open(join) } label: { Label("Join", systemImage: "video.fill") }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .tint(live ? Palette.accent : Palette.blue)
                     .controlSize(.small)
             }

@@ -22,6 +22,7 @@ final class AppSettings {
     var font: String { didSet { write("appearance.font", .string(font)) } }
     var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
     var dockBadge: Bool { didSet { write("appearance.dock_badge", .bool(dockBadge)) } }
+    var spotlight: Bool { didSet { write("appearance.spotlight", .bool(spotlight)) } }
     /// Minutes between commit-pull-push runs; 0 is off.
     var syncInterval: Int { didSet { write("git.sync_interval", .int(syncInterval)) } }
     var pullOnLaunch: Bool { didSet { write("git.pull_on_launch", .bool(pullOnLaunch)) } }
@@ -58,6 +59,7 @@ final class AppSettings {
         font = "SF Pro"
         codeFont = "SF Mono"
         dockBadge = true
+        spotlight = true
         syncInterval = 0
         pullOnLaunch = true
         meetingAlerts = true
@@ -91,6 +93,7 @@ final class AppSettings {
         font = file.string("appearance.font") ?? "SF Pro"
         codeFont = file.string("appearance.code_font") ?? "SF Mono"
         dockBadge = file.bool("appearance.dock_badge") ?? true
+        spotlight = file.bool("appearance.spotlight") ?? true
         syncInterval = file.int("git.sync_interval") ?? 0
         pullOnLaunch = file.bool("git.pull_on_launch") ?? true
         meetingAlerts = file.bool("notifications.meetings") ?? true

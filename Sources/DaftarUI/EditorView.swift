@@ -142,6 +142,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         self.session = session
         view.vim = session
         view.allowsUndo = false
+        // Neovim owns the buffer: a rewrite must come through it, not around it.
+        view.writingToolsBehavior = .none
         session.onChange = { [weak self] in self?.showStatus() }
         showStatus()
         Task { await session.start() }
@@ -152,6 +154,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         self.session = nil
         view?.vim = nil
         view?.allowsUndo = true
+        view?.writingToolsBehavior = .complete
         container?.setStatus(nil, mode: nil)
         Task { await session.stop() }
     }
@@ -618,6 +621,10 @@ final class NoteTextView: NSTextView {
         view.importsGraphics = false
         view.allowsUndo = true
         view.usesFindBar = true
+        // Apple Intelligence's Writing Tools rewrite in place, as plain text:
+        // the note is markdown source, and rich text would not survive a save.
+        view.writingToolsBehavior = .complete
+        view.allowedWritingToolsResultOptions = [.plainText]
         view.isIncrementalSearchingEnabled = true
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false

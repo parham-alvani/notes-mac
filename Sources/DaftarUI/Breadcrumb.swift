@@ -25,8 +25,7 @@ struct Breadcrumb: View {
             }
             .padding(.horizontal, 12)
         }
-        .frame(height: 30)
-        .background(.bar)
+        .frame(height: 34)
         .overlay(alignment: .bottom) {
             LinearGradient(colors: [Palette.accent.opacity(0.5), Palette.pink.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
                 .frame(height: 1)
@@ -121,11 +120,12 @@ struct Breadcrumb: View {
                     .fontWeight(.semibold).lineLimit(1)
                 if store.bookmarks.contains(path) {
                     Image(systemName: "star.fill").font(.caption2).foregroundStyle(Palette.yellow)
+                        .transition(.symbolEffect(.appear))
                 }
             }
             .font(.callout)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(Palette.accent.opacity(0.14), in: Capsule())
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .glassEffect(.regular.tint(Palette.accent.opacity(0.25)).interactive(), in: .capsule)
             .contentShape(Rectangle())
         }
         .menuStyle(.button)

@@ -556,7 +556,6 @@ struct QuickOpenView: View {
             }
         }
         .frame(width: 600, height: 420)
-        .background(.regularMaterial)
         .onAppear { focused = true }
         .defaultFocus($focused, true)
         // Once the field has the focus, keys go to it again; what was typed

@@ -2,6 +2,7 @@ import AppKit
 import DaftarCore
 import Observation
 import SwiftUI
+import WebKit
 
 /// What one window is showing, and where it has been.
 @MainActor @Observable
@@ -88,6 +89,41 @@ final class WindowModel {
     var recentCommands: [String] = []
     /// The graph of the open note and its neighbours.
     var graph = false
+    /// ⌥⌘A: Apple Intelligence on the open note.
+    var assistant = false
+    /// ⌃⌘T: the text the system's translation panel shows.
+    var translation: String?
+
+    /// The selection in the editor or the reader, or else the whole note,
+    /// for the translation panel.
+    func translate(store: VaultStore) {
+        Task {
+            if let selected = await Self.selectedText(), !selected.isEmpty {
+                translation = selected
+            } else if let path, let text = store.text(of: path) {
+                translation = Self.withoutProperties(text)
+            }
+        }
+    }
+
+    /// A note's text without its properties block.
+    static func withoutProperties(_ text: String) -> String {
+        guard text.hasPrefix("---\n"), let end = text.range(of: "\n---", range: text.index(text.startIndex, offsetBy: 4)..<text.endIndex) else {
+            return text
+        }
+        return String(text[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func selectedText() async -> String? {
+        var view = NSApp.keyWindow?.firstResponder as? NSView
+        if let text = view as? NSTextView {
+            let range = text.selectedRange()
+            return range.length > 0 ? (text.string as NSString).substring(with: range) : nil
+        }
+        while let current = view, !(current is WKWebView) { view = current.superview }
+        guard let web = view as? WKWebView else { return nil }
+        return try? await web.evaluateJavaScript("getSelection().toString()") as? String
+    }
     /// The task whose edit form is open.
     var taskEdit: TaskRef?
     /// After an extract: puts the new note's link where the selection was.

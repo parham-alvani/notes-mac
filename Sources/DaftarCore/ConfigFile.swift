@@ -183,6 +183,9 @@ public struct ConfigFile: Sendable, Equatable {
         code_font = "SF Mono"
         # Count the tasks due today and overdue on the Dock icon.
         dock_badge = true
+        # Show the vault's notes in Spotlight. The index is on this Mac only;
+        # excluded files are left out.
+        spotlight = true
 
         [editor]
         # Edit with your own Neovim: it owns the buffer and the file, and the

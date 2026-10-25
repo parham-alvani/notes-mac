@@ -177,8 +177,7 @@ struct GraphView: View {
                     Text("\(node.degree) \(node.degree == 1 ? "link" : "links") · \(node.path)").font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(color(of: node.group).opacity(0.6)))
+                .glassEffect(.regular.tint(color(of: node.group).opacity(0.25)), in: .rect(cornerRadius: 12))
                 .padding(12)
             }
         }

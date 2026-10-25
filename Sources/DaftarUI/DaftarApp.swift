@@ -28,6 +28,8 @@ public struct DaftarApp: App {
                     await Notifier.shared.plan(store: store)
                 }
                 .onChange(of: store.settings.dockBadge) { updateBadge() }
+                .onChange(of: store.revision, initial: true) { Spotlight.shared.follow(store) }
+                .onChange(of: store.settings.spotlight) { Spotlight.shared.follow(store) }
                 // The settings file can change under the app: follow it.
                 .onChange(of: store.settings.syncInterval) { store.scheduleAutoSync() }
                 .onChange(of: store.settings.vaultPath) { _, path in
@@ -71,6 +73,12 @@ public struct DaftarApp: App {
                 Button("Show Graph") { window?.graph = true }
                     .keyboardShortcut("g", modifiers: [.command, .option])
                     .disabled(window == nil)
+                Button("Translate…") { window?.translate(store: store) }
+                    .keyboardShortcut("t", modifiers: [.command, .control])
+                    .disabled(window?.path == nil || window?.showsToday == true)
+                Button("Apple Intelligence…") { window?.assistant = true }
+                    .keyboardShortcut("a", modifiers: [.command, .option])
+                    .disabled(window?.path == nil || window?.showsToday == true)
                 Divider()
                 Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
                     .keyboardShortcut("e")
@@ -142,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             AppSettings.shared.applyAppearance()
+            FullScreenEscape.install()
             Notifier.shared.start()
         }
     }
@@ -233,6 +242,8 @@ private struct GeneralSettings: View {
                 ForEach(Self.codeFonts(current: settings.codeFont), id: \.self) { Text($0).tag($0) }
             }
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
+            Toggle("Show notes in Spotlight", isOn: $settings.spotlight)
+                .help("The index is on this Mac only. Excluded files are left out.")
             Section {
                 LabeledContent("Settings file") {
                     HStack {

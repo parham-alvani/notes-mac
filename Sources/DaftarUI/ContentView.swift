@@ -1,6 +1,8 @@
+import CoreSpotlight
 import AppKit
 import DaftarCore
 import SwiftUI
+import Translation
 
 /// One window: the sidebar, the note, and the inspector beside it.
 struct ContentView: View {
@@ -49,6 +51,10 @@ struct ContentView: View {
         .sheet(isPresented: $model.graph) {
             GraphView(model: model)
         }
+        .sheet(isPresented: $model.assistant) {
+            AssistantSheet(model: model)
+        }
+        .translationPresentation(isPresented: Binding { model.translation != nil } set: { if !$0 { model.translation = nil } }, text: model.translation ?? "")
         .sheet(item: $model.taskEdit) { task in
             TaskEditSheet(task: task)
         }
@@ -75,6 +81,12 @@ struct ContentView: View {
         }
         .onDisappear { store.followers[ObjectIdentifier(model)] = nil }
         .onOpenURL { url in model.handle(url, store: store) }
+        // A note chosen in Spotlight.
+        .onContinueUserActivity(CSSearchableItemActionType) { activity in
+            if let path = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String, store.index.files.contains(path) {
+                model.open(path, store: store)
+            }
+        }
         // A `daftar://` link goes to the window that is open, not to a new one.
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
     }
@@ -154,11 +166,11 @@ struct ContentView: View {
                 SyncButton()
             }
         }
-        ToolbarItem(placement: .primaryAction) {
+        // The panes are their own group of glass, apart from the note's tools.
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItemGroup(placement: .primaryAction) {
             Toggle(isOn: $model.terminal) { Label("Terminal", systemImage: "apple.terminal") }
                 .help("Show or hide a terminal in the vault's folder (⌃`)")
-        }
-        ToolbarItem(placement: .primaryAction) {
             Button { model.inspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
                 .help("Show or hide the outline and backlinks")
         }
@@ -168,7 +180,7 @@ struct ContentView: View {
         if let notice = store.notice {
             Text(notice)
                 .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
+                .glassEffect(.regular.interactive(), in: .capsule)
                 .padding(.bottom, 16)
                 .task {
                     try? await Task.sleep(for: .seconds(5))
@@ -262,6 +274,9 @@ struct SyncButton: View {
             Button("Pull") { Task { await store.pull() } }
         } label: {
             Label(title, systemImage: symbol)
+                // The arrows turn while the sync runs, and the icon changes in place.
+                .symbolEffect(.rotate, options: .repeat(.continuous), isActive: store.syncing)
+                .contentTransition(.symbolEffect(.replace))
                 .foregroundStyle(store.syncError != nil ? Palette.red : (store.gitStatus?.changed ?? 0) > 0 ? Palette.accent : .primary)
         } primaryAction: {
             Task { await store.sync() }

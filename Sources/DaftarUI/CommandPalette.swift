@@ -54,6 +54,12 @@ enum PaletteCommands {
             PaletteCommand(id: "vault-graph", title: "Show the Graph", group: "View", symbol: "point.3.connected.trianglepath.dotted", color: Palette.purple, shortcut: "⌥⌘G") {
                 model.graph = true
             },
+            PaletteCommand(id: "translate", title: "Translate the Selection or the Note", group: "Note", symbol: "translate", color: Palette.blue, shortcut: "⌃⌘T") {
+                model.translate(store: store)
+            },
+            PaletteCommand(id: "assistant", title: "Summarize or Ask with Apple Intelligence", group: "Note", symbol: "apple.intelligence", color: Palette.purple, shortcut: "⌥⌘A") {
+                model.assistant = true
+            },
             PaletteCommand(id: "settings", title: "Settings", group: "App", symbol: "gearshape.fill", color: Palette.muted, shortcut: "⌘,") {
                 openSettings()
             },
@@ -187,7 +193,6 @@ struct CommandPaletteView: View {
             }
         }
         .frame(width: 620, height: 440)
-        .background(.regularMaterial)
         .onAppear { focused = true }
         .onChange(of: query) { selected = 0 }
     }

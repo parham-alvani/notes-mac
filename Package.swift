@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import Foundation
 import PackageDescription
@@ -14,7 +14,7 @@ let testSettings: [SwiftSetting] =
 
 let package = Package(
     name: "Daftar",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v26)],
     products: [
         .executable(name: "Daftar", targets: ["Daftar"]),
     ],

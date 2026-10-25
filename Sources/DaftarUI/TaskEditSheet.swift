@@ -53,9 +53,9 @@ struct TaskEditSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(.glass)
                 Button("Save") { save() }
-                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent).tint(Palette.accent)
+                    .keyboardShortcut(.defaultAction).buttonStyle(.glassProminent).tint(Palette.accent)
                     .disabled(before == nil || fields.text.trimmingCharacters(in: .whitespaces).isEmpty || fields == before)
             }
         }
