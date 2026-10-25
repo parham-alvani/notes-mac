@@ -382,50 +382,25 @@ final class VaultStore {
         return groups
     }
 
-    /// Notes and bases whose name holds [query], best first: a prefix before
-    /// a word start before anywhere, then the shorter path.
+    /// Notes and bases for the switcher, best first (`QuickSwitcher`):
+    /// every word, in any order, in the name, an alias or the folders.
     func quickOpen(_ query: String, recent: [String], limit: Int = 50) -> [String] {
-        let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
-        if needle.isEmpty {
-            let recents = recent.filter { index.files.contains($0) }
-            return Array(recents.prefix(limit))
-        }
-        var scored: [(path: String, score: Int)] = []
-        for (path, title, folded) in quickOpenCandidates() {
-            var score: Int?
-            if title == needle { score = 0 }
-            else if title.hasPrefix(needle) { score = 1 }
-            else if title.contains(" " + needle) || title.contains("-" + needle) { score = 2 }
-            else if title.contains(needle) { score = 3 }
-            else if folded.contains(needle) { score = 4 }
-            else if Self.subsequence(needle, of: title) { score = 5 }
-            if var score {
-                if recent.contains(path) { score -= 1 }
-                scored.append((path, score))
-            }
-        }
-        scored.sort { ($0.score, $0.path.count, $0.path) < ($1.score, $1.path.count, $1.path) }
-        return scored.prefix(limit).map(\.path)
+        let present = recent.filter { index.files.contains($0) }
+        return QuickSwitcher.rank(query, in: quickOpenCandidates(), recent: present, limit: limit)
     }
 
-    /// The notes and bases the switcher can offer, their names folded once
-    /// for each version of the index rather than on every keystroke.
-    @ObservationIgnored private var candidates: (revision: Int, files: Int, items: [(path: String, title: String, folded: String)])?
+    /// The notes and bases the switcher can offer, folded once for each
+    /// version of the index rather than on every keystroke.
+    @ObservationIgnored private var candidates: (revision: Int, files: Int, items: [QuickSwitcher.Candidate])?
 
-    private func quickOpenCandidates() -> [(path: String, title: String, folded: String)] {
+    private func quickOpenCandidates() -> [QuickSwitcher.Candidate] {
         if let candidates, candidates.revision == revision, candidates.files == index.files.count { return candidates.items }
         let paths = (Array(index.notes.keys) + index.files.filter(Base.isBase)).filter { !excluded.contains($0) }
-        let items = paths.map { ($0, Slugs.fold(Vault.title(of: $0)), Slugs.fold($0)) }
+        let items = paths.map { path in
+            QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: index.notes[path]?.parsed.aliases ?? [])
+        }
         candidates = (revision, index.files.count, items)
         return items
     }
 
-    private static func subsequence(_ needle: String, of text: String) -> Bool {
-        var rest = needle[...]
-        for ch in text where ch == rest.first {
-            rest = rest.dropFirst()
-            if rest.isEmpty { return true }
-        }
-        return rest.isEmpty
-    }
 }
