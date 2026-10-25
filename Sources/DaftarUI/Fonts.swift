@@ -13,7 +13,7 @@ enum Fonts {
         case "new york", "ui-serif", "serif":
             font = system(size, weight, design: .serif)
         case "sf pro", "system", "", "-apple-system":
-            font = system(size, weight, design: .default)
+            font = alternates(system(size, weight, design: .default))
         case "sf pro rounded", "rounded":
             font = system(size, weight, design: .rounded)
         default:
@@ -53,6 +53,16 @@ enum Fonts {
         let base = NSFont.systemFont(ofSize: size, weight: weight)
         guard let descriptor = base.fontDescriptor.withDesign(design) else { return base }
         return NSFont(descriptor: descriptor, size: size) ?? base
+    }
+
+    /// SF Pro's stylistic sets 1 and 7, as the Cupertino theme sets them in
+    /// Obsidian: the open 4 and 6 and 9, and the straight-legged l.
+    private static func alternates(_ font: NSFont) -> NSFont {
+        let sets = [1, 7].map { set -> [NSFontDescriptor.FeatureKey: Int] in
+            [.typeIdentifier: kStylisticAlternativesType, .selectorIdentifier: set * 2]
+        }
+        let descriptor = font.fontDescriptor.addingAttributes([.featureSettings: sets])
+        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 
     private static func withPersian(_ font: NSFont) -> NSFont {

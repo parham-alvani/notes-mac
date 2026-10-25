@@ -18,7 +18,9 @@
   color-scheme: light dark;
   --font-text: -apple-system, BlinkMacSystemFont, "Persian Fallback", "Geeza Pro", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --text-size: 15px;
+  --text-size: 14px;
+  /* SF Pro's alternates, as the Cupertino theme turns them on. */
+  --font-features: "ss01" 1, "ss07" 1, "cv07" 1;
 
   /* Daylight */
   --background: #faf9f5;
@@ -142,6 +144,7 @@ body {
   font-family: var(--font-text);
   font-size: var(--text-size);
   line-height: 1.6;
+  font-feature-settings: var(--font-features);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -158,18 +161,22 @@ body {
 
 .inline-title {
   font-size: 2em;
+  font-weight: 700;
+  line-height: 1.2;
   margin: 0.2em 0 0.6em;
   color: var(--h1-color);
   border: none !important;
 }
 
-h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.4em 0 0.5em; }
-h1 { font-size: 1.7em; color: var(--h1-color); }
-h2 { font-size: 1.45em; color: var(--h2-color); }
-h3 { font-size: 1.25em; color: var(--h3-color); }
-h4 { font-size: 1.1em; color: var(--h4-color); }
-h5 { font-size: 1em; color: var(--h5-color); }
-h6 { font-size: 0.95em; color: var(--h6-color); }
+/* Cupertino's headings: light at the top, medium below. */
+h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.6em 0 0.5em; }
+h1 { font-size: 1.75em; font-weight: 400; color: var(--h1-color); }
+h2 { font-size: 1.5em; font-weight: 400; color: var(--h2-color); }
+h3 { font-size: 1.25em; font-weight: 400; color: var(--h3-color); }
+h4 { font-size: 1em; font-weight: 500; color: var(--h4-color); }
+h5 { font-size: 1em; font-weight: 500; color: var(--h5-color); }
+h6 { font-size: 0.875em; font-weight: 500; color: var(--h6-color); }
+strong { font-weight: 700; }
 h1, h2 {
   padding-bottom: 0.2em;
   border-bottom: 1px solid color-mix(in oklch, currentColor 35%, transparent);
@@ -217,17 +224,28 @@ li { margin: 0.15em 0; }
 li::marker { color: var(--list-marker); }
 li > p { margin: 0; }
 li.task-list-item { list-style: none; }
-li.task-list-item > input, li.task-list-item > p > input {
-  margin-inline: -1.4em 0.45em;
-  vertical-align: -0.1em;
-  accent-color: var(--accent);
+/* The box is the status's Lucide icon (tasks.css), not the system checkbox. */
+input.task-list-item-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.1em;
+  height: 1.1em;
+  margin: 0;
+  border: none;
+  background-color: var(--task-color);
+  -webkit-mask: var(--task-icon) center / contain no-repeat;
+  mask: var(--task-icon) center / contain no-repeat;
   cursor: pointer;
+  vertical-align: -0.18em;
+  transition: transform 0.1s;
 }
+input.task-list-item-checkbox:hover { transform: scale(1.12); }
+input.task-list-item-checkbox:disabled { cursor: default; opacity: 0.7; }
+li.task-list-item > input, li.task-list-item > p > input { margin-inline: -1.5em 0.4em; }
 li.task-list-item.is-checked[data-task="x"], li.task-list-item.is-checked[data-task="X"] { color: var(--done-color); }
 li.task-list-item.is-checked[data-task="x"] > p, li.task-list-item.is-checked[data-task="x"]:not(:has(> p)) { text-decoration: line-through; text-decoration-color: var(--text-faint); }
 li.task-list-item[data-task="-"] { color: var(--done-color); text-decoration: line-through; }
-li.task-list-item[data-task="/"] > input { accent-color: var(--accent); }
-li.task-list-item.is-checked > input, li.task-list-item.is-checked > p > input { accent-color: var(--done-color); }
+
 
 blockquote {
   color: var(--quote-color);

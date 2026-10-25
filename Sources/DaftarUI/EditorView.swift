@@ -147,7 +147,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     var base: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = fontSize * 0.35
+        // Obsidian's line height, 1.6.
+        paragraph.lineHeightMultiple = 1.6
         paragraph.paragraphSpacing = fontSize * 0.2
         // Each paragraph takes the direction of its first strong letter.
         paragraph.baseWritingDirection = .natural
@@ -164,9 +165,10 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             guard NSMaxRange(r) <= storage.length else { continue }
             switch span.kind {
             case .heading(let level):
-                let scale: [CGFloat] = [1.7, 1.45, 1.25, 1.1, 1.0, 0.95]
+                // Cupertino's sizes and weights: light large headings, medium small ones.
+                let scale: [CGFloat] = [1.75, 1.5, 1.25, 1.0, 1.0, 0.875]
                 storage.addAttributes([
-                    .font: Fonts.text(size: fontSize * scale[min(level, 6) - 1], weight: .bold),
+                    .font: Fonts.text(size: fontSize * scale[min(level, 6) - 1], weight: level <= 3 ? .regular : .medium),
                     .foregroundColor: NSPalette.heading(level),
                 ], range: r)
             case .markup, .blockId:

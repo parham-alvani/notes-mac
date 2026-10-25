@@ -318,7 +318,9 @@ import Testing
         let file = ConfigFile(text: ConfigFile.template)
         #expect(file.string("vault") == "")
         #expect(file.string("appearance.theme") == "system")
-        #expect(file.int("appearance.text_size") == 15)
+        #expect(file.int("appearance.text_size") == 14)
+        #expect(file.string("appearance.font") == "SF Pro")
+        #expect(file.string("appearance.code_font") == "SF Mono")
         #expect(file.bool("git.pull_on_launch") == true)
         #expect(file.string("notifications.digest_time") == "09:00")
     }

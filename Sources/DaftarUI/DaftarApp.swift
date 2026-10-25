@@ -53,7 +53,7 @@ public struct DaftarApp: App {
                     .keyboardShortcut("+")
                 Button("Smaller Text") { store.settings.textSize = max(store.settings.textSize - 1, 10) }
                     .keyboardShortcut("-")
-                Button("Actual Size") { store.settings.textSize = 15 }
+                Button("Actual Size") { store.settings.textSize = 14 }
                     .keyboardShortcut("0")
             }
             CommandMenu("Go") {

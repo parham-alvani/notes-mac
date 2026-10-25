@@ -142,7 +142,8 @@ struct TaskRow: View {
             Button {
                 store.toggleTask(path: task.path, line: task.task.line, status: task.task.status)
             } label: {
-                Image(systemName: task.task.status == "/" ? "circle.lefthalf.filled" : "circle")
+                // The phone's squares: open, and in progress with a dot.
+                Image(systemName: task.task.status == "/" ? "square.inset.filled" : "square")
                     .font(.body)
                     .foregroundStyle(Palette.accent)
             }

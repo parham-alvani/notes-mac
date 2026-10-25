@@ -51,9 +51,9 @@ final class AppSettings {
         self.url = url
         vaultPath = nil
         appearance = .system
-        textSize = 15
-        font = "New York"
-        codeFont = "JetBrains Mono"
+        textSize = 14
+        font = "SF Pro"
+        codeFont = "SF Mono"
         dockBadge = true
         syncInterval = 0
         pullOnLaunch = true
@@ -81,9 +81,9 @@ final class AppSettings {
         let vault = file.string("vault") ?? ""
         vaultPath = vault.isEmpty ? nil : (vault as NSString).expandingTildeInPath
         appearance = file.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
-        textSize = file.int("appearance.text_size") ?? 15
-        font = file.string("appearance.font") ?? "New York"
-        codeFont = file.string("appearance.code_font") ?? "JetBrains Mono"
+        textSize = file.int("appearance.text_size") ?? 14
+        font = file.string("appearance.font") ?? "SF Pro"
+        codeFont = file.string("appearance.code_font") ?? "SF Mono"
         dockBadge = file.bool("appearance.dock_badge") ?? true
         syncInterval = file.int("git.sync_interval") ?? 0
         pullOnLaunch = file.bool("git.pull_on_launch") ?? true

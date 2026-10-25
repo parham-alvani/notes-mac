@@ -148,14 +148,9 @@ async function fillQueries(root) {
     if (result.tasks.length === 0) parts.push(`<div class="query-empty">No tasks match.</div>`);
     parts.push(`<div class="query-count">${result.tasks.length} ${result.tasks.length === 1 ? "task" : "tasks"}</div>`);
     block.innerHTML = `<ul class="query-list">${parts.join("")}</ul>`;
-    markInProgress(block);
   }
 }
 
-/** `[/]` draws as a half-filled box, as it does on the phone. */
-function markInProgress(root) {
-  root.querySelectorAll('input.task-list-item-checkbox[data-status="/"]').forEach((box) => (box.indeterminate = true));
-}
 
 function renderProperties(properties) {
   if (!properties || properties.length === 0) return "";
@@ -183,6 +178,8 @@ window.daftar = {
     const root = document.documentElement.style;
     if (note.textSize) root.setProperty("--text-size", `${note.textSize}px`);
     if (note.fontText) root.setProperty("--font-text", note.fontText);
+    // SF Pro's alternates mean other things in other fonts.
+    root.setProperty("--font-features", note.fontText?.startsWith("-apple-system") === false ? "normal" : '"ss01" 1, "ss07" 1, "cv07" 1');
     if (note.fontCode) root.setProperty("--font-mono", note.fontCode);
     const main = document.getElementById("note");
     main.innerHTML =
@@ -194,7 +191,6 @@ window.daftar = {
     else if (note.line != null) this.scrollToLine(note.line);
     else window.scrollTo(0, 0);
     await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main)]);
-    markInProgress(main);
   },
 
   /** Scrolls to a heading by its text, or to a `^block` id. */

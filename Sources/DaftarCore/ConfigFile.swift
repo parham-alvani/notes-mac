@@ -173,12 +173,14 @@ public struct ConfigFile: Sendable, Equatable {
         [appearance]
         # "system", "light" (Daftar's Daylight palette) or "dark" (naz).
         theme = "system"
-        text_size = 15
+        # 14, as the vault's Obsidian snippet sets it.
+        text_size = 14
         # The font of notes, in the reader and the editor: a font family, or
-        # "New York" and "SF Pro" for Apple's own. Persian always uses Vazirmatn.
-        font = "New York"
-        # Code, the editor's markup, and the terminal.
-        code_font = "JetBrains Mono"
+        # "SF Pro" (Obsidian's Cupertino theme) and "New York" for Apple's
+        # own. Persian always uses Vazirmatn.
+        font = "SF Pro"
+        # Code and the editor's markup; "SF Mono" is Obsidian's.
+        code_font = "SF Mono"
         # Count the tasks due today and overdue on the Dock icon.
         dock_badge = true
 
