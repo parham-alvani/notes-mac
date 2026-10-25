@@ -134,7 +134,11 @@ struct ContentView: View {
                 },
                 findText: model.findText,
                 findCommand: model.readerFind,
-                onCursor: { model.cursorLine = $0 })
+                onCursor: { model.cursorLine = $0 },
+                onEdit: { line in
+                    model.cursorLine = line
+                    model.editing = true
+                })
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = model.path { Breadcrumb(path: path, model: model) }
             }

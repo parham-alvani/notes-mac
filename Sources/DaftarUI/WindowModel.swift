@@ -34,7 +34,11 @@ final class WindowModel {
     }
     /// The source line the reading cursor or the editor's cursor is on, so
     /// the other one opens there.
-    @ObservationIgnored var cursorLine: Int?
+    @ObservationIgnored var cursorLine: Int? {
+        didSet { if let path, let cursorLine { places[path] = cursorLine } }
+    }
+    /// Where each note was being read, for the next time it opens.
+    @ObservationIgnored private var places: [String: Int] = [:]
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
     var quickOpen = false {
@@ -178,6 +182,8 @@ final class WindowModel {
             if let url = store.url(of: path) { NSWorkspace.shared.open(url) }
             return
         }
+        // A note opens where it was being read, unless a link names a place in it.
+        let line = line ?? (heading == nil ? places[path] : nil)
         var next = ReaderRequest(path: path, heading: heading, line: line)
         if let current = request {
             if current.path == path { next.generation = current.generation + 1 }
@@ -195,15 +201,26 @@ final class WindowModel {
     func goBack() {
         guard let previous = back.popLast() else { return }
         if let request { forward.append(request) }
-        request = previous
+        request = returning(to: previous)
         page = nil
     }
 
     func goForward() {
         guard let next = forward.popLast() else { return }
         if let request { back.append(request) }
-        request = next
+        request = returning(to: next)
         page = nil
+    }
+
+    /// A note from the history, at the place it was left.
+    private func returning(to request: ReaderRequest) -> ReaderRequest {
+        var request = request
+        if let place = places[request.path] {
+            request.line = place
+            request.heading = nil
+        }
+        cursorLine = request.line
+        return request
     }
 
     /// `daftar://open?path=Folder/Note.md[&mode=edit]`, which the

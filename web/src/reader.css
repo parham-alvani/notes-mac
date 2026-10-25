@@ -681,3 +681,15 @@ li.task-list-item.is-checked .query-date { text-decoration: none; opacity: 0.75;
 @media (prefers-reduced-motion: reduce) {
   #reading-cursor { transition: none; }
 }
+
+/* A heading's link button: there when the pointer is. */
+#note > [data-heading] { position: relative; }
+.heading-link {
+  position: absolute; inset-inline-start: -1.5em; top: 50%; transform: translateY(-50%);
+  width: 1.2em; height: 1.2em; padding: 0; border: 0; border-radius: 5px;
+  font: 600 0.55em/1.2em var(--font-mono); color: var(--text-faint);
+  background: transparent; cursor: pointer; opacity: 0; transition: opacity 0.12s, color 0.12s, background 0.12s;
+  user-select: none;
+}
+#note > [data-heading]:hover .heading-link { opacity: 1; }
+.heading-link:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }

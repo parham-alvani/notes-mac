@@ -276,7 +276,12 @@ async function showPreview(link) {
   card.querySelector(".preview-body").replaceChildren(...part.childNodes);
   if (!card.querySelector(".preview-body").childNodes.length) card.querySelector(".preview-body").innerHTML = `<p class="preview-empty">The note is empty.</p>`;
   decorate(card);
-  // Below the link, or above it when there is no room below.
+  place(card, link);
+  await drawDiagrams(card);
+}
+
+/** The card below [link], or above it when there is no room below. */
+function place(card, link) {
   const box = link.getBoundingClientRect();
   card.classList.add("is-open");
   const width = Math.min(460, window.innerWidth - 24);
@@ -293,7 +298,18 @@ async function showPreview(link) {
     card.style.top = "auto";
     card.style.maxHeight = `${Math.min(360, box.top - 20)}px`;
   }
-  await drawDiagrams(card);
+}
+
+/** A footnote's text in the card, where its number is: no jump to the end. */
+function showFootnote(link) {
+  const item = document.getElementById(decoded(link.getAttribute("href").slice(1)));
+  if (!item || preview.link !== link) return;
+  const card = previewCard();
+  const body = item.cloneNode(true);
+  body.querySelectorAll(".footnote-backref").forEach((back) => back.remove());
+  card.innerHTML = `<div class="preview-head"><span class="preview-title">Footnote ${escape(link.textContent.replace(/[[\]]/g, ""))}</span></div><div class="preview-body"></div>`;
+  card.querySelector(".preview-body").replaceChildren(...body.childNodes);
+  place(card, link);
 }
 
 function hidePreviewSoon() {
@@ -306,6 +322,15 @@ function hidePreviewSoon() {
 }
 
 document.addEventListener("mouseover", (event) => {
+  const note = event.target.closest?.("sup.footnote-ref a");
+  if (note && !note.closest(".preview")) {
+    clearTimeout(preview.hide);
+    if (preview.link === note) return;
+    clearTimeout(preview.timer);
+    preview.link = note;
+    preview.timer = setTimeout(() => showFootnote(note), 250);
+    return;
+  }
   const link = event.target.closest?.("a.internal-link");
   if (!link || link.closest(".preview") || !/\.md$/i.test(link.dataset.path ?? "")) return;
   if (link.dataset.path === current.path && !link.dataset.anchor) return;
@@ -318,7 +343,7 @@ document.addEventListener("mouseover", (event) => {
 // Leaving the link hides the card, each time: a listener on the link
 // itself would be spent by a quick leave and come back.
 document.addEventListener("mouseout", (event) => {
-  const link = event.target.closest?.("a.internal-link");
+  const link = event.target.closest?.("a.internal-link, sup.footnote-ref a");
   if (link && link === preview.link && !link.contains(event.relatedTarget)) hidePreviewSoon();
 });
 window.addEventListener("scroll", () => {
@@ -401,6 +426,22 @@ function taskChips(item, today) {
 
 /** What the page adds after rendering: tag colours, task chips and code block headers. */
 function decorate(root) {
+  // A link to each heading, to copy: `[[Note#Heading]]`.
+  if (root.id === "note") {
+    root.querySelectorAll(":scope > [data-heading]").forEach((heading) => {
+      if (heading.querySelector(".heading-link")) return;
+      const button = Object.assign(document.createElement("button"), { className: "heading-link", title: "Copy a link to this heading", textContent: "#" });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const text = [...heading.childNodes].filter((node) => node !== button).map((node) => node.textContent).join("").trim();
+        post({ kind: "copy", text: `[[${current.title}#${text}]]` });
+        button.textContent = "✓";
+        setTimeout(() => (button.textContent = "#"), 1200);
+      });
+      heading.prepend(button);
+    });
+  }
   const today = new Date().toLocaleDateString("sv");
   root.querySelectorAll("li.task-list-item").forEach((item) => {
     if (item.dataset.chips) return;
@@ -519,7 +560,7 @@ function search(text) {
 /** Text find does not count: TeX source, a closed fold, the code header's labels. */
 function hidden(node) {
   const parent = node.parentElement;
-  if (!parent || parent.closest(".katex-mathml, annotation, .code-head, style, script")) return true;
+  if (!parent || parent.closest(".katex-mathml, annotation, .code-head, .heading-link, style, script")) return true;
   const fold = parent.closest("details");
   return Boolean(fold && !fold.open && !parent.closest("summary"));
 }
@@ -798,6 +839,17 @@ const reading = {
     const blocks = this.blocks();
     this.place(last ? blocks.at(-1) : blocks[0], true);
   },
+
+  /** Space: a page on, and the cursor on the first block of that page. */
+  page(step) {
+    window.scrollBy({ top: step * (window.innerHeight - 100), behavior: "smooth" });
+    clearTimeout(this.paging);
+    this.paging = setTimeout(() => {
+      const blocks = this.blocks();
+      const first = blocks.find((b) => b.getBoundingClientRect().top >= 70) ?? blocks.at(step > 0 ? -1 : 0);
+      this.place(first, false);
+    }, 350);
+  },
 };
 
 document.addEventListener("keydown", (event) => {
@@ -807,7 +859,18 @@ document.addEventListener("keydown", (event) => {
   if (event.key in moves) reading.move(moves[event.key]);
   else if (event.key === "g" || event.key === "Home") reading.end(false);
   else if (event.key === "G" || event.key === "End") reading.end(true);
-  else return;
+  else if (event.key === " ") reading.page(event.shiftKey ? -1 : 1);
+  else if (event.key === "e" && reading.line != null) post({ kind: "edit", line: reading.line });
+  else if (event.key === "Enter" && reading.block) {
+    // The block's first link, as a click on it.
+    const link = reading.block.querySelector("a.internal-link, a[href]:not(.footnote-backref):not(.heading-link)");
+    if (!link) return;
+    link.click();
+  } else if (event.key === "x" && reading.block) {
+    const box = reading.block.querySelector(":scope > input.task-list-item-checkbox, :scope > p > input.task-list-item-checkbox");
+    if (!box || box.disabled) return;
+    box.click();
+  } else return;
   event.preventDefault();
 });
 
