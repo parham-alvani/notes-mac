@@ -160,6 +160,15 @@ struct ReaderView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
 
+        /// The page stays the reader: a note's `<meta http-equiv=refresh>` or
+        /// `<form>` cannot take the window to a web page, which would then
+        /// talk to the app. Links go out through the click handler instead.
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+            let scheme = action.request.url?.scheme ?? ""
+            if action.targetFrame?.isMainFrame ?? true { return scheme == "daftar" ? .allow : .cancel }
+            return scheme == "vault" || scheme == "about" ? .allow : .cancel
+        }
+
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
             switch kind {
@@ -171,6 +180,8 @@ struct ReaderView: NSViewRepresentable {
                 guard let request = shown, let line = body["line"] as? Int,
                     let status = (body["status"] as? String)?.first
                 else { return }
+                // The page is drawn from notes, so a path from it is checked:
+                // only a note in the index can be written.
                 // A task in a query result is in its own note.
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
                 parent.store.toggleTask(path: path, line: line, status: status)
@@ -178,15 +189,18 @@ struct ReaderView: NSViewRepresentable {
                 let path = body["path"] as? String ?? ""
                 let anchor = (body["anchor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let newWindow = body["newTab"] as? Bool ?? false
-                if path.isEmpty {
-                    let target = body["target"] as? String ?? ""
+                // A markdown link, `[x](Notes/a.md)`, names its note by path.
+                let target = body["target"] as? String ?? ""
+                if path.isEmpty, let from = shown?.path, let found = parent.store.index.resolve(target, from: from) {
+                    parent.onOpen(found, anchor, newWindow)
+                } else if path.isEmpty {
                     if let onCreate = parent.onCreate, let from = shown?.path, !target.isEmpty {
                         onCreate(target, from)
                     } else {
                         NSSound.beep()
                         parent.store.notice = "“\(target)” is not in the vault yet."
                     }
-                } else {
+                } else if parent.store.index.files.contains(path) {
                     parent.onOpen(path, anchor, newWindow)
                 }
             case "tag":
@@ -201,7 +215,15 @@ struct ReaderView: NSViewRepresentable {
                     NSPasteboard.general.setString(text, forType: .string)
                 }
             case "external":
-                if let text = body["url"] as? String, let url = URL(string: text) { NSWorkspace.shared.open(url) }
+                // Web and mail only: a note's `file:`, `smb:` or
+                // `shortcuts:` link would start an app or a script.
+                guard let text = body["url"] as? String, let url = URL(string: text) else { return }
+                if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    NSSound.beep()
+                    parent.store.notice = "Daftar opens only web and mail links, not “\(url.scheme ?? text):” links."
+                }
             default:
                 break
             }
@@ -222,12 +244,13 @@ struct ReaderView: NSViewRepresentable {
                 hasQuery = true
                 let context = body["context"] as? String ?? ""
                 if let path = body["path"] as? String, !path.isEmpty {
-                    guard let source = parent.store.text(of: path) else { return (nil, nil) }
+                    guard parent.store.index.files.contains(path), let source = parent.store.text(of: path) else { return (nil, nil) }
                     return (await runBase(source, context: context), nil)
                 }
                 return (await runBase(body["source"] as? String ?? "", context: context), nil)
             }
-            guard let path = body["path"] as? String, let text = parent.store.text(of: path) else { return (nil, nil) }
+            guard let path = body["path"] as? String, parent.store.index.files.contains(path), let text = parent.store.text(of: path)
+            else { return (nil, nil) }
             let parsed = NoteParser.parse(text)
             return (["text": text, "links": parent.store.index.resolvedLinks(in: parsed, from: path)], nil)
         }
@@ -320,15 +343,10 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         let file: URL?
         switch url.scheme {
         case "daftar":
-            file = Resources.reader?.appending(path: url.path.removingPrefixSlash)
+            // The page's own files; `url.path` is decoded already.
+            file = Resources.reader.flatMap { VaultStore.file(url.path.removingPrefixSlash, in: $0) }
         case "vault":
-            let path = (url.path.removingPercentEncoding ?? url.path).removingPrefixSlash
-            if let root = store.root?.standardizedFileURL {
-                let candidate = root.appending(path: path).standardizedFileURL
-                file = candidate.path.hasPrefix(root.path + "/") ? candidate : nil
-            } else {
-                file = nil
-            }
+            file = store.root.flatMap { VaultStore.file(url.path.removingPrefixSlash, in: $0) }
         default:
             file = nil
         }
@@ -338,15 +356,24 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         // A video or a sound is read in parts: `Range: bytes=start-end`.
-        if let range = task.request.value(forHTTPHeaderField: "Range"), let (start, end) = Self.bytes(range, size: data.count) {
+        // A page or a picture with script in it runs with no rights of its own.
+        let sandbox = ["text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml"].contains(type)
+        let policy = url.scheme == "vault" && sandbox ? ["Content-Security-Policy": "sandbox; default-src 'none'; img-src vault: data:; style-src 'unsafe-inline'"] : [:]
+        if let range = task.request.value(forHTTPHeaderField: "Range") {
+            guard let (start, end) = Self.bytes(range, size: data.count) else {
+                let headers = ["Content-Range": "bytes */\(data.count)"]
+                task.didReceive(HTTPURLResponse(url: url, statusCode: 416, httpVersion: "HTTP/1.1", headerFields: headers)!)
+                task.didFinish()
+                return
+            }
             let headers = [
                 "Content-Type": type, "Content-Length": String(end - start + 1), "Accept-Ranges": "bytes",
                 "Content-Range": "bytes \(start)-\(end)/\(data.count)",
-            ]
+            ].merging(policy) { a, _ in a }
             task.didReceive(HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: headers)!)
             task.didReceive(data.subdata(in: start..<(end + 1)))
         } else {
-            let headers = ["Content-Type": type, "Content-Length": String(data.count), "Accept-Ranges": "bytes"]
+            let headers = ["Content-Type": type, "Content-Length": String(data.count), "Accept-Ranges": "bytes"].merging(policy) { a, _ in a }
             task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!)
             task.didReceive(data)
         }
@@ -354,13 +381,16 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     /// `bytes=0-`, `bytes=100-199` or `bytes=-500`, inside a file of [size].
+    static let chunk = 4 << 20
+
     static func bytes(_ header: String, size: Int) -> (Int, Int)? {
         guard size > 0, let match = header.wholeMatch(of: /bytes=(\d*)-(\d*)/) else { return nil }
         let first = Int(match.1), last = Int(match.2)
         let start: Int, end: Int
         switch (first, last) {
         case (let a?, let b?): (start, end) = (a, min(b, size - 1))
-        case (let a?, nil): (start, end) = (a, size - 1)
+        // An open end is sent in parts: a whole film is not copied at once.
+        case (let a?, nil): (start, end) = (a, min(size - 1, a + chunk - 1))
         case (nil, let b?): (start, end) = (max(0, size - b), size - 1)
         default: return nil
         }

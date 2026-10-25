@@ -67,10 +67,13 @@ struct ContentView: View {
         .focusedSceneValue(\.window, model)
         .background(TabbedWindow(model: model))
         .onAppear {
+            // Every window follows a move or a delete, wherever it was made.
+            store.followers[ObjectIdentifier(model)] = { [weak model] in model?.follow($0) }
             if let initialPath, model.request == nil, store.index.files.contains(initialPath) || store.loading {
                 model.open(initialPath, store: store)
             }
         }
+        .onDisappear { store.followers[ObjectIdentifier(model)] = nil }
         .onOpenURL { url in model.handle(url, store: store) }
         // A `daftar://` link goes to the window that is open, not to a new one.
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])

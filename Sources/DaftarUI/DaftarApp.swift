@@ -19,6 +19,7 @@ public struct DaftarApp: App {
             ContentView()
                 .environment(store)
                 .frame(minWidth: 760, minHeight: 440)
+                .onAppear { delegate.store = store }
                 .task(id: store.revision) {
                     // After the vault changes, the alerts and the badge follow.
                     try? await Task.sleep(for: .seconds(2))
@@ -135,6 +136,9 @@ public struct DaftarApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// The vault, whose editors are saved before the app quits.
+    weak var store: VaultStore?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             AppSettings.shared.applyAppearance()
@@ -144,6 +148,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The alerts and the menu bar stay when the last window closes.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// The editors save only a moment after the typing stops, and SwiftUI
+    /// does not close their views on Quit: save them all first. Neovim gets
+    /// a few seconds, so a stuck one cannot keep the app from quitting.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            guard let store, !store.flushers.isEmpty else { return .terminateNow }
+            answered = false
+            Task { @MainActor in
+                await store.flushEditors()
+                self.answer(sender)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                self.answer(sender)
+            }
+            return .terminateLater
+        }
+    }
+
+    private var answered = false
+
+    @MainActor private func answer(_ sender: NSApplication) {
+        guard !answered else { return }
+        answered = true
+        sender.reply(toApplicationShouldTerminate: true)
+    }
 }
 
 struct SettingsView: View {

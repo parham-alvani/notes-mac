@@ -60,4 +60,44 @@ import Testing
         #expect(try store.createNote(forLink: "Top.md", from: "Home.md") == "Top.md")
         #expect(throws: VaultMoves.Failure.self) { try store.createNote(forLink: "Retro", from: "Notes/Plan.md") }
     }
+
+    @Test func noPathLeavesTheVault() throws {
+        let outside = root.deletingLastPathComponent().appending(path: "daftar-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try "secret".write(to: outside.appending(path: "secret.md"), atomically: true, encoding: .utf8)
+        // A link inside the vault that points out of it.
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "Out"), withDestinationURL: outside)
+        for path in ["../\(outside.lastPathComponent)/secret.md", "/etc/hosts", "Notes/../Home.md", "Out/secret.md", "Out", "./Home.md", ""] {
+            #expect(store.url(of: path) == nil, "\(path)")
+            #expect(store.text(of: path) == nil, "\(path)")
+        }
+        #expect(store.text(of: "Notes/Plan.md") != nil)
+        #expect(store.url(of: "Notes/New/Not yet.md") != nil)
+        // A link in a note cannot make a file outside, nor a folder.
+        #expect(throws: StoreError.self) { try store.createNote(forLink: "../../escaped", from: "Home.md") }
+        #expect(throws: StoreError.self) { try store.createNote(forLink: "Out/made", from: "Home.md") }
+        #expect(throws: StoreError.self) { try store.createFolder(named: "x", in: "..") }
+        #expect(!FileManager.default.fileExists(atPath: outside.appending(path: "made.md").path))
+        // Nor can the reader page tick a task in a file outside.
+        store.toggleTask(path: "Out/secret.md", line: 0, status: "x")
+        #expect(try String(contentsOf: outside.appending(path: "secret.md"), encoding: .utf8) == "secret")
+    }
+
+    @Test func aMovedNoteIsNotWrittenAgainAtItsOldPath() async throws {
+        let window = WindowModel()
+        window.open("Notes/Plan.md", store: store)
+        store.followers[ObjectIdentifier(window)] = { [weak window] in window?.follow($0) }
+        let editor = EditorController(store: store)
+        editor.load("Notes/Plan.md")
+        _ = try await store.move("Notes/Plan.md", to: "Notes/Roadmap.md")
+        // The window that did not make the move follows it too.
+        #expect(window.path == "Notes/Roadmap.md")
+        #expect(editor.path == "Notes/Roadmap.md")
+        #expect(throws: StoreError.self) { try store.write("old", to: "Notes/Plan.md") }
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "Notes/Plan.md").path))
+        try await store.delete("Notes")
+        #expect(window.path == nil)
+        #expect(editor.path == nil)
+    }
 }

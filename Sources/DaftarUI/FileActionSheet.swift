@@ -273,14 +273,13 @@ struct FileActionSheet: View {
                 if isFile, Vault.isNote(path) { newName = VaultMoves.noteName(newName) }
                 let target = (parent.isEmpty ? "" : parent + "/") + newName
                 guard VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
-                model.follow(try await store.move(path, to: target))
+                _ = try await store.move(path, to: target)
             case .move(let path):
                 guard let folder else { return }
                 let target = (folder.isEmpty ? "" : folder + "/") + String(path.split(separator: "/").last ?? "")
-                model.follow(try await store.move(path, to: target))
+                _ = try await store.move(path, to: target)
             case .delete(let path):
                 try await store.delete(path)
-                model.forget(path)
             case .extract(let folder, let text):
                 let path = try store.createNote(named: name, in: folder, text: EditorCommands.extractBody(text))
                 // A bare name when no other file has it, else the path.

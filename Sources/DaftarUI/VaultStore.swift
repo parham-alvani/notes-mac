@@ -7,7 +7,10 @@ import Observation
 @MainActor @Observable
 final class VaultStore {
     private(set) var root: URL?
-    private(set) var index = VaultIndex()
+    private(set) var index = VaultIndex() { didSet { indexGeneration += 1 } }
+    /// Grows with every change to the index, so a slow update can tell that
+    /// the index moved on while it read the files.
+    @ObservationIgnored private var indexGeneration = 0
     /// The Iconic plugin's icons and colours for the tree.
     private(set) var iconic = Iconic()
     /// Obsidian's excluded files, kept out of search and the switcher.
@@ -41,6 +44,9 @@ final class VaultStore {
     /// Each open editor's save, which a rename, a move or a delete waits for,
     /// so no editor writes the old file again after it is gone.
     @ObservationIgnored var flushers: [ObjectIdentifier: () async -> Void] = [:]
+    /// Each window and editor that shows a note, told when a file moves or
+    /// goes, so none of them writes the old path again.
+    @ObservationIgnored var followers: [ObjectIdentifier: (VaultChange) -> Void] = [:]
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
@@ -49,7 +55,17 @@ final class VaultStore {
 
     var name: String { root?.lastPathComponent ?? "Daftar" }
 
+    /// Opens the vault at [url]. What the editors hold is saved first, to
+    /// the vault it belongs to.
     func open(_ url: URL) {
+        guard root != nil, !flushers.isEmpty else { return switchTo(url) }
+        Task {
+            await flushEditors()
+            switchTo(url)
+        }
+    }
+
+    private func switchTo(_ url: URL) {
         let url = url.standardizedFileURL
         root = url
         // Only a new vault is written: the file may say `~/org` for this one.
@@ -102,15 +118,28 @@ final class VaultStore {
     /// so they are gathered for a moment and applied together.
     private func changed(_ paths: Set<String>) {
         pending.formUnion(paths)
-        flush?.cancel()
+        let previous = flush
+        previous?.cancel()
         flush = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled, let root else { return }
+            // A batch already past its wait finishes first: two at once
+            // would each start from the same index and drop the other's work.
+            await previous?.value
+            guard self.root == root else { return }
             let changed = pending
             pending = []
-            let base = index
             let search = self.search
-            let updated = await Task.detached { Vault.update(base, changed: changed, in: root, search: search) }.value
+            var updated: VaultIndex
+            var start: Int
+            repeat {
+                // A move or a delete changes the index while the files are
+                // read: read them again on top of what it made.
+                let base = index
+                start = indexGeneration
+                updated = await Task.detached { Vault.update(base, changed: changed, in: root, search: search) }.value
+            } while start != indexGeneration && self.root == root
+            guard self.root == root else { return }
             index = updated
             lastChanged = changed
             revision += 1
@@ -120,19 +149,40 @@ final class VaultStore {
 
     /// The text of a note as it is on disk now.
     func text(of path: String) -> String? {
-        guard let root else { return nil }
-        return try? String(contentsOf: root.appending(path: path), encoding: .utf8)
+        guard let file = url(of: path) else { return nil }
+        return try? String(contentsOf: file, encoding: .utf8)
     }
 
-    func url(of path: String) -> URL? { root?.appending(path: path) }
+    /// The file a vault path names, or nil when the path leaves the vault.
+    /// Paths come from notes, links and the reader page, so each one is checked.
+    func url(of path: String) -> URL? { root.flatMap { Self.file(path, in: $0) } }
+
+    /// [path] inside [root], or nil for an absolute path, a `.` or `..`
+    /// part, or a symlink that points out of the vault.
+    nonisolated static func file(_ path: String, in root: URL) -> URL? {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !parts.isEmpty, !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let file = base.appending(path: path)
+        // A file that is not there yet: its nearest folder that is.
+        var existing = file
+        while !FileManager.default.fileExists(atPath: existing.path), existing.path.count > base.path.count {
+            existing = existing.deletingLastPathComponent()
+        }
+        let resolved = existing.resolvingSymlinksInPath().path
+        guard resolved == base.path || resolved.hasPrefix(base.path + "/") else { return nil }
+        let target = file.resolvingSymlinksInPath().path
+        return target.hasPrefix(base.path + "/") ? file : nil
+    }
 
     // MARK: Edits
 
     /// Writes a note the editor holds, whole. The index and the reader follow
     /// through the file watcher, as they do for any other change.
     func write(_ text: String, to path: String) throws {
-        guard let root else { return }
-        try Data(text.utf8).write(to: root.appending(path: path), options: .atomic)
+        // A note that moved or went is not written again at its old path.
+        guard let file = url(of: path), index.files.contains(path) else { throw StoreError.gone(path) }
+        try Data(text.utf8).write(to: file, options: .atomic)
         changed([path])
         requestSync()
     }
@@ -141,7 +191,7 @@ final class VaultStore {
     /// first, and the edit is refused when that line is no longer the task
     /// that was clicked.
     func toggleTask(path: String, line: Int, status: Character) {
-        guard let root else { return }
+        guard let root, url(of: path) != nil, index.files.contains(path) else { return }
         do {
             try VaultEdits.apply(path, in: root) { text in
                 try VaultEdits.toggleTask(in: text, line: line, status: status, today: .today())
@@ -173,8 +223,13 @@ final class VaultStore {
         }
     }
 
-    private func flushEditors() async {
+    /// Everything the editors hold is on disk when this returns.
+    func flushEditors() async {
         for flush in flushers.values { await flush() }
+    }
+
+    private func tell(_ change: VaultChange) {
+        for follow in followers.values { follow(change) }
     }
 
     /// A new, empty note named [name] in [folder]; its vault path.
@@ -183,7 +238,8 @@ final class VaultStore {
         guard VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
         let path = (folder.isEmpty ? "" : folder + "/") + VaultMoves.noteName(name)
         guard !index.files.contains(where: { Slugs.fold($0) == Slugs.fold(path) }) else { throw VaultMoves.Failure.exists(path) }
-        let url = root.appending(path: path)
+        // `[[../../x]]` in a note names a file outside the vault.
+        guard let url = Self.file(path, in: root) else { throw StoreError.outside(path) }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url, options: .withoutOverwriting)
         index.files.insert(path)
@@ -207,11 +263,9 @@ final class VaultStore {
     func createFolder(named name: String, in parent: String) throws -> String {
         guard let root, VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
         let path = (parent.isEmpty ? "" : parent + "/") + name.trimmingCharacters(in: .whitespaces)
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: root.appending(path: path).path, isDirectory: &isDirectory) {
-            throw VaultMoves.Failure.exists(path)
-        }
-        try FileManager.default.createDirectory(at: root.appending(path: path), withIntermediateDirectories: true)
+        guard let url = Self.file(path, in: root) else { throw StoreError.outside(path) }
+        if FileManager.default.fileExists(atPath: url.path) { throw VaultMoves.Failure.exists(path) }
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return path
     }
 
@@ -219,6 +273,7 @@ final class VaultStore {
     /// Returns where each file went.
     func move(_ from: String, to: String) async throws -> [String: String] {
         guard let root else { return [:] }
+        guard Self.file(from, in: root) != nil, Self.file(to, in: root) != nil else { throw StoreError.outside(to) }
         await flushEditors()
         let moves = try VaultMoves.plan(from, to: to, files: index.files)
         let touched = try VaultMoves.perform(from, to: to, index: index, root: root)
@@ -234,6 +289,8 @@ final class VaultStore {
         }
         index.derive()
         revision += 1
+        // Every window and editor follows now, before anyone types again.
+        tell(.moved(moves, touched: Set(touched)))
         changed(touched)
         requestSync()
         if bookmarks.follow(moves, folder: index.files.contains(to) ? nil : (from, to)) { saveBookmarks(root) }
@@ -244,9 +301,9 @@ final class VaultStore {
 
     /// Moves a file or a folder to the Trash, where it can be taken back.
     func delete(_ path: String) async throws {
-        guard let root else { return }
+        guard let root, let file = Self.file(path, in: root) else { return }
         await flushEditors()
-        try FileManager.default.trashItem(at: root.appending(path: path), resultingItemURL: nil)
+        try FileManager.default.trashItem(at: file, resultingItemURL: nil)
         let before = bookmarks.entries
         bookmarks.remove(path)
         if bookmarks.entries != before { saveBookmarks(root) }
@@ -258,6 +315,7 @@ final class VaultStore {
         }
         index.derive()
         revision += 1
+        tell(.deleted(path))
         changed([path])
         requestSync()
     }
@@ -265,7 +323,7 @@ final class VaultStore {
     /// Writes the task on [line] of [path] from [fields]. False when the
     /// line no longer holds the task the form was opened on.
     func editTask(path: String, line: Int, before: TaskFields, fields: TaskFields) -> Bool {
-        guard let root else { return false }
+        guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
         do {
             try VaultEdits.apply(path, in: root) { text in
                 try VaultEdits.editTask(in: text, line: line, before: before, fields: fields)
@@ -403,4 +461,25 @@ final class VaultStore {
         return items
     }
 
+}
+
+/// A file command's effect, for the windows and editors that show the files.
+enum VaultChange {
+    /// Where each file went, and the notes whose links were rewritten.
+    case moved([String: String], touched: Set<String>)
+    /// A file or a folder went to the Trash.
+    case deleted(String)
+}
+
+/// Why the store did not touch a file.
+enum StoreError: LocalizedError {
+    case gone(String)
+    case outside(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .gone(let path): "“\(path)” is no longer in the vault"
+        case .outside(let path): "“\(path)” is outside the vault"
+        }
+    }
 }

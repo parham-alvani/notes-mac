@@ -93,11 +93,16 @@ async function fillEmbeds(root) {
       if (!note) continue;
       const holder = document.createElement("div");
       holder.innerHTML = render(note.text, { path: embed.dataset.path, links: note.links });
-      holder.querySelectorAll(".embed").forEach((inner) => inner.replaceWith(Object.assign(document.createElement("a"), {
-        className: "internal-link",
-        href: "#",
-        textContent: inner.querySelector(".embed-title")?.textContent ?? "",
-      })));
+      holder.querySelectorAll(".embed").forEach((inner) => {
+        const link = Object.assign(document.createElement("a"), {
+          className: "internal-link",
+          href: "#",
+          textContent: inner.querySelector(".embed-title")?.textContent ?? "",
+        });
+        // The link still goes where the embed did.
+        Object.assign(link.dataset, { path: inner.dataset.path ?? "", target: inner.dataset.target ?? "", anchor: inner.dataset.anchor ?? "" });
+        inner.replaceWith(link);
+      });
       // A checkbox in an embed belongs to another file; it is shown, not ticked.
       holder.querySelectorAll("input[type=checkbox]").forEach((box) => (box.disabled = true));
       body.replaceChildren(...section(holder, embed.dataset.anchor).childNodes);
@@ -300,7 +305,12 @@ document.addEventListener("mouseover", (event) => {
   clearTimeout(preview.timer);
   preview.link = link;
   preview.timer = setTimeout(() => showPreview(link), 450);
-  link.addEventListener("mouseleave", hidePreviewSoon, { once: true });
+});
+// Leaving the link hides the card, each time: a listener on the link
+// itself would be spent by a quick leave and come back.
+document.addEventListener("mouseout", (event) => {
+  const link = event.target.closest?.("a.internal-link");
+  if (link && link === preview.link && !link.contains(event.relatedTarget)) hidePreviewSoon();
 });
 window.addEventListener("scroll", () => {
   if (preview.card?.classList.contains("is-open")) hidePreviewSoon();
@@ -395,7 +405,8 @@ function decorate(root) {
     const lang = /language-([\w+#-]+)/.exec(code.className)?.[1] ?? "";
     const block = document.createElement("div");
     block.className = "code-block";
-    block.style.setProperty("--lang-color", `var(${LANGUAGE_COLORS[lang.toLowerCase()] ?? "--accent"})`);
+    const color = Object.hasOwn(LANGUAGE_COLORS, lang.toLowerCase()) ? LANGUAGE_COLORS[lang.toLowerCase()] : "--accent";
+    block.style.setProperty("--lang-color", `var(${color})`);
     const head = document.createElement("div");
     head.className = "code-head";
     head.innerHTML = `<span class="code-lang">${escape(lang || "code")}</span><button class="code-copy" title="Copy"><span class="icon"></span><span class="label">Copy</span></button>`;
@@ -464,29 +475,44 @@ function findBar() {
 function search(text) {
   finder.ranges = [];
   finder.at = -1;
-  const needle = text.toLocaleLowerCase();
-  if (needle) {
-    const walker = document.createTreeWalker(document.getElementById("note"), NodeFilter.SHOW_TEXT);
+  if (text) {
+    // Matched in the text as it is: a lowercased copy can be longer, and
+    // its offsets would not fit the node.
+    const needle = new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
+    const walker = document.createTreeWalker(document.getElementById("note"), NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => (hidden(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const haystack = node.data.toLocaleLowerCase();
-      for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + needle.length)) {
+      for (const match of node.data.matchAll(needle)) {
+        if (match[0].length === 0) break;
         const range = document.createRange();
-        range.setStart(node, at);
-        range.setEnd(node, at + needle.length);
+        range.setStart(node, match.index);
+        range.setEnd(node, match.index + match[0].length);
         finder.ranges.push(range);
       }
     }
   }
   CSS.highlights?.set("find", new Highlight(...finder.ranges));
   if (finder.ranges.length > 0) {
-    // The first match below the top of the window.
-    const first = finder.ranges.findIndex((range) => range.getBoundingClientRect().top >= 0);
+    // The first match below the top of the window that can be seen.
+    const first = finder.ranges.findIndex((range) => {
+      const box = range.getBoundingClientRect();
+      return box.height > 0 && box.top >= 0;
+    });
     finder.at = (first >= 0 ? first : 0) - 1;
     step(1);
   } else {
     CSS.highlights?.delete("find-current");
     showCount();
   }
+}
+
+/** Text find does not count: TeX source, a closed fold, the code header's labels. */
+function hidden(node) {
+  const parent = node.parentElement;
+  if (!parent || parent.closest(".katex-mathml, annotation, .code-head, style, script")) return true;
+  const fold = parent.closest("details");
+  return Boolean(fold && !fold.open && !parent.closest("summary"));
 }
 
 function step(direction) {
@@ -571,6 +597,8 @@ window.daftar = {
     progress();
     await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
     decorate(main);
+    // Embeds, queries and pictures made the page longer.
+    progress();
     if (finder.bar?.classList.contains("is-open")) search(finder.input.value);
   },
 
@@ -648,15 +676,31 @@ document.addEventListener("click", (event) => {
   const href = link.getAttribute("href") ?? "";
   if (href.startsWith("#")) {
     // A footnote, or a link to a heading in this note.
-    const target = document.getElementById(decodeURIComponent(href.slice(1)));
-    if (target) {
-      event.preventDefault();
-      target.scrollIntoView({ block: "center" });
-    }
+    event.preventDefault();
+    const anchor = decoded(href.slice(1));
+    const target = document.getElementById(anchor);
+    if (target) target.scrollIntoView({ block: "center" });
+    else window.daftar.scrollTo(anchor);
     return;
   }
   event.preventDefault();
+  if (!href) return;
+  // `[x](Notes/a.md)`: a note in the vault, by its path.
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    const [path, anchor = ""] = href.split("#");
+    post({ kind: "open", path: "", target: decoded(path).replace(/^\.\//, ""), anchor: decoded(anchor), newTab: event.metaKey });
+    return;
+  }
   post({ kind: "external", url: link.href });
 });
+
+/** A percent-encoded part of a link, or the text as it is when it is not. */
+function decoded(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
 
 post({ kind: "ready" });

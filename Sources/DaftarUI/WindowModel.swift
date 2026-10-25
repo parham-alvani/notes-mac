@@ -205,6 +205,14 @@ final class WindowModel {
         recent = recent.map { moves[$0] ?? $0 }
     }
 
+    /// A move or a delete, made in this window or another one.
+    func follow(_ change: VaultChange) {
+        switch change {
+        case .moved(let moves, _): follow(moves)
+        case .deleted(let path): forget(path)
+        }
+    }
+
     /// After a delete: a note that is gone is no longer shown.
     func forget(_ path: String) {
         let gone = { (other: String) in other == path || other.hasPrefix(path + "/") }

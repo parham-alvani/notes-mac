@@ -106,3 +106,10 @@ test("a video, a sound and a PDF are embedded, each in its own player", () => {
 test("an emoji at the start of a highlight sets its colour and is not shown", () => {
   assert.match(render("==🔴 Never this== and ==🟢Fixed== and ==plain=="), /<mark data-highlight="red">Never this<\/mark> and <mark data-highlight="green">Fixed<\/mark> and <mark>plain<\/mark>/);
 });
+
+test("a note named as an object's own property is a link like any other", () => {
+  const html = render("[[constructor]], [[toString]] and ![[__proto__]]", { links });
+  assert.match(html, /<a class="internal-link is-unresolved" href="#" data-path="" data-target="constructor"/);
+  assert.match(html, /data-target="toString"/);
+  assert.match(render("[[constructor]]", { links: { constructor: "constructor.md" } }), /data-path="constructor.md"/);
+});

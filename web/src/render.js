@@ -105,7 +105,7 @@ function wikilinks(md) {
 
   md.renderer.rules.wikilink = (tokens, idx, _options, env) => {
     const { target, anchor, alias } = tokens[idx].meta;
-    const path = target === "" ? env.path : env.links?.[target];
+    const path = target === "" ? env.path : linkOf(env, target);
     const label = alias ?? (target === "" ? anchor : anchor ? `${target} > ${anchor}` : target);
     const cls = path ? "internal-link" : "internal-link is-unresolved";
     return (
@@ -116,7 +116,7 @@ function wikilinks(md) {
 
   md.renderer.rules.wikiembed = (tokens, idx, _options, env) => {
     const { target, anchor, alias } = tokens[idx].meta;
-    const path = env.links?.[target];
+    const path = linkOf(env, target);
     if (path && IMAGE.test(path)) {
       // `![[a.png|300]]` and `![[a.png|300x200]]` set the size; any other
       // text after the bar is the alt text.
@@ -401,6 +401,14 @@ function direction(md) {
   md.core.ruler.push("direction", (state) => {
     for (const token of state.tokens) if (blocks.has(token.type)) token.attrSet("dir", "auto");
   });
+}
+
+/**
+ * Where a link goes. The table is the app's, keyed by the note's own text:
+ * `[[constructor]]` must not find a property every object has.
+ */
+function linkOf(env, target) {
+  return env.links && Object.hasOwn(env.links, target) ? env.links[target] : undefined;
 }
 
 /** Headings carry their text, which is what `[[Note#Heading]]` names. */

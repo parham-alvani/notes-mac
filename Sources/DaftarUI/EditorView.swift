@@ -44,6 +44,7 @@ struct EditorView: NSViewRepresentable {
         coordinator.saveNow()
         coordinator.stopVim()
         coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
+        coordinator.store.followers[ObjectIdentifier(coordinator)] = nil
     }
 }
 
@@ -93,6 +94,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         self.store = store
         super.init()
         store.flushers[ObjectIdentifier(self)] = { [weak self] in await self?.flush() }
+        store.followers[ObjectIdentifier(self)] = { [weak self] in self?.follow($0) }
     }
 
     /// Everything typed is on disk when this returns.
@@ -180,14 +182,43 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
         guard store.lastChanged.contains(path), let disk = store.text(of: path), disk != saved else { return }
         if view.string == saved {
-            let selection = view.selectedRange()
-            saved = disk
-            view.string = disk
-            restyle(all: true)
-            view.setSelectedRange(NSRange(location: min(selection.location, (disk as NSString).length), length: 0))
+            take(disk)
         } else {
             store.notice = "\(Vault.title(of: path)) changed on disk while you typed. Your text is kept; it is saved over the other change."
         }
+    }
+
+    /// A move or a delete, made in this window or another. The editor was
+    /// saved just before it, so the file holds all that was typed.
+    func follow(_ change: VaultChange) {
+        guard let path else { return }
+        switch change {
+        case .moved(let moves, let touched):
+            let now = moves[path] ?? path
+            guard now != path || touched.contains(path) else { return }
+            if let session {
+                if now != path { load(now) } else { session.checkDisk() }
+                return
+            }
+            self.path = now
+            // The links in it were written again: take them now, before the
+            // next save writes the old ones back.
+            if let view, view.string == saved, let disk = store.text(of: now), disk != saved { take(disk) }
+        case .deleted(let gone):
+            guard path == gone || path.hasPrefix(gone + "/") else { return }
+            saveTask?.cancel()
+            self.path = nil
+        }
+    }
+
+    /// The text on disk, in place of a view with nothing unsaved.
+    private func take(_ disk: String) {
+        guard let view else { return }
+        let selection = view.selectedRange()
+        saved = disk
+        view.string = disk
+        restyle(all: true)
+        view.setSelectedRange(NSRange(location: min(selection.location, (disk as NSString).length), length: 0))
     }
 
     func applyTextSize() {

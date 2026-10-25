@@ -121,16 +121,20 @@ struct FilesList: View {
     private func drop(_ paths: [String], into node: TreeNode) -> Bool {
         dropTarget = nil
         guard node.isFolder else { return false }
+        let files = store.index.files
         let moving = paths.filter { path in
             let parent = path.split(separator: "/").dropLast().joined(separator: "/")
-            return parent != node.path && path != node.path && !node.path.hasPrefix(path + "/")
+            // Only what is in the vault, and not what moves with its folder.
+            let known = files.contains(path) || files.contains { $0.hasPrefix(path + "/") }
+            return known && parent != node.path && path != node.path && !node.path.hasPrefix(path + "/")
+                && !paths.contains { $0 != path && path.hasPrefix($0 + "/") }
         }
         guard !moving.isEmpty else { return false }
         Task {
             for path in moving {
                 do {
                     let target = node.path + "/" + String(path.split(separator: "/").last ?? "")
-                    model.follow(try await store.move(path, to: target))
+                    _ = try await store.move(path, to: target)
                 } catch {
                     store.notice = (error as? VaultMoves.Failure)?.description ?? error.localizedDescription
                 }
