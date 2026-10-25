@@ -38,7 +38,8 @@ struct FilesList: View {
                 Label {
                     Text("Today")
                 } icon: {
-                    Image(systemName: "sun.max.fill").foregroundStyle(Palette.yellow)
+                    Image(systemName: "sun.max.fill").resizable().scaledToFit().foregroundStyle(Palette.yellow)
+                        .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
                 .badge(groups.today.count + groups.overdue.count)
                     .tag(SidebarItem.today)

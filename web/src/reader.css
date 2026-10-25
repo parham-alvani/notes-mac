@@ -241,7 +241,7 @@ input.task-list-item-checkbox {
 }
 input.task-list-item-checkbox:hover { transform: scale(1.12); }
 input.task-list-item-checkbox:disabled { cursor: default; opacity: 0.7; }
-li.task-list-item > input, li.task-list-item > p > input { margin-inline: -1.5em 0.4em; }
+li.task-list-item > input, li.task-list-item > p > input { margin-inline: -1.55em 0.5em; }
 li.task-list-item.is-checked[data-task="x"], li.task-list-item.is-checked[data-task="X"] { color: var(--done-color); }
 li.task-list-item.is-checked[data-task="x"] > p, li.task-list-item.is-checked[data-task="x"]:not(:has(> p)) { text-decoration: line-through; text-decoration-color: var(--text-faint); }
 li.task-list-item[data-task="-"] { color: var(--done-color); text-decoration: line-through; }

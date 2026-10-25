@@ -11,14 +11,23 @@ struct IconicImage: View {
     var fallbackColor: Color
 
     var body: some View {
-        if let name = icon?.name, icon?.isEmoji == true {
-            Text(name).font(.system(size: 12))
-        } else {
-            // A Lucide name with no symbol here draws the default, not a gap.
-            Image(systemName: icon?.name.flatMap { Self.symbols[$0] }.flatMap(Self.known) ?? fallback)
-                .foregroundStyle(icon?.color.flatMap(Self.color) ?? fallbackColor)
+        Group {
+            if let name = icon?.name, icon?.isEmoji == true {
+                Text(name).font(.system(size: 12))
+            } else {
+                // A Lucide name with no symbol here draws the default, not a gap.
+                Image(systemName: icon?.name.flatMap { Self.symbols[$0] }.flatMap(Self.known) ?? fallback)
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(icon?.color.flatMap(Self.color) ?? fallbackColor)
+            }
         }
+        // The same square for every icon: wide symbols (a house, masks)
+        // shrink into it instead of pushing the name aside.
+        .frame(width: Self.slot, height: Self.slot)
     }
+
+    static let slot: CGFloat = 18
 
     private static func known(_ symbol: String) -> String? {
         NSImage(systemSymbolName: symbol, accessibilityDescription: nil) == nil ? nil : symbol
