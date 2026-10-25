@@ -10,6 +10,8 @@ final class VaultStore {
     private(set) var index = VaultIndex()
     /// The Iconic plugin's icons and colours for the tree.
     private(set) var iconic = Iconic()
+    /// Obsidian's excluded files, kept out of search and the switcher.
+    private(set) var excluded = ExcludedFiles()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0
@@ -34,6 +36,9 @@ final class VaultStore {
     private var syncSoon: Task<Void, Never>?
 
     let settings: AppSettings
+    /// Each open editor's save, which a rename, a move or a delete waits for,
+    /// so no editor writes the old file again after it is gone.
+    @ObservationIgnored var flushers: [ObjectIdentifier: () async -> Void] = [:]
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
@@ -48,6 +53,7 @@ final class VaultStore {
         // Only a new vault is written: the file may say `~/org` for this one.
         if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
+        excluded = ExcludedFiles.load(url)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
             Task { @MainActor in self?.changed(paths) }
@@ -143,6 +149,82 @@ final class VaultStore {
         } catch {
             notice = "The task could not be written: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: Files
+
+    private func flushEditors() async {
+        for flush in flushers.values { await flush() }
+    }
+
+    /// A new, empty note named [name] in [folder]; its vault path.
+    func createNote(named name: String, in folder: String, text: String = "") throws -> String {
+        guard let root else { throw VaultMoves.Failure.badName(name) }
+        guard VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
+        let path = (folder.isEmpty ? "" : folder + "/") + VaultMoves.noteName(name)
+        guard !index.files.contains(where: { Slugs.fold($0) == Slugs.fold(path) }) else { throw VaultMoves.Failure.exists(path) }
+        let url = root.appending(path: path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url, options: .withoutOverwriting)
+        index.files.insert(path)
+        changed([path])
+        requestSync()
+        return path
+    }
+
+    /// A new folder named [name] in [parent]; its vault path.
+    func createFolder(named name: String, in parent: String) throws -> String {
+        guard let root, VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
+        let path = (parent.isEmpty ? "" : parent + "/") + name.trimmingCharacters(in: .whitespaces)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: root.appending(path: path).path, isDirectory: &isDirectory) {
+            throw VaultMoves.Failure.exists(path)
+        }
+        try FileManager.default.createDirectory(at: root.appending(path: path), withIntermediateDirectories: true)
+        return path
+    }
+
+    /// Renames or moves a file or a folder, and every link to what moved.
+    /// Returns where each file went.
+    func move(_ from: String, to: String) async throws -> [String: String] {
+        guard let root else { return [:] }
+        await flushEditors()
+        let moves = try VaultMoves.plan(from, to: to, files: index.files)
+        let touched = try VaultMoves.perform(from, to: to, index: index, root: root)
+        // The tree follows at once; the file watcher reads the notes again.
+        for (old, new) in moves {
+            search.remove(path: old)
+            index.files.remove(old)
+            index.files.insert(new)
+            if var note = index.notes.removeValue(forKey: old) {
+                note.path = new
+                index.notes[new] = note
+            }
+        }
+        index.derive()
+        revision += 1
+        changed(touched)
+        requestSync()
+        let count = moves.count
+        notice = count > 1 ? "Moved \(count) files; the links to them follow." : nil
+        return moves
+    }
+
+    /// Moves a file or a folder to the Trash, where it can be taken back.
+    func delete(_ path: String) async throws {
+        guard let root else { return }
+        await flushEditors()
+        try FileManager.default.trashItem(at: root.appending(path: path), resultingItemURL: nil)
+        let base = path + "/"
+        for gone in index.files.filter({ $0 == path || $0.hasPrefix(base) }) {
+            search.remove(path: gone)
+            index.files.remove(gone)
+            index.notes[gone] = nil
+        }
+        index.derive()
+        revision += 1
+        changed([path])
+        requestSync()
     }
 
     // MARK: Git
@@ -251,7 +333,7 @@ final class VaultStore {
     /// Notes and bases whose name holds [query], best first: a prefix before
     /// a word start before anywhere, then the shorter path.
     func quickOpen(_ query: String, recent: [String], limit: Int = 50) -> [String] {
-        let notes = Array(index.notes.keys) + index.files.filter(Base.isBase)
+        let notes = (Array(index.notes.keys) + index.files.filter(Base.isBase)).filter { !excluded.contains($0) }
         let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
         if needle.isEmpty {
             let recents = recent.filter { index.files.contains($0) }

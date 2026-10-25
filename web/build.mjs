@@ -70,6 +70,32 @@ const css = [
 ];
 writeFileSync(`${out}/tasks.css`, css.join("\n") + "\n");
 
+// Each callout kind's Lucide icon, as Obsidian draws them, with its aliases;
+// and the icons of the page's own buttons.
+const calloutIcons = [
+  [["note"], "pencil"],
+  [["info"], "info"],
+  [["abstract", "summary", "tldr"], "clipboard-list"],
+  [["todo"], "circle-check"],
+  [["tip", "hint", "important"], "flame"],
+  [["success", "check", "done"], "check"],
+  [["question", "help", "faq"], "circle-help"],
+  [["warning", "caution", "attention"], "triangle-alert"],
+  [["failure", "fail", "missing"], "x"],
+  [["danger", "error"], "zap"],
+  [["bug"], "bug"],
+  [["example"], "list"],
+  [["quote", "cite"], "quote"],
+  [["figure"], "image"],
+  [["read"], "book-open"],
+];
+const calloutCss = [
+  `.callout { --callout-icon: ${icon("pencil")}; }`,
+  ...calloutIcons.map(([kinds, name]) => `${kinds.map((kind) => `.callout[data-callout="${kind}"]`).join(", ")} { --callout-icon: ${icon(name)}; }`),
+  `:root { --icon-copy: ${icon("copy")}; --icon-copied: ${icon("check-check")}; --icon-search: ${icon("search")}; --icon-up: ${icon("chevron-up")}; --icon-down: ${icon("chevron-down")}; --icon-close: ${icon("x")}; }`,
+];
+writeFileSync(`${out}/callouts.css`, calloutCss.join("\n") + "\n");
+
 cpSync("src/index.html", `${out}/index.html`);
 cpSync("src/reader.css", `${out}/reader.css`);
 cpSync("node_modules/katex/dist/katex.min.css", `${out}/katex.min.css`);

@@ -256,3 +256,38 @@ public enum Vault {
         return build(root, prefix: "")
     }
 }
+
+/// Obsidian's "excluded files" (`userIgnoreFilters` in `.obsidian/app.json`):
+/// folders and files kept out of search and the switcher, though they stay
+/// in the tree and links to them still work. A filter is a path prefix, or
+/// a regular expression between slashes.
+public struct ExcludedFiles: Sendable {
+    public var prefixes: [String] = []
+    nonisolated(unsafe) public var patterns: [NSRegularExpression] = []
+
+    public init(filters: [String] = []) {
+        for filter in filters {
+            let trimmed = filter.trimmingCharacters(in: .whitespaces)
+            if trimmed.count > 2, trimmed.hasPrefix("/"), trimmed.hasSuffix("/") {
+                if let regex = try? NSRegularExpression(pattern: String(trimmed.dropFirst().dropLast())) { patterns.append(regex) }
+            } else if !trimmed.isEmpty {
+                prefixes.append(Slugs.fold(trimmed))
+            }
+        }
+    }
+
+    public static func load(_ root: URL) -> ExcludedFiles {
+        guard let data = try? Data(contentsOf: root.appending(path: ".obsidian/app.json")),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let filters = object["userIgnoreFilters"] as? [String]
+        else { return ExcludedFiles() }
+        return ExcludedFiles(filters: filters)
+    }
+
+    public func contains(_ path: String) -> Bool {
+        let folded = Slugs.fold(path)
+        if prefixes.contains(where: { folded.hasPrefix($0) }) { return true }
+        let range = NSRange(path.startIndex..., in: path)
+        return patterns.contains { $0.firstMatch(in: path, range: range) != nil }
+    }
+}

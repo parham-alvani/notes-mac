@@ -244,6 +244,14 @@ final class NeovimSession {
         client.notify("nvim_command", ["silent! update"])
     }
 
+    /// Writes the buffer and waits until Neovim has, before the file is
+    /// renamed, moved or deleted under it.
+    func saveAndWait() async {
+        saveSoon?.cancel()
+        guard case .running = state else { return }
+        _ = try? await client.request("nvim_command", ["silent! update"])
+    }
+
     /// The file changed on disk: Neovim reads it again if the buffer has no
     /// changes of its own, and says so if it has.
     func checkDisk() {

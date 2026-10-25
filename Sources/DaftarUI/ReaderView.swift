@@ -26,6 +26,7 @@ struct ReaderView: NSViewRepresentable {
     var onOpen: (_ path: String, _ anchor: String?, _ newWindow: Bool) -> Void
     var onTag: (String) -> Void
     var findText: String?
+    var findCommand = ReaderFind(action: .none, count: 0)
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -64,6 +65,7 @@ struct ReaderView: NSViewRepresentable {
         private var shownRevision = -1
         private var shownSize = ""
         private var lastFind: String?
+        private var lastFindCommand = 0
         /// The note on screen has a ` ```tasks ` block or a base.
         private var hasQuery = false
         /// Grows with each show, so a base that finishes late is dropped.
@@ -87,6 +89,14 @@ struct ReaderView: NSViewRepresentable {
                 show(request, keepScroll: true)
             }
             if store.revision != shownRevision { shownRevision = store.revision }
+            if parent.findCommand.count != lastFindCommand {
+                lastFindCommand = parent.findCommand.count
+                if parent.findCommand.action != .none {
+                    view?.window?.makeFirstResponder(view)
+                    view?.callAsyncJavaScript(
+                        "daftar.findCommand(action)", arguments: ["action": parent.findCommand.action.rawValue], in: nil, in: .page)
+                }
+            }
             if let find = parent.findText, find != lastFind {
                 lastFind = find
                 view?.callAsyncJavaScript("daftar.find(text)", arguments: ["text": find], in: nil, in: .page)
@@ -173,6 +183,11 @@ struct ReaderView: NSViewRepresentable {
                 }
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
+            case "copy":
+                if let text = body["text"] as? String {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
             case "external":
                 if let text = body["url"] as? String, let url = URL(string: text) { NSWorkspace.shared.open(url) }
             default:
@@ -305,14 +320,39 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         default:
             file = nil
         }
-        guard let file, let data = try? Data(contentsOf: file) else {
+        guard let file, let data = try? Data(contentsOf: file, options: .mappedIfSafe) else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-        task.didReceive(URLResponse(url: url, mimeType: type, expectedContentLength: data.count, textEncodingName: nil))
-        task.didReceive(data)
+        // A video or a sound is read in parts: `Range: bytes=start-end`.
+        if let range = task.request.value(forHTTPHeaderField: "Range"), let (start, end) = Self.bytes(range, size: data.count) {
+            let headers = [
+                "Content-Type": type, "Content-Length": String(end - start + 1), "Accept-Ranges": "bytes",
+                "Content-Range": "bytes \(start)-\(end)/\(data.count)",
+            ]
+            task.didReceive(HTTPURLResponse(url: url, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: headers)!)
+            task.didReceive(data.subdata(in: start..<(end + 1)))
+        } else {
+            let headers = ["Content-Type": type, "Content-Length": String(data.count), "Accept-Ranges": "bytes"]
+            task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!)
+            task.didReceive(data)
+        }
         task.didFinish()
+    }
+
+    /// `bytes=0-`, `bytes=100-199` or `bytes=-500`, inside a file of [size].
+    static func bytes(_ header: String, size: Int) -> (Int, Int)? {
+        guard size > 0, let match = header.wholeMatch(of: /bytes=(\d*)-(\d*)/) else { return nil }
+        let first = Int(match.1), last = Int(match.2)
+        let start: Int, end: Int
+        switch (first, last) {
+        case (let a?, let b?): (start, end) = (a, min(b, size - 1))
+        case (let a?, nil): (start, end) = (a, size - 1)
+        case (nil, let b?): (start, end) = (max(0, size - b), size - 1)
+        default: return nil
+        }
+        return start <= end && start < size ? (start, end) : nil
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}
@@ -326,6 +366,8 @@ enum Resources {
         let candidates = [
             Bundle.main.resourceURL?.appending(path: name),
             Bundle.main.executableURL?.deletingLastPathComponent().appending(path: name),
+            // Under `swift test`, next to the test bundle.
+            Bundle(for: VaultStore.self).bundleURL.deletingLastPathComponent().appending(path: name),
         ]
         for case let bundle? in candidates {
             for inner in [bundle, bundle.appending(path: "Contents/Resources")]

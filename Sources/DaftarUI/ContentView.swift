@@ -41,7 +41,18 @@ struct ContentView: View {
         .sheet(isPresented: $model.quickOpen) {
             QuickOpenView(model: model)
         }
+        .sheet(item: $model.fileAction) { action in
+            FileActionSheet(action: action, model: model)
+        }
         .overlay(alignment: .bottom) { noticeBanner }
+        // ⌘O opens the switcher too, as in the vault's Obsidian hotkeys.
+        .background {
+            Button("Quick Open") { model.quickOpen = true }
+                .keyboardShortcut("o")
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .focusedSceneValue(\.window, model)
         .onOpenURL { url in model.handle(url, store: store) }
         // A `daftar://` link goes to the window that is open, not to a new one.
@@ -71,7 +82,8 @@ struct ContentView: View {
                     }
                 },
                 onTag: { model.searchTag($0) },
-                findText: model.findText)
+                findText: model.findText,
+                findCommand: model.readerFind)
         } else {
             ContentUnavailableView {
                 Label("No note open", systemImage: "doc.text")

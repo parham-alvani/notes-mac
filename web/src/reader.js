@@ -239,6 +239,160 @@ function zoom(node) {
   document.body.appendChild(overlay);
 }
 
+/** A colour of the palette for each tag, the same one every time. */
+const TAG_COLORS = ["--orange", "--aqua", "--pink", "--purple", "--chartreuse", "--blue", "--spring-green", "--vivid-yellow", "--red"];
+
+function hue(text) {
+  let hash = 0;
+  for (const char of text) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  return TAG_COLORS[hash % TAG_COLORS.length];
+}
+
+/** The colour of a code block's language label. */
+const LANGUAGE_COLORS = {
+  go: "--aqua", python: "--vivid-yellow", py: "--vivid-yellow", bash: "--chartreuse", sh: "--chartreuse", shell: "--chartreuse", zsh: "--chartreuse",
+  fish: "--chartreuse", powershell: "--blue", yaml: "--pink", yml: "--pink", toml: "--pink", json: "--orange", sql: "--purple", rust: "--orange",
+  zig: "--orange", c: "--blue", cpp: "--blue", typescript: "--blue", ts: "--blue", javascript: "--vivid-yellow", js: "--vivid-yellow",
+  hcl: "--purple", terraform: "--purple", swift: "--orange", kotlin: "--purple", java: "--red", ruby: "--red", lua: "--blue",
+  dockerfile: "--aqua", nix: "--blue", html: "--orange", css: "--pink", markdown: "--grey", md: "--grey", text: "--grey", diff: "--spring-green",
+};
+
+/** What the page adds after rendering: tag colours and code block headers. */
+function decorate(root) {
+  root.querySelectorAll("a.tag").forEach((tag) => tag.style.setProperty("--tag-color", `var(${hue(tag.dataset.tag ?? tag.textContent)})`));
+  root.querySelectorAll("pre:not(.mermaid) > code").forEach((code) => {
+    const pre = code.parentElement;
+    if (pre.parentElement?.classList.contains("code-block")) return;
+    const lang = /language-([\w+#-]+)/.exec(code.className)?.[1] ?? "";
+    const block = document.createElement("div");
+    block.className = "code-block";
+    block.style.setProperty("--lang-color", `var(${LANGUAGE_COLORS[lang.toLowerCase()] ?? "--accent"})`);
+    const head = document.createElement("div");
+    head.className = "code-head";
+    head.innerHTML = `<span class="code-lang">${escape(lang || "code")}</span><button class="code-copy" title="Copy"><span class="icon"></span><span class="label">Copy</span></button>`;
+    head.querySelector("button").addEventListener("click", (event) => {
+      event.stopPropagation();
+      post({ kind: "copy", text: code.textContent });
+      const button = event.currentTarget;
+      button.classList.add("is-done");
+      button.querySelector(".label").textContent = "Copied";
+      setTimeout(() => {
+        button.classList.remove("is-done");
+        button.querySelector(".label").textContent = "Copy";
+      }, 1400);
+    });
+    pre.replaceWith(block);
+    block.append(head, pre);
+  });
+}
+
+/** The thin bar at the top that fills as the note is read. */
+function progress() {
+  const bar = document.getElementById("progress");
+  if (!bar) return;
+  const height = document.documentElement.scrollHeight - window.innerHeight;
+  bar.style.transform = `scaleX(${height > 0 ? Math.min(1, window.scrollY / height) : 0})`;
+}
+window.addEventListener("scroll", progress, { passive: true });
+window.addEventListener("resize", progress);
+
+/**
+ * Find in the note: a bar at the top, every match marked, the current one
+ * brighter. Enter and ⌘G go forward, Shift-Enter and ⇧⌘G back, Escape closes.
+ * The marks are CSS highlights, so the note's own HTML is never changed.
+ */
+const finder = { bar: null, input: null, count: null, ranges: [], at: -1 };
+
+function findBar() {
+  if (finder.bar) return finder.bar;
+  const bar = document.createElement("div");
+  bar.className = "find-bar";
+  bar.innerHTML =
+    `<span class="find-icon"></span><input type="search" placeholder="Find in note" spellcheck="false">` +
+    `<span class="find-count"></span>` +
+    `<button class="find-previous" title="Previous (⇧⌘G)"></button><button class="find-next" title="Next (⌘G)"></button>` +
+    `<button class="find-close" title="Close (Esc)"></button>`;
+  document.body.appendChild(bar);
+  finder.bar = bar;
+  finder.input = bar.querySelector("input");
+  finder.count = bar.querySelector(".find-count");
+  finder.input.addEventListener("input", () => search(finder.input.value));
+  finder.input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      step(event.shiftKey ? -1 : 1);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeFind();
+    }
+  });
+  bar.querySelector(".find-previous").addEventListener("click", () => step(-1));
+  bar.querySelector(".find-next").addEventListener("click", () => step(1));
+  bar.querySelector(".find-close").addEventListener("click", closeFind);
+  return bar;
+}
+
+function search(text) {
+  finder.ranges = [];
+  finder.at = -1;
+  const needle = text.toLocaleLowerCase();
+  if (needle) {
+    const walker = document.createTreeWalker(document.getElementById("note"), NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const haystack = node.data.toLocaleLowerCase();
+      for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + needle.length)) {
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + needle.length);
+        finder.ranges.push(range);
+      }
+    }
+  }
+  CSS.highlights?.set("find", new Highlight(...finder.ranges));
+  if (finder.ranges.length > 0) {
+    // The first match below the top of the window.
+    const first = finder.ranges.findIndex((range) => range.getBoundingClientRect().top >= 0);
+    finder.at = (first >= 0 ? first : 0) - 1;
+    step(1);
+  } else {
+    CSS.highlights?.delete("find-current");
+    showCount();
+  }
+}
+
+function step(direction) {
+  if (finder.ranges.length === 0) return;
+  finder.at = (finder.at + direction + finder.ranges.length) % finder.ranges.length;
+  const range = finder.ranges[finder.at];
+  CSS.highlights?.set("find-current", new Highlight(range));
+  const box = range.getBoundingClientRect();
+  if (box.top < 80 || box.bottom > window.innerHeight - 40) window.scrollBy({ top: box.top - window.innerHeight / 3, behavior: "smooth" });
+  showCount();
+}
+
+function showCount() {
+  const total = finder.ranges.length;
+  finder.count.textContent = finder.input.value ? (total ? `${finder.at + 1} of ${total}` : "No match") : "";
+  finder.bar.classList.toggle("is-empty", Boolean(finder.input.value) && total === 0);
+}
+
+function openFind() {
+  const bar = findBar();
+  bar.classList.add("is-open");
+  const selected = window.getSelection()?.toString().trim();
+  if (selected && !selected.includes("\n")) finder.input.value = selected;
+  finder.input.focus();
+  finder.input.select();
+  search(finder.input.value);
+}
+
+function closeFind() {
+  finder.bar?.classList.remove("is-open");
+  CSS.highlights?.delete("find");
+  CSS.highlights?.delete("find-current");
+  finder.ranges = [];
+}
+
 function renderProperties(properties) {
   if (!properties || properties.length === 0) return "";
   const rows = properties
@@ -284,7 +438,11 @@ window.daftar = {
     else if (note.heading) this.scrollTo(note.heading);
     else if (note.line != null) this.scrollToLine(note.line);
     else window.scrollTo(0, 0);
+    decorate(main);
+    progress();
     await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
+    decorate(main);
+    if (finder.bar?.classList.contains("is-open")) search(finder.input.value);
   },
 
   /** Scrolls to a heading by its text, or to a `^block` id. */
@@ -304,6 +462,12 @@ window.daftar = {
     const blocks = [...document.querySelectorAll("#note [data-line]")];
     const target = blocks.filter((b) => Number(b.dataset.line) <= line).pop();
     target?.scrollIntoView({ block: "start" });
+  },
+
+  /** Edit › Find, Find Next and Find Previous, from the app's menu. */
+  findCommand(action) {
+    if (action === "open" || !finder.bar?.classList.contains("is-open")) openFind();
+    else step(action === "previous" ? -1 : 1);
   },
 
   /** Selects the first place [text] is in the note. */

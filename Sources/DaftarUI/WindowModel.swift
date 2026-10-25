@@ -20,6 +20,10 @@ final class WindowModel {
     @ObservationIgnored let terminalSession = TerminalSession()
     /// Set to select the text in the reader after a search hit opens.
     var findText: String?
+    /// The file command whose sheet is open: a new note, a rename, a move.
+    var fileAction: FileAction?
+    /// The last Find command for the reader; it grows with each one.
+    var readerFind = ReaderFind(action: .none, count: 0)
 
     private var back: [ReaderRequest] = []
     private var forward: [ReaderRequest] = []
@@ -83,6 +87,83 @@ final class WindowModel {
     func searchTag(_ tag: String) {
         query = "#" + tag
     }
+
+    /// Edit › Find: the editor's own find bar, or the reader's.
+    func find(_ action: NSTextFinder.Action) {
+        guard !showsToday, path != nil else { return }
+        if editing {
+            let item = NSMenuItem()
+            item.tag = action.rawValue
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: item)
+        } else {
+            let kind: ReaderFind.Action = switch action {
+            case .nextMatch: .next
+            case .previousMatch: .previous
+            default: .open
+            }
+            readerFind = ReaderFind(action: kind, count: readerFind.count + 1)
+        }
+    }
+
+    /// The folder a new note goes in: the open note's, as Obsidian's
+    /// "new file location: current" does.
+    var currentFolder: String {
+        guard let path, !showsToday else { return "" }
+        return path.split(separator: "/").dropLast().joined(separator: "/")
+    }
+
+    /// After files moved: the note on screen, the history and the recent
+    /// list follow them.
+    func follow(_ moves: [String: String]) {
+        func moved(_ request: ReaderRequest) -> ReaderRequest {
+            guard let new = moves[request.path] else { return request }
+            var next = request
+            next.path = new
+            return next
+        }
+        if let request { self.request = moved(request) }
+        back = back.map(moved)
+        forward = forward.map(moved)
+        recent = recent.map { moves[$0] ?? $0 }
+    }
+
+    /// After a delete: a note that is gone is no longer shown.
+    func forget(_ path: String) {
+        let gone = { (other: String) in other == path || other.hasPrefix(path + "/") }
+        back.removeAll { gone($0.path) }
+        forward.removeAll { gone($0.path) }
+        recent.removeAll(where: gone)
+        if let current = request, gone(current.path) {
+            request = nil
+            editing = false
+        }
+    }
+}
+
+/// A Find command for the page.
+struct ReaderFind: Equatable {
+    enum Action: String { case none, open, next, previous }
+    var action: Action
+    var count: Int
+}
+
+/// A file command, and the file or folder it acts on.
+enum FileAction: Identifiable, Equatable {
+    case newNote(folder: String)
+    case newFolder(parent: String)
+    case rename(String)
+    case move(String)
+    case delete(String)
+
+    var id: String {
+        switch self {
+        case .newNote(let folder): "note:" + folder
+        case .newFolder(let parent): "folder:" + parent
+        case .rename(let path): "rename:" + path
+        case .move(let path): "move:" + path
+        case .delete(let path): "delete:" + path
+        }
+    }
 }
 
 /// The colours of Daftar on the phone: naz on dark, Daylight on light.
@@ -128,6 +209,69 @@ enum NSPalette {
     static let highlightText = dynamic(dark: 0x323232, light: 0xFAF9F5)
     static let red = dynamic(dark: 0xFF7088, light: 0xC01030)
     static let selection = dynamic(dark: 0x4A4A4A, light: 0xD8D5CC)
+    static let pink = dynamic(dark: 0xFF69B4, light: 0xB02A70)
+    static let chartreuse = dynamic(dark: 0xA0FF40, light: 0x5A7A00)
+    static let green = dynamic(dark: 0x20FFA0, light: 0x0A7A48)
+    static let vividYellow = dynamic(dark: 0xFFE040, light: 0x8A6A00)
+    static let yellow = dynamic(dark: 0xF0E890, light: 0x8A6A00)
+    static let mint = dynamic(dark: 0xB8FFD0, light: 0x0A7A48)
+    static let warmGrey = dynamic(dark: 0xB09070, light: 0x7A5A3A)
+
+    /// The colours of the palette as pairs, so a tint can be made of each.
+    private static let pairs: [String: (UInt32, UInt32)] = [
+        "orange": (0xFFB040, 0xA85200), "aqua": (0x80E5FF, 0x00707A), "pink": (0xFF69B4, 0xB02A70),
+        "purple": (0xF0A0F0, 0x8040A0), "chartreuse": (0xA0FF40, 0x5A7A00), "blue": (0x40D0FF, 0x0070A0),
+        "green": (0x20FFA0, 0x0A7A48), "vividYellow": (0xFFE040, 0x8A6A00), "red": (0xFF7088, 0xC01030),
+        "yellow": (0xF0E890, 0x8A6A00), "mint": (0xB8FFD0, 0x0A7A48), "warmGrey": (0xB09070, 0x7A5A3A),
+        "grey": (0xA8A8A0, 0x6A6A62),
+    ]
+
+    static func named(_ name: String, alpha: CGFloat = 1) -> NSColor {
+        let pair = pairs[name] ?? pairs["orange"]!
+        return dynamic(dark: pair.0, light: pair.1, alpha: alpha)
+    }
+
+    /// A tag's colour: the same one the reader gives it (`hue` in reader.js).
+    static func tagColor(_ tag: String) -> String {
+        let order = ["orange", "aqua", "pink", "purple", "chartreuse", "blue", "green", "vividYellow", "red"]
+        var hash: UInt32 = 0
+        for scalar in tag.unicodeScalars { hash = hash &* 31 &+ scalar.value }
+        return order[Int(hash % UInt32(order.count))]
+    }
+
+    /// A callout kind's colour, as the reader has it.
+    static func calloutColor(_ kind: String) -> String {
+        switch kind.lowercased() {
+        case "warning", "caution", "attention": "orange"
+        case "danger", "error", "bug", "failure", "fail", "missing": "red"
+        case "success", "check", "done": "green"
+        case "tip", "hint", "important": "chartreuse"
+        case "todo": "vividYellow"
+        case "question", "help", "faq": "yellow"
+        case "abstract", "summary", "tldr": "mint"
+        case "example": "purple"
+        case "quote", "cite": "warmGrey"
+        case "figure": "pink"
+        case "read": "aqua"
+        default: "blue"
+        }
+    }
+
+    /// A code block's language colour, as the reader has it.
+    static func languageColor(_ language: String) -> String {
+        switch language.lowercased() {
+        case "go", "dockerfile": "aqua"
+        case "python", "py", "javascript", "js": "vividYellow"
+        case "bash", "sh", "shell", "zsh", "fish": "chartreuse"
+        case "yaml", "yml", "toml", "css": "pink"
+        case "sql", "hcl", "terraform", "kotlin": "purple"
+        case "c", "cpp", "typescript", "ts", "powershell", "lua", "nix": "blue"
+        case "java", "ruby": "red"
+        case "diff": "green"
+        case "markdown", "md", "text", "": "grey"
+        default: "orange"
+        }
+    }
 
     static func heading(_ level: Int) -> NSColor {
         switch level {
@@ -135,20 +279,21 @@ enum NSPalette {
         case 2: heading2
         case 3: heading3
         case 4: heading4
-        default: heading1
+        case 5: pink
+        default: purple
         }
     }
 
-    static func dynamic(dark: UInt32, light: UInt32) -> NSColor {
+    static func dynamic(dark: UInt32, light: UInt32, alpha: CGFloat = 1) -> NSColor {
         NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return rgb(isDark ? dark : light)
+            return rgb(isDark ? dark : light, alpha: alpha)
         }
     }
 
-    private static func rgb(_ value: UInt32) -> NSColor {
+    private static func rgb(_ value: UInt32, alpha: CGFloat = 1) -> NSColor {
         NSColor(
             srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+            blue: CGFloat(value & 0xFF) / 255, alpha: alpha)
     }
 }

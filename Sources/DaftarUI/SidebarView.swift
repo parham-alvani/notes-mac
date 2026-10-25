@@ -30,6 +30,8 @@ struct FilesList: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
     @Environment(\.openWindow) private var openWindow
+    /// The folder a dragged file is over.
+    @ViewState private var dropTarget: String?
 
     var body: some View {
         let groups = store.taskGroups()
@@ -46,13 +48,41 @@ struct FilesList: View {
             }
             Section(store.name) {
                 OutlineGroup(store.index.tree, children: \.children) { node in
-                    FileRow(node: node)
+                    FileRow(node: node, dropTarget: dropTarget == node.path)
                         .tag(SidebarItem.file(node.folderNote ?? node.path))
                         .contextMenu { FileMenu(path: node.folderNote ?? node.path, folder: node.isFolder ? node.path : nil, model: model) }
+                        .draggable(node.path)
+                        .dropDestination(for: String.self) { paths, _ in
+                            drop(paths, into: node)
+                        } isTargeted: { over in
+                            if over, node.isFolder { dropTarget = node.path } else if dropTarget == node.path { dropTarget = nil }
+                        }
                 }
             }
         }
         .listStyle(.sidebar)
+    }
+
+    /// A file or folder dragged onto a folder moves into it, links and all.
+    private func drop(_ paths: [String], into node: TreeNode) -> Bool {
+        dropTarget = nil
+        guard node.isFolder else { return false }
+        let moving = paths.filter { path in
+            let parent = path.split(separator: "/").dropLast().joined(separator: "/")
+            return parent != node.path && path != node.path && !node.path.hasPrefix(path + "/")
+        }
+        guard !moving.isEmpty else { return false }
+        Task {
+            for path in moving {
+                do {
+                    let target = node.path + "/" + String(path.split(separator: "/").last ?? "")
+                    model.follow(try await store.move(path, to: target))
+                } catch {
+                    store.notice = (error as? VaultMoves.Failure)?.description ?? error.localizedDescription
+                }
+            }
+        }
+        return true
     }
 
     /// Selecting a row opens it; the selection follows the note on screen.
@@ -73,6 +103,7 @@ struct FilesList: View {
 
 struct FileRow: View {
     var node: TreeNode
+    var dropTarget = false
     @Environment(VaultStore.self) private var store
 
     var body: some View {
@@ -88,6 +119,8 @@ struct FileRow: View {
                 IconicImage(icon: icon, fallback: attachmentSymbol, fallbackColor: Palette.purple)
             }
         }
+        .padding(.vertical, dropTarget ? 2 : 0)
+        .background(dropTarget ? Palette.accent.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private var attachmentSymbol: String {
@@ -125,6 +158,16 @@ struct FileMenu: View {
                 ShareLink(item: url)
             }
         }
+        Divider()
+        let item = folder ?? path
+        let parent = folder ?? path.split(separator: "/").dropLast().joined(separator: "/")
+        Button("New Note") { model.fileAction = .newNote(folder: parent) }
+        Button("New Folder…") { model.fileAction = .newFolder(parent: parent) }
+        Divider()
+        Button("Rename…") { model.fileAction = .rename(item) }
+        Button("Move to…") { model.fileAction = .move(item) }
+        Divider()
+        Button("Move to Trash…", role: .destructive) { model.fileAction = .delete(item) }
     }
 }
 
@@ -177,6 +220,7 @@ struct SearchResults: View {
         if query.hasPrefix("#"), !query.contains(" ") {
             let tag = Slugs.fold(String(query.dropFirst()))
             hits = store.index.notes.values
+                .filter { !store.excluded.contains($0.path) }
                 .filter { $0.parsed.tags.contains { Slugs.fold($0) == tag || Slugs.fold($0).hasPrefix(tag + "/") } }
                 .map { SearchIndex.Hit(path: $0.path, snippet: "") }
                 .sorted { $0.path < $1.path }
@@ -186,7 +230,8 @@ struct SearchResults: View {
         try? await Task.sleep(for: .milliseconds(120))
         guard !Task.isCancelled else { return }
         let search = store.search
-        hits = await Task.detached { search.search(query) }.value
+        let excluded = store.excluded
+        hits = await Task.detached { search.search(query).filter { !excluded.contains($0.path) } }.value
         searched = true
     }
 

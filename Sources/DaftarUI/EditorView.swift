@@ -39,6 +39,7 @@ struct EditorView: NSViewRepresentable {
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
         coordinator.saveNow()
         coordinator.stopVim()
+        coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
     }
 }
 
@@ -56,7 +57,17 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private var seenRevision = -1
     private var fontKey = ""
 
-    init(store: VaultStore) { self.store = store }
+    init(store: VaultStore) {
+        self.store = store
+        super.init()
+        store.flushers[ObjectIdentifier(self)] = { [weak self] in await self?.flush() }
+    }
+
+    /// Everything typed is on disk when this returns.
+    func flush() async {
+        saveNow()
+        await session?.saveAndWait()
+    }
 
     func load(_ path: String) {
         self.path = path
@@ -72,6 +83,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.scrollToBeginningOfDocument(nil)
         view.undoManager?.removeAllActions()
+        updateCounts()
         stopVim()
         if store.settings.vimMode { startVim() }
     }
@@ -111,6 +123,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     }
 
     private func showStatus() {
+        updateCounts()
         guard let session else { return container?.setStatus(nil, mode: nil) ?? () }
         switch session.state {
         case .failed(let message): container?.setStatus(message, mode: "NEOVIM")
@@ -155,7 +168,38 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     // MARK: Saving
 
+    private var countTask: Task<Void, Never>?
+
+    /// The bar's words and characters, a moment after the text or the
+    /// selection changes.
+    func updateCounts() {
+        countTask?.cancel()
+        countTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let self, let view = self.view else { return }
+            let text = view.string as NSString
+            let selection = view.selectedRange()
+            let words = Self.words(in: text, range: NSRange(location: 0, length: text.length))
+            let selected = selection.length > 0 ? Self.words(in: text, range: selection) : nil
+            self.container?.setCounts(
+                words: words, characters: text.length, selectedWords: selected, selectedCharacters: selection.length > 0 ? selection.length : nil)
+        }
+    }
+
+    static func words(in text: NSString, range: NSRange) -> Int {
+        var count = 0
+        text.enumerateSubstrings(in: range, options: [.byWords, .substringNotRequired]) { _, _, _, _ in count += 1 }
+        return count
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        updateCounts()
+        // The tint of the cursor's line moves with it.
+        if let view { view.setNeedsDisplay(view.visibleRect) }
+    }
+
     func textDidChange(_ notification: Notification) {
+        updateCounts()
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
@@ -245,36 +289,67 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             case .strike:
                 storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             case .highlight:
-                storage.addAttributes([.backgroundColor: NSPalette.highlightBackground, .foregroundColor: NSPalette.highlightText], range: r)
+                storage.addAttributes([.backgroundColor: NSPalette.named("vividYellow", alpha: 0.45), .foregroundColor: NSPalette.text], range: r)
             case .code:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.raw, .backgroundColor: NSPalette.panel], range: r)
             case .codeBlock:
                 storage.addAttributes([.font: mono, .backgroundColor: NSPalette.panel], range: r)
-            case .fence, .frontMatter:
+            case .fence:
+                // The fence line in its language's colour, as the reader's label.
+                let language = text.substring(with: r).trimmingCharacters(in: CharacterSet(charactersIn: "`~> \t\n"))
+                    .split(separator: " ").first.map(String.init) ?? ""
+                let color = NSPalette.named(NSPalette.languageColor(language))
+                storage.addAttributes([.font: mono, .foregroundColor: color, .backgroundColor: NSPalette.panel], range: r)
+            case .frontMatter:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.muted], range: r)
             case .link:
-                storage.addAttribute(.foregroundColor, value: NSPalette.link, range: r)
+                storage.addAttributes([
+                    .foregroundColor: NSPalette.link, .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .underlineColor: NSPalette.named("aqua", alpha: 0.4),
+                ], range: r)
             case .embed:
-                storage.addAttribute(.foregroundColor, value: NSPalette.link, range: r)
+                storage.addAttributes([
+                    .foregroundColor: NSPalette.pink, .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .underlineColor: NSPalette.named("pink", alpha: 0.4),
+                ], range: r)
                 embedImage(text.substring(with: r), line: text.lineRange(for: r), in: storage)
             case .url:
                 storage.addAttributes([.foregroundColor: NSPalette.link.withAlphaComponent(0.7)], range: r)
             case .tag:
-                storage.addAttribute(.foregroundColor, value: NSPalette.accent, range: r)
+                // The same colour per tag as the reader's pills.
+                let name = NSPalette.tagColor(String(text.substring(with: r).drop { $0 == "#" }))
+                storage.addAttributes([
+                    .foregroundColor: NSPalette.named(name), .backgroundColor: NSPalette.named(name, alpha: 0.16),
+                ], range: r)
             case .taskOpen, .taskOther:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.accent], range: r)
             case .taskDone, .taskCancelled:
                 storage.addAttributes([.foregroundColor: NSPalette.faint, .strikethroughStyle: NSUnderlineStyle.single.rawValue], range: r)
             case .listMarker:
-                storage.addAttribute(.foregroundColor, value: NSPalette.accent, range: r)
+                // Each level of a list has its own colour, as in the reader.
+                let line = text.lineRange(for: r)
+                let before = text.substring(with: NSRange(location: line.location, length: r.location - line.location))
+                let indent = before + text.substring(with: r).prefix { $0 == " " || $0 == "\t" }
+                let depth = indent.reduce(0) { $0 + ($1 == "\t" ? 4 : $1 == " " ? 1 : 0) } / 4
+                let colors = ["orange", "aqua", "pink", "chartreuse"]
+                storage.addAttributes([
+                    .foregroundColor: NSPalette.named(colors[depth % colors.count]),
+                    .font: Fonts.text(size: fontSize, weight: .bold),
+                ], range: r)
             case .quote:
-                storage.addAttribute(.foregroundColor, value: NSPalette.quote, range: r)
+                storage.addAttributes([.foregroundColor: NSPalette.quote, .backgroundColor: NSPalette.named("orange", alpha: 0.07)], range: r)
             case .calloutTitle:
-                storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.blue], range: r)
+                let title = text.substring(with: r)
+                let kind = title.firstMatch(of: /\[!([A-Za-z-]+)\]/).map { String($0.1) } ?? "note"
+                let color = NSPalette.calloutColor(kind)
+                storage.addAttributes([
+                    .font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.named(color),
+                    .backgroundColor: NSPalette.named(color, alpha: 0.12),
+                ], range: r)
             case .comment, .rule:
                 storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: r)
             case .math:
-                storage.addAttributes([.font: mono, .foregroundColor: NSPalette.purple], range: r)
+                storage.addAttributes([.font: mono, .foregroundColor: NSPalette.purple, .backgroundColor: NSPalette.named("purple", alpha: 0.08)], range: r)
             case .metadata:
                 storage.addAttributes([.foregroundColor: NSPalette.muted, .font: Fonts.text(size: fontSize * 0.85)], range: r)
             }
@@ -394,6 +469,35 @@ final class NoteTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
         if vimActive { vim?.moveCursor(to: selectedRange().location) }
+    }
+
+    /// The line that holds the cursor, tinted, with a thin accent bar.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard selectedRange().length == 0, let line = cursorLineRect() else { return }
+        NSPalette.named("orange", alpha: 0.07).setFill()
+        line.fill(using: .sourceOver)
+        NSPalette.named("orange", alpha: 0.8).setFill()
+        NSRect(x: line.minX, y: line.minY + 2, width: 2.5, height: max(0, line.height - 4)).fill(using: .sourceOver)
+    }
+
+    private func cursorLineRect() -> NSRect? {
+        guard let layout = textLayoutManager, let content = layout.textContentManager else { return nil }
+        let offset = selectedRange().location
+        let documentStart = content.documentRange.location
+        guard let location = content.location(documentStart, offsetBy: offset) ?? (offset == 0 ? documentStart : nil),
+            let fragment = layout.textLayoutFragment(for: location)
+        else { return nil }
+        let frame = fragment.layoutFragmentFrame
+        let paragraphStart = content.offset(from: documentStart, to: fragment.rangeInElement.location)
+        let inParagraph = offset - paragraphStart
+        let lines = fragment.textLineFragments
+        let line = lines.first { NSLocationInRange(inParagraph, $0.characterRange) } ?? lines.last
+        var rect = line.map { $0.typographicBounds.offsetBy(dx: frame.minX, dy: frame.minY) } ?? frame
+        rect.origin.x = 0
+        rect.origin.y += textContainerOrigin.y
+        rect.size.width = bounds.width
+        return rect
     }
 
     /// Normal mode draws a block over the character, as Neovim does.
@@ -636,24 +740,29 @@ final class NoteTextView: NSTextView {
     }
 }
 
-/// The editor and, in Neovim mode, a bar under it with the mode and the
-/// command line, as Neovim's own status and command lines are.
+/// The editor and a bar under it: the words and characters of the note or
+/// of the selection, and in Neovim mode the mode and the command line, as
+/// Neovim's own status and command lines are.
 final class EditorContainer: NSView {
     let scroll: NSScrollView
     private let bar = NSView()
     private let mode = NSTextField(labelWithString: "")
     private let message = NSTextField(labelWithString: "")
+    private let counts = NSTextField(labelWithString: "")
     private var barHeight: NSLayoutConstraint!
     var onLayout: (() -> Void)?
 
     init(scroll: NSScrollView) {
         self.scroll = scroll
         super.init(frame: .zero)
-        for view in [scroll, bar, mode, message] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
+        for view in [scroll, bar, mode, message, counts] as [NSView] { view.translatesAutoresizingMaskIntoConstraints = false }
         addSubview(scroll)
         addSubview(bar)
         bar.addSubview(mode)
         bar.addSubview(message)
+        bar.addSubview(counts)
+        counts.alignment = .right
+        counts.setContentCompressionResistancePriority(.required, for: .horizontal)
         bar.wantsLayer = true
         bar.layer?.backgroundColor = NSPalette.panel.cgColor
         mode.font = Fonts.code(size: 11)
@@ -664,7 +773,7 @@ final class EditorContainer: NSView {
         message.font = Fonts.code(size: 12)
         message.textColor = NSPalette.text
         message.lineBreakMode = .byTruncatingTail
-        barHeight = bar.heightAnchor.constraint(equalToConstant: 0)
+        barHeight = bar.heightAnchor.constraint(equalToConstant: 24)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: topAnchor),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -678,22 +787,47 @@ final class EditorContainer: NSView {
             mode.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             mode.widthAnchor.constraint(greaterThanOrEqualToConstant: 64),
             message.leadingAnchor.constraint(equalTo: mode.trailingAnchor, constant: 10),
-            message.trailingAnchor.constraint(lessThanOrEqualTo: bar.trailingAnchor, constant: -10),
+            message.trailingAnchor.constraint(lessThanOrEqualTo: counts.leadingAnchor, constant: -12),
             message.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            counts.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -12),
+            counts.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
+        mode.isHidden = true
+    }
+
+    /// "1,204 words · 6,880 characters", or "12 of 1,204 words" over a
+    /// selection, the numbers in the accent colours.
+    func setCounts(words: Int, characters: Int, selectedWords: Int?, selectedCharacters: Int?) {
+        let number = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        let label = NSFont.systemFont(ofSize: 11)
+        let out = NSMutableAttributedString()
+        func add(_ text: String, _ color: NSColor, _ font: NSFont) {
+            out.append(NSAttributedString(string: text, attributes: [.foregroundColor: color, .font: font]))
+        }
+        func part(_ selected: Int?, _ total: Int, _ unit: String, _ color: NSColor) {
+            if let selected {
+                add(selected.formatted(), color, number)
+                add(" of ", NSPalette.muted, label)
+            }
+            add(total.formatted(), selected == nil ? color : NSPalette.muted, number)
+            add(" " + unit + (total == 1 ? "" : "s"), NSPalette.muted, label)
+        }
+        part(selectedWords, words, "word", NSPalette.accent)
+        add("  ·  ", NSPalette.faint, label)
+        part(selectedCharacters, characters, "character", NSPalette.link)
+        counts.attributedStringValue = out
     }
 
     required init?(coder: NSCoder) { nil }
 
-    /// Nil hides the bar: the editor is not in Neovim mode.
+    /// Nil hides the mode: the editor is not in Neovim mode.
     func setStatus(_ text: String?, mode name: String?) {
         guard let name else {
-            barHeight.constant = 0
-            bar.isHidden = true
+            mode.isHidden = true
+            message.stringValue = ""
             return
         }
-        bar.isHidden = false
-        barHeight.constant = 24
+        mode.isHidden = false
         mode.stringValue = " \(name) "
         let color: NSColor = switch name {
         case "INSERT": NSPalette.link

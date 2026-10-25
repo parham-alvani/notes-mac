@@ -34,8 +34,8 @@
   --h2-color: #8a6a00;
   --h3-color: #0070a0;
   --h4-color: #0a7a48;
-  --h5-color: #a85200;
-  --h6-color: #a85200;
+  --h5-color: #b02a70;
+  --h6-color: #8040a0;
   --strong-color: #a85200;
   --em-color: #0a7a48;
   --strike-color: #2a2a28;
@@ -90,8 +90,8 @@
     --h2-color: #ffff88;
     --h3-color: #60d8ff;
     --h4-color: #e0ffd8;
-    --h5-color: #ffe0a0;
-    --h6-color: #ffe0a0;
+    --h5-color: #ff69b4;
+    --h6-color: #f0a0f0;
     --strong-color: #ffb070;
     --em-color: #b8ffd0;
     --strike-color: #f5f5f0;
@@ -364,3 +364,209 @@ pre code { color: var(--code-text); }
   object-fit: contain; border: none; border-radius: 6px;
 }
 .zoom > svg { width: 100%; height: 100%; }
+
+/* ==========================================================================
+   Colour. Everything below takes the palette above, so naz and Daylight
+   both get it; nothing here names a colour of its own.
+   ========================================================================== */
+
+::selection { background: color-mix(in oklch, var(--accent) 32%, transparent); }
+
+/* The reading progress, a thin rainbow at the top of the window. */
+#progress {
+  position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 50;
+  transform-origin: left; transform: scaleX(0);
+  background: linear-gradient(90deg, var(--accent), var(--pink), var(--purple), var(--aqua));
+  transition: transform 0.08s linear;
+}
+
+/* The title runs from the heading colour into pink. */
+.inline-title {
+  width: fit-content;
+  background: linear-gradient(100deg, var(--h1-color) 10%, var(--pink) 60%, var(--purple));
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  padding-bottom: 0.05em;
+}
+h1, h2 { border-bottom: 2px solid; border-image: linear-gradient(90deg, currentColor, color-mix(in oklch, currentColor 10%, transparent) 70%, transparent) 1; }
+h3 { border-inline-start: 3px solid var(--h3-color); padding-inline-start: 0.5em; }
+h4, h5, h6 { letter-spacing: 0.01em; }
+
+/* Highlights like a marker pen. */
+mark {
+  color: var(--highlight-fg);
+  background: linear-gradient(100deg, color-mix(in oklch, var(--highlight-bg) 75%, transparent), var(--highlight-bg) 8%, var(--highlight-bg) 92%, color-mix(in oklch, var(--highlight-bg) 70%, transparent));
+  padding: 0 0.15em;
+  border-radius: 0.2em;
+}
+
+/* Links: an underline in the link's own colour, a tint on hover. */
+a.internal-link:not(.attachment) {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--link-color) 40%, transparent);
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: 1px;
+  border-radius: 3px;
+  transition: background 0.12s, text-decoration-color 0.12s;
+}
+a.internal-link:hover { text-decoration-color: var(--link-color); background: color-mix(in oklch, var(--link-color) 12%, transparent); }
+#note a:not(.internal-link):not(.tag):not(.footnote-backref):not([href^="#"])::after {
+  content: "↗"; font-size: 0.72em; margin-inline-start: 0.12em; vertical-align: 0.25em; opacity: 0.7;
+}
+a.tag {
+  --tag-color: var(--accent);
+  color: var(--tag-color);
+  background: color-mix(in oklch, var(--tag-color) 14%, transparent);
+  border: 1px solid color-mix(in oklch, var(--tag-color) 30%, transparent);
+  padding: 0.02em 0.55em;
+  font-weight: 500;
+  transition: background 0.12s;
+}
+a.tag:hover { text-decoration: none; background: color-mix(in oklch, var(--tag-color) 26%, transparent); }
+
+code { border: 1px solid color-mix(in oklch, var(--code-inline) 22%, transparent); }
+pre code { border: none; }
+
+/* Code blocks: a header with the language in its colour, and a copy button. */
+.code-block {
+  --lang-color: var(--accent);
+  margin: 0 0 1em;
+  border-radius: 10px;
+  background: var(--code-background);
+  border: 1px solid color-mix(in oklch, var(--lang-color) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--lang-color);
+  overflow: hidden;
+}
+.code-block > pre { margin: 0; border-radius: 0; background: none; padding-top: 0.5em; }
+.code-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.35em 0.6em 0 1.1em; direction: ltr;
+}
+.code-lang {
+  font-family: var(--font-mono); font-size: 0.72em; font-weight: 600; text-transform: lowercase;
+  color: var(--lang-color);
+  background: color-mix(in oklch, var(--lang-color) 14%, transparent);
+  border-radius: 1em; padding: 0.1em 0.65em;
+}
+.code-copy {
+  display: inline-flex; align-items: center; gap: 0.35em;
+  font: inherit; font-size: 0.75em; color: var(--text-muted);
+  background: none; border: 1px solid transparent; border-radius: 6px; padding: 0.15em 0.5em; cursor: pointer;
+  opacity: 0; transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+.code-block:hover .code-copy, .code-copy.is-done { opacity: 1; }
+.code-copy:hover { color: var(--text); border-color: var(--table-hairline); }
+.code-copy .icon { width: 1.1em; height: 1.1em; background: currentColor; -webkit-mask: var(--icon-copy) center / contain no-repeat; }
+.code-copy.is-done { color: var(--spring-green); }
+.code-copy.is-done .icon { -webkit-mask-image: var(--icon-copied); }
+
+/* Quotes get a tint and a bar that fades. */
+blockquote {
+  color: var(--text);
+  background: linear-gradient(90deg, color-mix(in oklch, var(--quote-color) 10%, transparent), transparent 85%);
+  border-inline-start: 3px solid var(--quote-color);
+  border-radius: 0 8px 8px 0;
+}
+[dir="rtl"] blockquote, blockquote[dir="rtl"] { border-radius: 8px 0 0 8px; background: linear-gradient(270deg, color-mix(in oklch, var(--quote-color) 10%, transparent), transparent 85%); }
+
+/* Lists: each level of bullets has its own colour. */
+li::marker { font-weight: 600; }
+ul ul > li::marker, ol ul > li::marker { color: var(--aqua); }
+ul ul ul > li::marker { color: var(--pink); }
+ul ul ul ul > li::marker { color: var(--chartreuse); }
+ol > li::marker { color: var(--accent); }
+
+hr {
+  height: 2px; border: none; border-radius: 2px; opacity: 0.8;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--pink), var(--aqua), transparent);
+}
+
+/* Tables: rounded, the header tinted, a row lit under the pointer. */
+table:not(.properties) { border-collapse: separate; border-spacing: 0; border: 1px solid var(--table-hairline); border-radius: 10px; width: fit-content; max-width: 100%; }
+table:not(.properties) th, table:not(.properties) td { border: none; border-bottom: 1px solid var(--table-hairline); }
+table:not(.properties) th + th, table:not(.properties) td + td { border-inline-start: 1px solid var(--table-hairline); }
+table:not(.properties) tbody tr:last-child td { border-bottom: none; }
+table:not(.properties) thead th { background: color-mix(in oklch, var(--table-header-color) 12%, transparent); }
+table:not(.properties) tbody tr:hover { background: color-mix(in oklch, var(--accent) 7%, transparent); }
+
+/* Properties as a card. */
+table.properties {
+  display: table; border-collapse: separate;
+  background: color-mix(in oklch, var(--panel) 70%, transparent);
+  border: 1px solid var(--table-hairline); border-radius: 10px; padding: 0.4em 0.8em;
+}
+table.properties th { color: var(--accent); font-weight: 600; font-size: 0.92em; }
+table.properties td { color: var(--text); }
+
+/* Callouts: the kind's icon, a stronger bar, a soft gradient. */
+.callout {
+  border-inline-start: 4px solid var(--callout-color);
+  background: linear-gradient(135deg, color-mix(in oklch, var(--callout-color) 15%, transparent), color-mix(in oklch, var(--callout-color) 5%, transparent));
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--callout-color) 12%, transparent);
+}
+.callout-title { align-items: center; }
+.callout-icon {
+  flex: none; width: 1.1em; height: 1.1em;
+  background: var(--callout-color);
+  -webkit-mask: var(--callout-icon) center / contain no-repeat;
+  mask: var(--callout-icon) center / contain no-repeat;
+}
+
+.embed {
+  border-inline-start: 3px solid;
+  border-image: linear-gradient(180deg, var(--accent), var(--pink)) 1;
+  background: color-mix(in oklch, var(--panel) 45%, transparent);
+  padding: 0.6em 1em;
+}
+.embed-title { color: var(--accent); font-weight: 600; }
+
+/* Pictures float a little, and lift under the pointer. */
+#note img { box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18); transition: transform 0.15s, box-shadow 0.15s; }
+#note img:hover { transform: translateY(-1px); box-shadow: 0 8px 26px rgba(0, 0, 0, 0.26); }
+
+/* Video, sound and PDF. */
+video.media { display: block; max-width: 100%; border-radius: 10px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22); margin: 0 0 1em; background: #000; }
+.media-audio {
+  display: flex; align-items: center; gap: 0.8em; flex-wrap: wrap;
+  padding: 0.6em 0.9em; margin: 0 0 1em; border-radius: 10px;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--purple) 16%, transparent), color-mix(in oklch, var(--aqua) 10%, transparent));
+}
+.media-audio audio { flex: 1; min-width: 14em; }
+.media-name { color: var(--purple); font-weight: 600; }
+iframe.media-pdf { width: 100%; height: 75vh; border: 1px solid var(--table-hairline); border-radius: 10px; margin: 0 0 1em; background: var(--panel); }
+
+.footnote-ref a { color: var(--pink); font-weight: 600; }
+
+/* Find in the note. */
+.find-bar {
+  position: fixed; top: 12px; right: 16px; z-index: 60;
+  display: flex; align-items: center; gap: 0.35em;
+  padding: 0.35em 0.4em 0.35em 0.7em;
+  background: color-mix(in oklch, var(--panel) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in oklch, var(--accent) 55%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25), 0 0 0 4px color-mix(in oklch, var(--accent) 12%, transparent);
+  font-size: 0.9em;
+  transform: translateY(-140%); opacity: 0; pointer-events: none;
+  transition: transform 0.18s ease-out, opacity 0.18s;
+}
+.find-bar.is-open { transform: none; opacity: 1; pointer-events: auto; }
+.find-bar.is-empty { border-color: var(--red); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25), 0 0 0 4px color-mix(in oklch, var(--red) 14%, transparent); }
+.find-bar input {
+  font: inherit; color: var(--text); background: none; border: none; outline: none; width: 15em;
+}
+.find-icon, .find-bar button::before {
+  display: block; width: 1em; height: 1em; background: var(--accent);
+  -webkit-mask: var(--icon-search) center / contain no-repeat;
+}
+.find-count { color: var(--text-muted); font-size: 0.85em; font-variant-numeric: tabular-nums; min-width: 4.5em; text-align: end; }
+.find-bar.is-empty .find-count { color: var(--red); }
+.find-bar button { background: none; border: none; padding: 0.3em; border-radius: 6px; cursor: pointer; }
+.find-bar button:hover { background: color-mix(in oklch, var(--accent) 16%, transparent); }
+.find-bar button::before { content: ""; background: var(--text-muted); }
+.find-previous::before { -webkit-mask-image: var(--icon-up) !important; }
+.find-next::before { -webkit-mask-image: var(--icon-down) !important; }
+.find-close::before { -webkit-mask-image: var(--icon-close) !important; }
+::highlight(find) { background-color: color-mix(in oklch, var(--vivid-yellow) 38%, transparent); color: inherit; }
+::highlight(find-current) { background-color: var(--accent); color: var(--background); }

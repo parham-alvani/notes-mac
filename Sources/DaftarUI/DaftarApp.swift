@@ -31,6 +31,19 @@ public struct DaftarApp: App {
         .windowToolbarStyle(.unified)
         .handlesExternalEvents(matching: ["*"])
         .commands {
+            FileCommands(window: window)
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Find…") { window?.find(.showFindInterface) }
+                    .keyboardShortcut("f")
+                    .disabled(window?.path == nil || window?.showsToday == true)
+                Button("Find Next") { window?.find(.nextMatch) }
+                    .keyboardShortcut("g")
+                    .disabled(window?.path == nil || window?.showsToday == true)
+                Button("Find Previous") { window?.find(.previousMatch) }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(window?.path == nil || window?.showsToday == true)
+            }
             CommandGroup(after: .newItem) {
                 Button("Open Vault…") { chooseVault(store) }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -350,5 +363,34 @@ struct MenuBarView: View {
         if NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) == false { openWindow(id: "main") }
         let value = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
         if let url = URL(string: "daftar://open?path=" + value) { NSWorkspace.shared.open(url) }
+    }
+}
+
+/// File › New Note (⌘N) and the commands on the open note. ⌘N makes a
+/// note, as in Obsidian, so New Window moves to ⌥⌘N.
+struct FileCommands: Commands {
+    var window: WindowModel?
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Note") { window?.fileAction = .newNote(folder: window?.currentFolder ?? "") }
+                .keyboardShortcut("n")
+                .disabled(window == nil)
+            Button("New Folder…") { window?.fileAction = .newFolder(parent: window?.currentFolder ?? "") }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(window == nil)
+            Button("New Window") { openWindow(id: "main") }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+            Divider()
+            Button("Rename…") { if let path = window?.path { window?.fileAction = .rename(path) } }
+                .keyboardShortcut("r")
+                .disabled(window?.path == nil || window?.showsToday == true)
+            Button("Move to…") { if let path = window?.path { window?.fileAction = .move(path) } }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+                .disabled(window?.path == nil || window?.showsToday == true)
+            Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
+                .disabled(window?.path == nil || window?.showsToday == true)
+        }
     }
 }

@@ -94,3 +94,11 @@ test("a base, embedded or written in a block, is left for the app to run", () =>
   assert.match(html, /<div class="base-query" data-path="Shops\/Shops.base" data-view="Open"><\/div>/);
   assert.match(render("```base\nfilters: file.ext == \"md\"\n```"), /<div class="base-query" data-source="filters: file.ext == &quot;md&quot;\n"><\/div>/);
 });
+
+test("a video, a sound and a PDF are embedded, each in its own player", () => {
+  const links = { "walk.mp4": "uploads/walk.mp4", "talk.m4a": "uploads/talk.m4a", "paper.pdf": "uploads/paper.pdf" };
+  const html = render("![[walk.mp4]]\n\n![[talk.m4a]]\n\n![[paper.pdf#page=2]]", { links });
+  assert.match(html, /<video class="media" controls preload="metadata" src="vault:\/\/\/uploads\/walk.mp4#t=0.1"><\/video>/);
+  assert.match(html, /<audio controls preload="metadata" src="vault:\/\/\/uploads\/talk.m4a"><\/audio>/);
+  assert.match(html, /<iframe class="media-pdf" src="vault:\/\/\/uploads\/paper.pdf#page=2"/);
+});

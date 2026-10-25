@@ -8,6 +8,8 @@ import katex from "katex";
 import hljs from "highlight.js/lib/common";
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i;
+const VIDEO = /\.(mp4|m4v|mov|webm|ogv)$/i;
+const AUDIO = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus)$/i;
 const CALLOUT = /^\[!([\w-]+)\]([+-]?)[ \t]*(.*)$/;
 const BLOCK_ID = /\s\^([A-Za-z0-9-]+)\s*$/;
 const TASK = /^\[([^\]\n])\][ \t]+/;
@@ -123,6 +125,16 @@ function wikilinks(md) {
       const height = size && size[2] ? ` height="${size[2]}"` : "";
       const alt = size ? target : (alias ?? target);
       return `<img src="${vaultUrl(path)}" alt="${escapeHtml(alt)}"${width}${height}>`;
+    }
+    if (path && VIDEO.test(path)) {
+      // `#t=0.1` makes the player show the first frame, not a black box.
+      return `<video class="media" controls preload="metadata" src="${vaultUrl(path)}#t=0.1"></video>`;
+    }
+    if (path && AUDIO.test(path)) {
+      return `<div class="media-audio"><span class="media-name">${escapeHtml(alias ?? target)}</span><audio controls preload="metadata" src="${vaultUrl(path)}"></audio></div>`;
+    }
+    if (path && /\.pdf$/i.test(path)) {
+      return `<iframe class="media-pdf" src="${vaultUrl(path)}${anchor ? `#${escapeHtml(anchor)}` : ""}" title="${escapeHtml(target)}"></iframe>`;
     }
     if (path && /\.base$/i.test(path)) {
       // The app runs the base; `![[x.base#View]]` opens on that view.
