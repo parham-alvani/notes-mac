@@ -481,7 +481,6 @@ struct QuickOpenView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @ViewState private var query = ""
     @ViewState private var selected = 0
     /// Worked out once for each keystroke, not in `body`, which SwiftUI may
     /// evaluate many times for one change.
@@ -492,7 +491,16 @@ struct QuickOpenView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").font(.title2.weight(.semibold)).foregroundStyle(Palette.accent)
-                TextField("Open a note by name", text: $query)
+                    // Escape closes the panel wherever the focus is, not only
+                    // while the field has it; a panel left open would make
+                    // the next ⌘P do nothing.
+                    .background {
+                        Button("Close") { dismiss() }
+                            .keyboardShortcut(.cancelAction)
+                            .opacity(0)
+                            .accessibilityHidden(true)
+                    }
+                TextField("Open a note by name", text: $model.switcherQuery)
                     .textFieldStyle(.plain)
                     .font(.title2)
                     .focused($focused)
@@ -506,7 +514,7 @@ struct QuickOpenView: View {
             if results.isEmpty {
                 // One height for the panel, always: a sheet that resizes while
                 // the person types makes SwiftUI lay it out again and again.
-                Text(query.trimmingCharacters(in: .whitespaces).isEmpty ? "Type a note's name." : "No note is called “\(query)”.")
+                Text(model.switcherQuery.trimmingCharacters(in: .whitespaces).isEmpty ? "Type a note's name." : "No note is called “\(model.switcherQuery)”.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -546,15 +554,57 @@ struct QuickOpenView: View {
         .frame(width: 600, height: 420)
         .background(.regularMaterial)
         .onAppear { focused = true }
-        .task(id: "\(query)|\(store.revision)") {
-            results = store.quickOpen(query, recent: model.recent)
+        .defaultFocus($focused, true)
+        // Once the field has the focus, keys go to it again; what was typed
+        // before is already its text, with the cursor after it.
+        .onChange(of: focused) {
+            model.switcherFieldFocused = focused
+            guard focused else { return }
+            DispatchQueue.main.async {
+                if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                    editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+                }
+                if model.switcherSubmit {
+                    model.switcherSubmit = false
+                    choose(results)
+                }
+            }
+        }
+        // A panel opened soon after the last one closed gets its focus late,
+        // while the old sheet is still going away, and the first keys were
+        // lost. The field asks again until it has the focus.
+        .task {
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .milliseconds(50))
+                if focused { break }
+                focused = true
+            }
+        }
+        // ⌘P again while the panel is open puts the focus back in its field.
+        .onChange(of: model.quickOpenRequests) { focused = true }
+        // At once on each change, not in a task that runs later: Return
+        // pressed before a task ran opened a result for the old text.
+        .onAppear { results = store.quickOpen(model.switcherQuery, recent: model.recent) }
+        .onChange(of: model.switcherQuery) {
+            results = store.quickOpen(model.switcherQuery, recent: model.recent)
+            selected = 0
+        }
+        .onChange(of: store.revision) {
+            results = store.quickOpen(model.switcherQuery, recent: model.recent)
             selected = min(selected, max(results.count - 1, 0))
         }
-        .onChange(of: query) { selected = 0 }
     }
 
-    private func choose(_ results: [String]) {
-        guard results.indices.contains(selected) else { return }
+    private func choose(_ shown: [String]) {
+        // The results for the text in the field now, whatever the list shows.
+        let results = shown == store.quickOpen(model.switcherQuery, recent: model.recent) ? shown : store.quickOpen(model.switcherQuery, recent: model.recent)
+        if results != shown { selected = 0 }
+        guard results.indices.contains(selected) else {
+            // Return on an empty list ends the field's editing; the focus
+            // goes back so the next key, Escape too, still reaches it.
+            DispatchQueue.main.async { focused = true }
+            return
+        }
         model.open(results[selected], store: store)
         dismiss()
     }

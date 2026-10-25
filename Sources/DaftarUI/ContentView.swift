@@ -58,14 +58,14 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { noticeBanner }
         // ⌘O opens the switcher too, as in the vault's Obsidian hotkeys.
         .background {
-            Button("Quick Open") { model.quickOpen = true }
+            Button("Quick Open") { model.openSwitcher() }
                 .keyboardShortcut("o")
                 .opacity(0)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
         .focusedSceneValue(\.window, model)
-        .background(TabbedWindow())
+        .background(TabbedWindow(model: model))
         .onAppear {
             if let initialPath, model.request == nil, store.index.files.contains(initialPath) || store.loading {
                 model.open(initialPath, store: store)
@@ -189,19 +189,53 @@ struct TabRequest: Codable, Hashable {
     var id = UUID()
 }
 
+/// The Daftar window last in front, for the menu commands when no window
+/// holds SwiftUI's focus.
+@MainActor @Observable
+final class ActiveWindow {
+    static let shared = ActiveWindow()
+    weak var model: WindowModel?
+}
+
 /// Makes the window a tab of the others: every Daftar window is one tab
-/// group, as Obsidian keeps its notes in tabs of one window.
+/// group, as Obsidian keeps its notes in tabs of one window. It also
+/// tells `ActiveWindow` when its window comes to the front.
 struct TabbedWindow: NSViewRepresentable {
+    var model: WindowModel?
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.model = model
         DispatchQueue.main.async {
-            view.window?.tabbingMode = .preferred
-            view.window?.tabbingIdentifier = "daftar.main"
+            guard let window = view.window else { return }
+            window.tabbingMode = .preferred
+            window.tabbingIdentifier = "daftar.main"
+            coordinator.watch(window)
         }
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) { context.coordinator.model = model }
+
+    @MainActor
+    final class Coordinator {
+        weak var model: WindowModel?
+        nonisolated(unsafe) private var token: NSObjectProtocol?
+
+        func watch(_ window: NSWindow) {
+            // The first window counts as in front until another one is.
+            if window.isKeyWindow || ActiveWindow.shared.model == nil { ActiveWindow.shared.model = model }
+            token = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) {
+                [weak self] _ in
+                MainActor.assumeIsolated { ActiveWindow.shared.model = self?.model }
+            }
+        }
+
+        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+    }
 }
 
 /// Git in the toolbar: the branch and how it stands, and a menu to sync.

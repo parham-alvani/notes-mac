@@ -7,7 +7,12 @@ public struct DaftarApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @ViewState private var store = VaultStore()
-    @FocusedValue(\.window) private var window
+    @FocusedValue(\.window) private var focusedWindow
+    /// The window the menu commands act on: the focused one, or else the one
+    /// last in front. SwiftUI's focused value is empty while no Daftar window
+    /// holds the focus -- after a sheet closes, or with a panel in front --
+    /// and every command, ⌘P among them, would turn grey with nothing to do.
+    private var window: WindowModel? { focusedWindow ?? ActiveWindow.shared.model }
 
     public var body: some Scene {
         WindowGroup(id: "main") {
@@ -48,7 +53,7 @@ public struct DaftarApp: App {
                 Button("Open Vault…") { chooseVault(store) }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
                 Divider()
-                Button("Quick Open…") { window?.quickOpen = true }
+                Button("Quick Open…") { window?.openSwitcher() }
                     .keyboardShortcut("p")
                     .disabled(window == nil)
                 Button("Command Palette…") { window?.palette = true }

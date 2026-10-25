@@ -13,7 +13,76 @@ final class WindowModel {
     var editing = false
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
-    var quickOpen = false
+    var quickOpen = false {
+        didSet {
+            if quickOpen { quickOpenRequests += 1 } else { stopHoldingKeys() }
+        }
+    }
+    /// Grows with each ⌘P, so a press while the panel is open can refocus it.
+    var quickOpenRequests = 0
+    /// The switcher's text. It lives here, not in the panel, so the keys
+    /// typed before the panel's field has the focus are kept in it.
+    var switcherQuery = ""
+    /// Return was pressed before the field had the focus.
+    var switcherSubmit = false
+    @ObservationIgnored var switcherFieldFocused = false
+    @ObservationIgnored private var keyMonitor: Any?
+
+    /// ⌘P. The panel is a sheet, which takes about 300 ms to appear; the
+    /// keys typed in that time went to the window behind it -- lost in the
+    /// reader, typed into the note in the editor -- and a fast "kub" was
+    /// searched as "b". Until the field has the focus, the keys are held
+    /// for it: letters go into its text, Escape closes it, Return opens the
+    /// first result once there is one.
+    func openSwitcher() {
+        // ⌘P again while the panel is open starts a new search there, as a
+        // fresh panel would; the focus goes back to its field.
+        if quickOpen {
+            switcherQuery = ""
+            quickOpen = true
+            return
+        }
+        switcherQuery = ""
+        switcherSubmit = false
+        switcherFieldFocused = false
+        quickOpen = true
+        stopHoldingKeys()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // Local monitors run on the main thread, with the event loop.
+            nonisolated(unsafe) let event = event
+            let held = MainActor.assumeIsolated { self?.hold(event) ?? .pass }
+            return held == .pass ? event : nil
+        }
+    }
+
+    enum Held { case pass, kept }
+
+    private func hold(_ event: NSEvent) -> Held {
+        guard quickOpen, !switcherFieldFocused else { return .pass }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) || flags.contains(.control) { return .pass }
+        switch event.keyCode {
+        case 53:
+            quickOpen = false
+        case 36, 76:
+            switcherSubmit = true
+        case 51:
+            if !switcherQuery.isEmpty { switcherQuery.removeLast() }
+        default:
+            let text = event.characters ?? ""
+            // Letters only: arrows and the function keys are in the private area.
+            if !text.isEmpty, text.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) }) {
+                switcherQuery += text
+            }
+        }
+        return .kept
+    }
+
+    func stopHoldingKeys() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        switcherFieldFocused = false
+    }
     /// ⇧⌘P, the command palette, and the commands used last, first.
     var palette = false
     var recentCommands: [String] = []

@@ -21,7 +21,7 @@ enum PaletteCommands {
         let note = model.showsToday ? nil : model.path
         var out: [PaletteCommand] = [
             PaletteCommand(id: "open", title: "Quick Open", group: "Go", symbol: "magnifyingglass", color: Palette.accent, shortcut: "⌘P") {
-                model.quickOpen = true
+                model.openSwitcher()
             },
             PaletteCommand(id: "today", title: "Today", group: "Go", symbol: "sun.max.fill", color: Palette.yellow, shortcut: "⌘1") {
                 model.showsToday = true
