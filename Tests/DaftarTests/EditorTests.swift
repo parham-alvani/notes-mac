@@ -271,4 +271,44 @@ import Testing
         view.keyDown(with: up)
         #expect(view.string == "two\none\n")
     }
+
+    func hidden(_ text: String, occurrence: Int = 0) -> Bool {
+        var range = NSRange(location: 0, length: 0), from = 0
+        for _ in 0...occurrence {
+            range = (view.string as NSString).range(of: text, range: NSRange(location: from, length: (view.string as NSString).length - from))
+            from = NSMaxRange(range)
+        }
+        let color = view.textStorage?.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor
+        return color == .clear
+    }
+
+    @Test func liveMarksHideAwayFromTheCursor() throws {
+        try "## Head\n\nSome **bold** and [a link](https://x.y) here.\n\n> quote\n".write(to: root.appending(path: "Notes/Live.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Live.md")
+        // The cursor is on the heading: its marks show, the others do not.
+        #expect(!hidden("##"))
+        #expect(hidden("**") && hidden("(https"))
+        #expect(!hidden(">"))
+        try "Top\n\nOn ==🟢 Friday== now.\n".write(to: root.appending(path: "Notes/H.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/H.md")
+        #expect(hidden("🟢"))
+        controller.load("Notes/Live.md")
+        // On the line of the bold word, its marks come back, the heading's go.
+        view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: "bold").location, length: 0))
+        #expect(!hidden("**") && !hidden("(https"))
+        #expect(hidden("##"))
+        store.settings.livePreview = false
+        controller.restyle(all: true)
+        #expect(!hidden("##"))
+        store.settings.livePreview = true
+    }
+
+    @Test func marksHideInQuotesAndOnTheLastLine() throws {
+        try "Top\n\nBring the ~~old~~ new.\n\n> Bring the ~~gone~~ one.".write(to: root.appending(path: "Notes/S.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/S.md")
+        #expect(hidden("~~") && hidden("~~", occurrence: 2))
+        // The cursor at the very end shows the last line's marks.
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        #expect(!hidden("~~", occurrence: 2) && hidden("~~"))
+    }
 }

@@ -350,6 +350,7 @@ private struct EditorSettings: View {
         let found = NeovimClient.locate(settings.nvimPath)
         Form {
             Section {
+                Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
                 Toggle("Edit with Neovim", isOn: $settings.vimMode)
                 LabeledContent("nvim") {
                     Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)

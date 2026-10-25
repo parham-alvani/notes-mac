@@ -131,6 +131,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // Plain, until it is styled: `string =` would give it the old
         // text's attributes, a heading's perhaps.
         view.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: base))
+        // A new note: the cursor is on its first line.
+        revealed = (text as NSString).lineRange(for: NSRange(location: 0, length: 0))
         replacing = false
         restyleProgressively()
         view.setSelectedRange(NSRange(location: 0, length: 0))
@@ -325,6 +327,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
+        revealSelection()
         reportLine()
         updateCounts()
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
@@ -580,6 +583,69 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
                 storage.addAttributes([.foregroundColor: NSPalette.muted, .font: Fonts.text(size: fontSize * 0.85)], range: r)
             }
         }
+        if store.settings.livePreview { hideMarks(spans, in: storage) }
+    }
+
+    // MARK: Live preview
+
+    /// The lines the selection is on, where every mark shows.
+    private var revealed = NSRange(location: 0, length: 0)
+    /// Next to nothing: a mark away from the cursor takes no room.
+    /// The emoji that give a highlight its colour.
+    private static let swatches: Set<Character> = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"]
+    private static let hidden: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+
+    /// Away from the cursor's lines the marks go -- `**`, `==`, `[[` and a
+    /// link's target, a heading's `#` -- so the note reads as it will look.
+    /// A quote's `>` and a callout's type stay: they say what the line is.
+    private func hideMarks(_ spans: [MarkdownHighlighter.Span], in storage: NSTextStorage) {
+        let text = storage.string as NSString
+        // The cursor's line, or the lines a selection touches.
+        let shown = { (line: NSRange) in
+            self.revealed.length > 0 ? NSIntersectionRange(line, self.revealed).length > 0 : NSLocationInRange(self.revealed.location, line)
+        }
+        for (index, span) in spans.enumerated() where NSMaxRange(span.range) <= storage.length {
+            let line = text.lineRange(for: span.range)
+            guard !shown(line) else { continue }
+            switch span.kind {
+            case .markup:
+                let mark = text.substring(with: span.range)
+                if mark.hasPrefix(">") || mark.hasPrefix("[!") { continue }
+                storage.addAttributes(Self.hidden, range: span.range)
+            case .highlight:
+                // `==🔴 text==`: the colour's emoji goes too, as in the reader.
+                let inner = NSRange(location: span.range.location + 2, length: max(0, span.range.length - 4))
+                let body = text.substring(with: inner)
+                guard let first = body.first, Self.swatches.contains(first) else { continue }
+                let width = (String(first) as NSString).length + (body.dropFirst().first == " " ? 1 : 0)
+                storage.addAttributes(Self.hidden, range: NSRange(location: inner.location, length: width))
+            case .link:
+                // `[label](target)`: the brackets and the target go, the label reads.
+                guard index + 1 < spans.count, spans[index + 1].kind == .url, spans[index + 1].range.location == NSMaxRange(span.range),
+                    span.range.length >= 2 else { continue }
+                storage.addAttributes(Self.hidden, range: NSRange(location: span.range.location, length: 1))
+                storage.addAttributes(Self.hidden, range: NSRange(location: NSMaxRange(span.range) - 1, length: 1))
+                storage.addAttributes(Self.hidden, range: spans[index + 1].range)
+            default:
+                continue
+            }
+        }
+    }
+
+    /// The selection moved to other lines: the old ones hide their marks
+    /// again and the new ones show them.
+    func revealSelection() {
+        guard store.settings.livePreview, let view, let storage = view.textStorage else { return }
+        let text = storage.string as NSString
+        let now = text.lineRange(for: view.selectedRange())
+        guard now != revealed else { return }
+        let old = revealed
+        revealed = now
+        storage.beginEditing()
+        for range in [old, now] where NSMaxRange(range) <= storage.length {
+            style(storage, range: text.lineRange(for: range))
+        }
+        storage.endEditing()
     }
 
     // MARK: Images
