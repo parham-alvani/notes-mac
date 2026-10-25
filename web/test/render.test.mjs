@@ -102,3 +102,7 @@ test("a video, a sound and a PDF are embedded, each in its own player", () => {
   assert.match(html, /<audio controls preload="metadata" src="vault:\/\/\/uploads\/talk.m4a"><\/audio>/);
   assert.match(html, /<iframe class="media-pdf" src="vault:\/\/\/uploads\/paper.pdf#page=2"/);
 });
+
+test("an emoji at the start of a highlight sets its colour and is not shown", () => {
+  assert.match(render("==🔴 Never this== and ==🟢Fixed== and ==plain=="), /<mark data-highlight="red">Never this<\/mark> and <mark data-highlight="green">Fixed<\/mark> and <mark>plain<\/mark>/);
+});

@@ -97,6 +97,13 @@ import Testing
 }
 
 @Suite struct TaskLineTests {
+    @Test func tagsAfterTheDatesStayInTheText() throws {
+        let task = try #require(TaskLine.parse("- [ ] Fix the oven door 📅 2026-10-20 ⏫ #kit #home", line: 0, section: ""))
+        #expect(task.due == "2026-10-20")
+        #expect(task.priority == "⏫")
+        #expect(task.text == "Fix the oven door #kit #home")
+    }
+
     @Test func completeAddsTheDoneDate() {
         #expect(TaskLine.toggled("- [ ] Ship it ⏳ 2026-10-04", today: "2026-10-05") == ["- [x] Ship it ⏳ 2026-10-04 ✅ 2026-10-05"])
         #expect(TaskLine.toggled("    - [/] Half done", today: "2026-10-05") == ["    - [x] Half done ✅ 2026-10-05"])

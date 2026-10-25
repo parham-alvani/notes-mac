@@ -400,6 +400,15 @@ mark {
   border-radius: 0.2em;
 }
 
+/* Obsidian's six highlight colours (==🔴 text== and so on), in the
+   callouts' colours, as the vault's snippet maps them. */
+mark[data-highlight="red"] { --highlight-bg: var(--red); }
+mark[data-highlight="orange"] { --highlight-bg: var(--orange); }
+mark[data-highlight="yellow"] { --highlight-bg: var(--vivid-yellow); }
+mark[data-highlight="green"] { --highlight-bg: var(--spring-green); }
+mark[data-highlight="blue"] { --highlight-bg: var(--blue); }
+mark[data-highlight="purple"] { --highlight-bg: var(--purple); }
+
 /* Links: an underline in the link's own colour, a tint on hover. */
 a.internal-link:not(.attachment) {
   text-decoration: underline;
@@ -570,3 +579,58 @@ iframe.media-pdf { width: 100%; height: 75vh; border: 1px solid var(--table-hair
 .find-close::before { -webkit-mask-image: var(--icon-close) !important; }
 ::highlight(find) { background-color: color-mix(in oklch, var(--vivid-yellow) 38%, transparent); color: inherit; }
 ::highlight(find-current) { background-color: var(--accent); color: var(--background); }
+
+/* Task queries: the groups as coloured headings, each date a chip, the
+   note a pill. */
+.query-group {
+  display: flex; align-items: center; gap: 0.5em;
+  padding: 0.2em 0.6em; border-radius: 6px;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--accent) 16%, transparent), transparent 80%);
+  border-inline-start: 3px solid var(--accent);
+}
+.query-group.level-1 { background: linear-gradient(90deg, color-mix(in oklch, var(--h3-color) 12%, transparent), transparent 70%); border-color: var(--h3-color); }
+.query-group.level-2 { background: none; border-color: var(--text-faint); }
+.query-dates { display: inline-flex; gap: 0.3em; flex-wrap: wrap; vertical-align: 0.05em; }
+.query-date { --date-color: var(--text-muted); color: var(--date-color); background: color-mix(in oklch, var(--date-color) 14%, transparent); border-radius: 1em; padding: 0 0.5em; font-size: 0.92em; }
+.query-date.is-due { --date-color: var(--orange); }
+.query-date.is-late { --date-color: var(--red); font-weight: 600; }
+.query-date.is-scheduled { --date-color: var(--blue); }
+.query-date.is-done, .query-date.is-past { --date-color: var(--spring-green); }
+a.query-source {
+  color: var(--aqua); text-decoration: none !important;
+  background: color-mix(in oklch, var(--aqua) 12%, transparent); border-radius: 1em; padding: 0 0.55em;
+}
+.query-count { color: var(--accent); font-weight: 500; }
+
+/* Bases: the active view in a gradient, groups as coloured bands, numbers
+   and checks in their colours. */
+.base-tab.is-active {
+  color: var(--background); border-color: transparent;
+  background: linear-gradient(100deg, var(--accent), var(--pink));
+  font-weight: 600;
+}
+.base-table thead th { color: var(--accent); background: color-mix(in oklch, var(--accent) 10%, var(--background)); }
+.base-table tr.base-group th {
+  color: var(--accent);
+  background: linear-gradient(90deg, color-mix(in oklch, var(--accent) 22%, var(--background)), color-mix(in oklch, var(--panel) 60%, var(--background)));
+  border-inline-start: 3px solid var(--accent);
+}
+.base-group-count { color: var(--accent); background: color-mix(in oklch, var(--accent) 18%, transparent); border-radius: 1em; padding: 0 0.5em; }
+.base-table td.numeric { color: var(--aqua); font-weight: 500; }
+.base-table input[type=checkbox] { accent-color: var(--spring-green); }
+.base-query .query-count, .base-file .query-count { color: var(--accent); }
+.query-date.is-start { --date-color: var(--purple); }
+.query-date.is-created { --date-color: var(--text-muted); }
+.query-date.is-cancelled { --date-color: var(--red); text-decoration: line-through; }
+.query-date.is-repeat { --date-color: var(--pink); }
+li.task-list-item .query-date { margin-inline: 0.15em; }
+li.task-list-item.is-checked .query-date { text-decoration: none; opacity: 0.75; }
+.task-priority {
+  display: inline-block; min-width: 1.3em; text-align: center; font-weight: 700; font-size: 0.85em;
+  border-radius: 0.4em; padding: 0 0.25em; margin-inline: 0.15em;
+  --priority-color: var(--accent);
+  color: var(--priority-color); background: color-mix(in oklch, var(--priority-color) 16%, transparent);
+}
+.task-priority.is-highest, .task-priority.is-high { --priority-color: var(--red); }
+.task-priority.is-medium { --priority-color: var(--orange); }
+.task-priority.is-low, .task-priority.is-lowest { --priority-color: var(--blue); }

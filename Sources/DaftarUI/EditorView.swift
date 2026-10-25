@@ -289,7 +289,10 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             case .strike:
                 storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             case .highlight:
-                storage.addAttributes([.backgroundColor: NSPalette.named("vividYellow", alpha: 0.45), .foregroundColor: NSPalette.text], range: r)
+                // `==🔴 text==`: the circle picks the colour, as in Obsidian.
+                let inner = text.substring(with: r).dropFirst(2)
+                let color = NSPalette.highlightColor(inner.unicodeScalars.first.map { String($0) } ?? "")
+                storage.addAttributes([.backgroundColor: NSPalette.named(color, alpha: 0.45), .foregroundColor: NSPalette.text], range: r)
             case .code:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.raw, .backgroundColor: NSPalette.panel], range: r)
             case .codeBlock:

@@ -21,6 +21,9 @@ public enum TaskMetadata {
     public static func split(_ line: String) -> (text: String, meta: [Meta]) {
         var remaining = line
         var found: [Meta] = []
+        // Tags after the signifiers (`📅 2026-10-20 ⏫ #kit`) stay part of
+        // the text, as the Tasks plugin keeps them.
+        var tags: [String] = []
         while true {
             var last: (String, Range<String.Index>)?
             for symbol in symbols.keys {
@@ -31,12 +34,19 @@ public enum TaskMetadata {
                 }
             }
             guard let (symbol, range) = last else { break }
-            let value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
-            if !value.isEmpty, value.wholeMatch(of: Self.value) == nil { break }
+            var value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !value.isEmpty, value.wholeMatch(of: Self.value) == nil {
+                guard let match = value.wholeMatch(of: /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/),
+                    String(match.1).isEmpty || String(match.1).wholeMatch(of: Self.value) != nil
+                else { break }
+                tags.insert(String(match.2).trimmingCharacters(in: .whitespaces), at: 0)
+                value = String(match.1)
+            }
             found.append(Meta(emoji: symbol, value: value))
             remaining = String(remaining[..<range.lowerBound])
             while remaining.last?.isWhitespace ?? false { remaining.removeLast() }
         }
+        if !tags.isEmpty { remaining += " " + tags.joined(separator: " ") }
         return (remaining, found.reversed())
     }
 }

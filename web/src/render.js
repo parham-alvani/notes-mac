@@ -153,6 +153,9 @@ function wikilinks(md) {
   };
 }
 
+/** Obsidian's coloured highlights: `==🔴 text==` is red, and the circle is not shown. */
+const HIGHLIGHT_COLORS = { "🔴": "red", "🟠": "orange", "🟡": "yellow", "🟢": "green", "🔵": "blue", "🟣": "purple" };
+
 function highlights(md) {
   md.inline.ruler.before("emphasis", "mark", (state, silent) => {
     const src = state.src;
@@ -163,9 +166,11 @@ function highlights(md) {
     const inner = src.slice(start + 2, end);
     if (/^\s|\s$/.test(inner) || inner.includes("\n")) return false;
     if (!silent) {
-      state.push("mark_open", "mark", 1);
+      const open = state.push("mark_open", "mark", 1);
+      const swatch = /^(🔴|🟠|🟡|🟢|🔵|🟣)\s?/u.exec(inner);
+      if (swatch) open.attrSet("data-highlight", HIGHLIGHT_COLORS[swatch[1]]);
       const oldMax = state.posMax;
-      state.pos = start + 2;
+      state.pos = start + 2 + (swatch ? swatch[0].length : 0);
       state.posMax = end;
       state.md.inline.tokenize(state);
       state.posMax = oldMax;

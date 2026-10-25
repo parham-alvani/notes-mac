@@ -267,6 +267,17 @@ struct InspectorView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
 
+    /// The note's links, each once, with where it goes when it goes anywhere.
+    private func outgoingLinks(_ note: NoteEntry, from path: String) -> [(target: String, path: String?, embed: Bool)] {
+        var seen = Set<String>()
+        return note.parsed.links.compactMap { link in
+            guard !link.target.isEmpty, seen.insert(link.target).inserted else { return nil }
+            let found = store.index.resolve(link.target, from: path)
+            guard found != path else { return nil }
+            return (link.target, found, link.embed)
+        }
+    }
+
     var body: some View {
         if !model.showsToday, let path = model.path, let note = store.index.notes[path] {
             List {
@@ -276,20 +287,26 @@ struct InspectorView: View {
                             Button {
                                 model.open(path, heading: heading.text, store: store)
                             } label: {
-                                Text(heading.text)
-                                    .font(heading.level <= 2 ? .body.weight(.medium) : .body)
-                                    .foregroundStyle(heading.level <= 2 ? .primary : .secondary)
-                                    .padding(.leading, CGFloat(heading.level - 1) * 10)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(heading.text) ? .trailing : .leading)
-                                    .contentShape(Rectangle())
+                                // Each level in its heading colour, as the reader shows it.
+                                HStack(spacing: 6) {
+                                    RoundedRectangle(cornerRadius: 1.5)
+                                        .fill(Palette.heading(heading.level))
+                                        .frame(width: 3, height: heading.level <= 2 ? 14 : 10)
+                                    Text(heading.text)
+                                        .font(heading.level <= 2 ? .body.weight(.medium) : .callout)
+                                        .foregroundStyle(heading.level <= 3 ? Palette.heading(heading.level) : .secondary)
+                                        .lineLimit(1)
+                                }
+                                .padding(.leading, CGFloat(heading.level - 1) * 10)
+                                .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(heading.text) ? .trailing : .leading)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
                     }
                 }
                 let backlinks = store.index.backlinks[path] ?? []
-                Section("Backlinks") {
+                Section {
                     if backlinks.isEmpty {
                         Text("No note links here.").foregroundStyle(.secondary)
                     }
@@ -297,20 +314,38 @@ struct InspectorView: View {
                         Button {
                             model.open(link.source, line: link.line, store: store)
                         } label: {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(Vault.title(of: link.source))
-                                Text(link.source.split(separator: "/").dropLast().joined(separator: " › "))
-                                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                            LinkRow(path: link.source, symbol: "arrow.turn.down.right", color: Palette.aqua)
                         }
                         .buttonStyle(.plain)
                     }
+                } header: {
+                    SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua)
+                }
+                let outgoing = outgoingLinks(note, from: path)
+                if !outgoing.isEmpty {
+                    Section {
+                        ForEach(outgoing, id: \.target) { link in
+                            if let found = link.path {
+                                Button { model.open(found, store: store) } label: {
+                                    LinkRow(path: found, symbol: link.embed ? "photo" : "arrow.up.right", color: link.embed ? Palette.pink : Palette.accent)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Label(link.target, systemImage: "link.badge.plus")
+                                    .foregroundStyle(Palette.red.opacity(0.85))
+                                    .lineLimit(1)
+                                    .help("Not in the vault yet")
+                            }
+                        }
+                    } header: {
+                        SectionTitle(title: "Outgoing links", count: outgoing.count, color: Palette.accent)
+                    }
                 }
                 if !note.parsed.tags.isEmpty {
-                    Section("Tags") {
+                    Section {
                         FlowTags(tags: note.parsed.tags) { model.searchTag($0) }
+                    } header: {
+                        SectionTitle(title: "Tags", count: note.parsed.tags.count, color: Palette.pink)
                     }
                 }
             }
@@ -328,14 +363,57 @@ struct FlowTags: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(tags, id: \.self) { tag in
+                // The tag's own colour, the same in the reader and the editor.
+                let color = Palette.named(NSPalette.tagColor(tag))
                 Button("#" + tag) { action(tag) }
                     .buttonStyle(.plain)
-                    .font(.callout)
+                    .font(.callout.weight(.medium))
                     .padding(.horizontal, 8).padding(.vertical, 2)
-                    .foregroundStyle(Palette.accent)
-                    .background(Palette.accent.opacity(0.15), in: Capsule())
+                    .foregroundStyle(color)
+                    .background(color.opacity(0.15), in: Capsule())
+                    .overlay(Capsule().strokeBorder(color.opacity(0.3)))
             }
         }
+    }
+}
+
+/// A section's name in its colour, with a count.
+struct SectionTitle: View {
+    var title: String
+    var count: Int
+    var color: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title).foregroundStyle(color)
+            if count > 0 {
+                Text("\(count)").font(.caption2.weight(.bold).monospacedDigit()).foregroundStyle(color)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(color.opacity(0.15), in: Capsule())
+            }
+        }
+    }
+}
+
+/// A note in a list of links: its name, its folder, a coloured mark.
+struct LinkRow: View {
+    var path: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: symbol).font(.caption.weight(.bold)).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(Vault.isNote(path) ? Vault.title(of: path) : String(path.split(separator: "/").last ?? "")).lineLimit(1)
+                let folder = path.split(separator: "/").dropLast().joined(separator: " › ")
+                if !folder.isEmpty {
+                    Text(folder).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -352,7 +430,7 @@ struct QuickOpenView: View {
         let results = store.quickOpen(query, recent: model.recent)
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").font(.title2).foregroundStyle(.secondary)
+                Image(systemName: "magnifyingglass").font(.title2.weight(.semibold)).foregroundStyle(Palette.accent)
                 TextField("Open a note by name", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title2)
@@ -370,7 +448,8 @@ struct QuickOpenView: View {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(results.enumerated()), id: \.element) { index, path in
                                 HStack(spacing: 10) {
-                                    Image(systemName: "doc.text").foregroundStyle(index == selected ? .white : Palette.accent)
+                                    Image(systemName: Base.isBase(path) ? "tablecells" : "doc.text")
+                                        .foregroundStyle(index == selected ? .white : Base.isBase(path) ? Palette.green : Palette.accent)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(Vault.title(of: path)).lineLimit(1)
                                         Text(path.split(separator: "/").dropLast().joined(separator: " › "))
@@ -381,7 +460,11 @@ struct QuickOpenView: View {
                                 }
                                 .foregroundStyle(index == selected ? .white : .primary)
                                 .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(index == selected ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                .background(
+                                    index == selected
+                                        ? AnyShapeStyle(LinearGradient(colors: [Palette.accent, Palette.pink], startPoint: .leading, endPoint: .trailing))
+                                        : AnyShapeStyle(.clear),
+                                    in: RoundedRectangle(cornerRadius: 8))
                                 .contentShape(Rectangle())
                                 .onTapGesture { selected = index; choose(results) }
                                 .id(index)

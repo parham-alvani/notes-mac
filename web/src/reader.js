@@ -136,12 +136,20 @@ async function fillQueries(root) {
         if (name) parts.push(`<div class="query-group level-${level}" dir="auto">${escape(name)}</div>`);
       });
       const checked = isClosed(task.status) ? " checked" : "";
-      const dates = [task.due && `📅 ${task.due}`, task.scheduled && `⏳ ${task.scheduled}`, task.done && `✅ ${task.done}`].filter(Boolean).join(" ");
+      // Each date as a chip in its own colour; a due date in the past is red.
+      const today = new Date().toLocaleDateString("sv");
+      const chip = (kind, emoji, day) => `<span class="query-date ${kind}">${emoji} ${escape(day)}</span>`;
+      const dates = [
+        task.due && !isClosed(task.status) && chip(task.due < today ? "is-late" : "is-due", "📅", task.due),
+        task.due && isClosed(task.status) && chip("is-past", "📅", task.due),
+        task.scheduled && chip("is-scheduled", "⏳", task.scheduled),
+        task.done && chip("is-done", "✅", task.done),
+      ].filter(Boolean).join("");
       parts.push(
         `<li class="task-list-item${checked ? " is-checked" : ""}" data-task="${escape(task.status)}" dir="auto">` +
           `<input type="checkbox" class="task-list-item-checkbox" data-path="${escape(task.path)}" data-line="${task.line}" data-status="${escape(task.status)}"${checked}>` +
           `<span class="query-text">${renderInline(task.text, { path: task.path, links: result.links })}</span>` +
-          (dates ? ` <span class="query-dates">${escape(dates)}</span>` : "") +
+          (dates ? ` <span class="query-dates">${dates}</span>` : "") +
           ` <a class="internal-link query-source" href="#" data-path="${escape(task.path)}">${escape(task.title)}</a></li>`,
       );
     }
@@ -257,8 +265,46 @@ const LANGUAGE_COLORS = {
   dockerfile: "--aqua", nix: "--blue", html: "--orange", css: "--pink", markdown: "--grey", md: "--grey", text: "--grey", diff: "--spring-green",
 };
 
-/** What the page adds after rendering: tag colours and code block headers. */
+/** The Tasks plugin's signifiers, each drawn as a chip in its colour. */
+const TASK_META = /(📅|⏳|🛫|✅|❌|➕)\uFE0F?\s*(\d{4}-\d{2}-\d{2})|(🔁)\uFE0F?\s*([^📅⏳🛫✅❌➕🔺⏫🔼🔽⏬#]+?)(?=\s*(?:[📅⏳🛫✅❌➕🔺⏫🔼🔽⏬#]|$))|(🔺|⏫|🔼|🔽|⏬)\uFE0F?/gu;
+const META_KIND = { "📅": "is-due", "⏳": "is-scheduled", "🛫": "is-start", "✅": "is-done", "❌": "is-cancelled", "➕": "is-created" };
+const PRIORITY = { "🔺": ["highest", "⇈"], "⏫": ["high", "⇈"], "🔼": ["medium", "↑"], "🔽": ["low", "↓"], "⏬": ["lowest", "⇊"] };
+
+function taskChips(item, today) {
+  const closed = isClosed(item.dataset.task ?? " ");
+  const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, {
+    // Only this task's own line, not the tasks nested under it.
+    acceptNode: (node) =>
+      node.parentElement.closest("li") === item && !node.parentElement.closest("code, a, .query-date, .task-priority") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+  });
+  const nodes = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.data.search(TASK_META) >= 0) nodes.push(node);
+  for (const node of nodes) {
+    const html = escape(node.data).replace(TASK_META, (match, emoji, day, repeat, rule, priority) => {
+      if (priority) {
+        const [name, arrow] = PRIORITY[priority];
+        return `<span class="task-priority is-${name}" title="${name} priority">${arrow}</span>`;
+      }
+      if (repeat) return `<span class="query-date is-repeat">🔁 ${rule.trim()}</span>`;
+      let kind = META_KIND[emoji];
+      if (kind === "is-due" && !closed && day < today) kind = "is-late";
+      if (kind === "is-due" && closed) kind = "is-past";
+      return `<span class="query-date ${kind}">${emoji} ${day}</span>`;
+    });
+    const span = document.createElement("span");
+    span.innerHTML = html;
+    node.replaceWith(...span.childNodes);
+  }
+}
+
+/** What the page adds after rendering: tag colours, task chips and code block headers. */
 function decorate(root) {
+  const today = new Date().toLocaleDateString("sv");
+  root.querySelectorAll("li.task-list-item").forEach((item) => {
+    if (item.dataset.chips) return;
+    item.dataset.chips = "1";
+    taskChips(item, today);
+  });
   root.querySelectorAll("a.tag").forEach((tag) => tag.style.setProperty("--tag-color", `var(${hue(tag.dataset.tag ?? tag.textContent)})`));
   root.querySelectorAll("pre:not(.mermaid) > code").forEach((code) => {
     const pre = code.parentElement;

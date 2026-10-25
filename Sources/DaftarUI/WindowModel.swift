@@ -182,6 +182,14 @@ enum Palette {
     static let background = color(dark: 0x323232, light: 0xFAF9F5)
     static let panel = color(dark: 0x282826, light: 0xEFEDE6)
 
+    static let aqua = color(dark: 0x80E5FF, light: 0x00707A)
+
+    /// A colour of the palette by name, as `NSPalette.named` has them.
+    static func named(_ name: String) -> Color { Color(nsColor: NSPalette.named(name)) }
+
+    /// The heading colours of the reader, for the outline.
+    static func heading(_ level: Int) -> Color { Color(nsColor: NSPalette.heading(level)) }
+
     private static func color(dark: UInt32, light: UInt32) -> Color { Color(nsColor: NSPalette.dynamic(dark: dark, light: light)) }
 }
 
@@ -237,6 +245,11 @@ enum NSPalette {
         var hash: UInt32 = 0
         for scalar in tag.unicodeScalars { hash = hash &* 31 &+ scalar.value }
         return order[Int(hash % UInt32(order.count))]
+    }
+
+    /// A highlight's colour from the circle at its start, as Obsidian has it.
+    static func highlightColor(_ emoji: String) -> String {
+        ["🔴": "red", "🟠": "orange", "🟡": "vividYellow", "🟢": "green", "🔵": "blue", "🟣": "purple"][emoji] ?? "vividYellow"
     }
 
     /// A callout kind's colour, as the reader has it.
