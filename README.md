@@ -17,7 +17,7 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Task queries:** ` ```tasks ` blocks show their tasks, grouped and sorted as the Tasks plugin does, with a checkbox that ticks the task in its own note. A line the app cannot read is shown above the result.
 - **Fonts:** New York for notes and JetBrains Mono for code by default, both settings, with Vazirmatn for Persian.
 - **Sidebar:** the folder tree with folder notes, full-text search (SQLite FTS5) in the system search field, and `#tag` search.
-- **Quick open:** ⌘O finds a note by its name.
+- **Quick open:** ⌘P finds a note by its name.
 - **Inspector:** the outline, the backlinks and the tags of the note.
 - **Today:** the meetings of the day from the week notes in `Calendar/` (which Daftar on the phone writes), the free time, and the tasks that are overdue, due, in progress and coming. A click on a checkbox completes a task, also a repeating one, as the Tasks plugin does.
 - **Notifications:** an alert before each meeting, with a Join button, and a morning digest of the tasks that are due.

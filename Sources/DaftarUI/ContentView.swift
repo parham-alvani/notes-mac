@@ -76,7 +76,7 @@ struct ContentView: View {
             ContentUnavailableView {
                 Label("No note open", systemImage: "doc.text")
             } description: {
-                Text("Choose a note in the sidebar, or press ⌘O to find one by name.")
+                Text("Choose a note in the sidebar, or press ⌘P to find one by name.")
             }
         }
     }

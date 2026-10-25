@@ -36,9 +36,11 @@ public struct DaftarApp: App {
                     .keyboardShortcut("o", modifiers: [.command, .shift])
                 Divider()
                 Button("Quick Open…") { window?.quickOpen = true }
-                    .keyboardShortcut("o")
+                    .keyboardShortcut("p")
                     .disabled(window == nil)
             }
+            // ⌘P is the file switcher, as in Obsidian; nothing here prints.
+            CommandGroup(replacing: .printItem) {}
             CommandGroup(after: .sidebar) {
                 Button("Show Inspector") { window?.inspector.toggle() }
                     .keyboardShortcut("i", modifiers: [.command, .option])

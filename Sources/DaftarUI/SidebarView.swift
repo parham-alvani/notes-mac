@@ -294,7 +294,7 @@ struct FlowTags: View {
     }
 }
 
-/// ⌘O: a note by its name, in a Spotlight-like panel.
+/// ⌘P: a note by its name, in a Spotlight-like panel.
 struct QuickOpenView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
