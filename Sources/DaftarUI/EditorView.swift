@@ -8,6 +8,8 @@ import SwiftUI
 struct EditorView: NSViewRepresentable {
     var path: String
     var store: VaultStore
+    /// The selection to become a note: its text, and how to put the link back.
+    var onExtract: ((String, @escaping (String) -> Void) -> Void)?
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
@@ -20,12 +22,14 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.container = container
         container.onLayout = { [weak controller = context.coordinator] in controller?.session?.resize() }
         context.coordinator.load(path)
+        context.coordinator.onExtract = onExtract
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return container
     }
 
     func updateNSView(_ container: EditorContainer, context: Context) {
         let controller = context.coordinator
+        controller.onExtract = onExtract
         if controller.path != path {
             controller.saveNow()
             controller.load(path)
@@ -56,6 +60,34 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private var saveTask: Task<Void, Never>?
     private var seenRevision = -1
     private var fontKey = ""
+
+    var onExtract: ((String, @escaping (String) -> Void) -> Void)?
+
+    /// ⌥⌘X: the selection goes to a new note, and a link takes its place.
+    func extract() {
+        guard let view, let onExtract else { return }
+        if session != nil {
+            store.notice = "Extract works in the editor without Neovim mode."
+            return
+        }
+        let range = view.selectedRange()
+        guard range.length > 0 else {
+            store.notice = "Select the text to extract first."
+            return
+        }
+        let text = (view.string as NSString).substring(with: range)
+        onExtract(text) { [weak self, weak view] link in
+            guard let view, NSMaxRange(range) <= (view.string as NSString).length,
+                (view.string as NSString).substring(with: range) == text, view.shouldChangeText(in: range, replacementString: link)
+            else {
+                self?.store.notice = "The note changed, so the link was not put in. The new note is made."
+                return
+            }
+            view.textStorage?.replaceCharacters(in: range, with: link)
+            view.didChangeText()
+            view.setSelectedRange(NSRange(location: range.location + (link as NSString).length, length: 0))
+        }
+    }
 
     init(store: VaultStore) {
         self.store = store
@@ -687,6 +719,12 @@ final class NoteTextView: NSTextView {
             return
         }
         super.insertText(string, replacementRange: replacementRange)
+        if let typed = string as? String, typed == "/", EditorCommands.opensSlashMenu(in: ns, at: selectedRange().location) {
+            let slash = selectedRange().location - 1
+            // After the key is handled, so the slash is on screen under the menu.
+            DispatchQueue.main.async { [weak self] in self?.showSlashMenu(at: slash) }
+            return
+        }
         guard let typed = string as? String, typed == "[" else { return }
         let at = selectedRange().location
         if at >= 2, ns.substring(with: NSRange(location: at - 2, length: 2)) == "[[" {
@@ -695,6 +733,53 @@ final class NoteTextView: NSTextView {
             setSelectedRange(NSRange(location: at, length: 0))
             complete(nil)
         }
+    }
+
+    @objc func extractSelection(_ sender: Any?) { controller?.extract() }
+
+    // MARK: Slash commands
+
+    /// The snippets under the `/` at [slash], each with its icon in its colour.
+    func slashMenu(at slash: Int) -> NSMenu {
+        let menu = NSMenu()
+        let time = Date().formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        var group = ""
+        for snippet in EditorCommands.slashCommands(today: .today(), time: time) {
+            if snippet.group != group {
+                menu.addItem(NSMenuItem.sectionHeader(title: snippet.group))
+                group = snippet.group
+            }
+            let item = NSMenuItem(title: snippet.title, action: #selector(chooseSlash(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = SlashChoice(snippet: snippet, slash: slash)
+            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+                .applying(.init(paletteColors: [NSPalette.named(snippet.color)]))
+            item.image = NSImage(systemSymbolName: snippet.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func showSlashMenu(at slash: Int) {
+        guard slash < ns.length, ns.character(at: slash) == 0x2F, window != nil else { return }
+        let rect = firstRect(forCharacterRange: NSRange(location: slash, length: 1), actualRange: nil)
+        slashMenu(at: slash).popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.minY - 4), in: nil)
+    }
+
+    @objc private func chooseSlash(_ item: NSMenuItem) {
+        guard let choice = item.representedObject as? SlashChoice else { return }
+        applySlash(choice.snippet, slashAt: choice.slash)
+    }
+
+    /// Puts [snippet] in place of the `/` at [slash], as one step to undo.
+    func applySlash(_ snippet: Snippet, slashAt slash: Int) {
+        guard slash < ns.length, ns.character(at: slash) == 0x2F else { return }
+        let edit = EditorCommands.apply(snippet, slashAt: slash, in: ns)
+        guard shouldChangeText(in: edit.range, replacementString: edit.text) else { return }
+        textStorage?.replaceCharacters(in: edit.range, with: edit.text)
+        didChangeText()
+        setSelectedRange(NSRange(location: edit.cursor, length: 0))
+        if snippet.id == "link" || snippet.id == "embed" { complete(nil) }
     }
 
     override var rangeForUserCompletion: NSRange {
@@ -845,5 +930,15 @@ final class EditorContainer: NSView {
     override func layout() {
         super.layout()
         onLayout?()
+    }
+}
+
+/// A slash menu item's snippet and the slash it replaces.
+final class SlashChoice: NSObject {
+    let snippet: Snippet
+    let slash: Int
+    init(snippet: Snippet, slash: Int) {
+        self.snippet = snippet
+        self.slash = slash
     }
 }

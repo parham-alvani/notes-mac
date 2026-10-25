@@ -192,6 +192,17 @@ final class VaultStore {
         return path
     }
 
+    /// The note a link to nothing names, made empty: `[[Folder/Name]]` in
+    /// that folder, a bare `[[Name]]` next to the note with the link.
+    func createNote(forLink target: String, from source: String) throws -> String {
+        let clean = Wikilink(target).target.trimmingCharacters(in: .whitespaces)
+        let parts = clean.split(separator: "/").map(String.init)
+        guard let last = parts.last else { throw VaultMoves.Failure.badName(target) }
+        let name = Vault.isNote(last) ? String(last.dropLast(3)) : last
+        let folder = parts.count > 1 ? parts.dropLast().joined(separator: "/") : source.split(separator: "/").dropLast().joined(separator: "/")
+        return try createNote(named: name, in: folder)
+    }
+
     /// A new folder named [name] in [parent]; its vault path.
     func createFolder(named name: String, in parent: String) throws -> String {
         guard let root, VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }

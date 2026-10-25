@@ -24,6 +24,11 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Files:** ⌘N makes a note in the open note's folder, ⇧⌘N a folder. Rename (⌘R), move (⌥⌘M, or drag onto a folder in the sidebar) and move to the Trash, from the File menu or a right click. When a file or a folder moves, every link to it in the vault follows, in the style it was written, as Obsidian's "always update links" does. A folder note takes its folder's new name.
 - **Inspector:** the outline in the heading colors, the backlinks, the outgoing links (a missing note in red) and the tags of the note.
 - **Edit a task:** a right click on a task, in a note or on the Today page, opens a form for its text, status, priority, due, scheduled and start dates and repeat rule. It writes the line in the Tasks plugin's order and keeps the tags, the block ID and the rest.
+- **Tags:** the sidebar lists the vault's tags as a tree, `#a/b` under `#a`, each in its color with its count. A click lists the notes.
+- **Missing links:** a click on a link to a note that is not there yet makes the note and opens it in the editor.
+- **Slash commands:** in the editor, `/` at the start of a line or after a space opens a menu of headings, tasks, callouts, code, Mermaid, math, tables, links, dates and the six highlight colors.
+- **Extract:** ⌥⌘X moves the editor's selection to a new note and puts a link to it in its place, as Obsidian's note composer does.
+- **Tabs:** every window is a tab of one window. ⌘T opens a tab, and ⌘-click on a link opens the note in a new tab.
 - **Command palette:** ⇧⌘P runs any command by its name, with a fuzzy match, and keeps the commands you used last at the top.
 - **Link preview:** hold the pointer on a link to a note to see the note, or the section the link names, in a card.
 - **Bookmarks:** ⌘D bookmarks the note. The sidebar shows the bookmarks at the top, from Obsidian's own `.obsidian/bookmarks.json`, groups too, and keeps the kinds it does not show when it writes the file. A bookmark follows its file when the file moves.

@@ -34,6 +34,40 @@ import Testing
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
     }
 
+    @Test func aSlashCommandReplacesTheSlash() throws {
+        // A window, off screen, gives the view its undo manager.
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        end()
+        view.insertText("Notes /", replacementRange: view.selectedRange())
+        let slash = (view.string as NSString).length - 1
+        let menu = view.slashMenu(at: slash)
+        #expect(menu.items.contains { $0.title == "Code block" && $0.image != nil })
+        let snippet = try #require(EditorCommands.slashCommands(today: Day(year: 2026, month: 10, day: 25), time: "09:00").first { $0.id == "code" })
+        view.applySlash(snippet, slashAt: slash)
+        #expect(view.string == "# Plan\n- [ ] first\nNotes \n```\n\n```")
+        #expect(view.selectedRange().location == (view.string as NSString).length - 4)
+        // In a test the typing and the snippet are one undo group; in the
+        // app they are two keystrokes. Either way, undo takes the snippet away.
+        let undo = try #require(view.undoManager)
+        undo.undo()
+        #expect(!view.string.contains("```"))
+    }
+
+    @Test func extractPutsALinkWhereTheSelectionWas() throws {
+        var extracted: String?
+        controller.onExtract = { text, replace in
+            extracted = text
+            replace("[[First]]")
+        }
+        let range = (view.string as NSString).range(of: "- [ ] first")
+        view.setSelectedRange(range)
+        controller.extract()
+        #expect(extracted == "- [ ] first")
+        #expect(view.string == "# Plan\n[[First]]\n")
+    }
+
     @Test func returnContinuesATaskList() {
         view.setSelectedRange(NSRange(location: ("# Plan\n- [ ] first" as NSString).length, length: 0))
         view.insertNewline(nil)

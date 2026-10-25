@@ -110,7 +110,7 @@ function wikilinks(md) {
     const cls = path ? "internal-link" : "internal-link is-unresolved";
     return (
       `<a class="${cls}" href="#" data-path="${escapeHtml(path ?? "")}"` +
-      ` data-target="${escapeHtml(target)}" data-anchor="${escapeHtml(anchor ?? "")}">${escapeHtml(label)}</a>`
+      ` data-target="${escapeHtml(target)}" data-anchor="${escapeHtml(anchor ?? "")}"${path ? "" : ' title="Click to make this note"'}>${escapeHtml(label)}</a>`
     );
   };
 

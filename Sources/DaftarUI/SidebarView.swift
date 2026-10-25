@@ -8,6 +8,8 @@ enum SidebarItem: Hashable {
     case file(String)
     /// A bookmark: the same file as its row in the tree, a row of its own.
     case bookmark(String)
+    /// A tag in the tag list; choosing it lists its notes.
+    case tag(String)
 }
 
 /// The sidebar, as a Mac app has one: Today at the top, then the vault's
@@ -34,6 +36,7 @@ struct FilesList: View {
     @Environment(\.openWindow) private var openWindow
     /// The folder a dragged file is over.
     @ViewState private var dropTarget: String?
+    @ViewState private var tagsOpen = false
 
     var body: some View {
         let groups = store.taskGroups()
@@ -86,6 +89,26 @@ struct FilesList: View {
                         }
                 }
             }
+            let tags = TagNode.tree(store.index.tags)
+            if !tags.isEmpty {
+                Section(isExpanded: $tagsOpen) {
+                    OutlineGroup(tags, children: \.children) { node in
+                        let color = Palette.named(NSPalette.tagColor(node.tag))
+                        HStack(spacing: 6) {
+                            Image(systemName: "number").font(.caption.weight(.bold)).foregroundStyle(color)
+                                .frame(width: IconicImage.slot, height: IconicImage.slot)
+                            Text(node.name).foregroundStyle(color).lineLimit(1)
+                            Spacer()
+                            Text("\(node.count)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(color)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(color.opacity(0.15), in: Capsule())
+                        }
+                        .tag(SidebarItem.tag(node.tag))
+                    }
+                } header: {
+                    Text("Tags · \(store.index.tags.count)")
+                }
+            }
         }
         .listStyle(.sidebar)
     }
@@ -120,6 +143,7 @@ struct FilesList: View {
         } set: { item in
             switch item {
             case .today: model.showsToday = true
+            case .tag(let tag): model.searchTag(tag)
             case .file(let path) where store.index.files.contains(path),
                 .bookmark(let path) where store.index.files.contains(path):
                 if path != model.path || model.showsToday { model.open(path, store: store) }
@@ -173,7 +197,7 @@ struct FileMenu: View {
     var body: some View {
         if Vault.opensInApp(path), store.index.files.contains(path) {
             Button(store.bookmarks.contains(path) ? "Remove Bookmark" : "Bookmark") { store.toggleBookmark(path) }
-            Button("Open in New Window") { openWindow(value: path) }
+            Button("Open in New Tab") { openWindow(value: TabRequest(path: path)) }
             Button("Open in Obsidian") { openInObsidian(path, store: store) }
             Divider()
             Button("Copy Link") {

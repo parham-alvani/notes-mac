@@ -4,6 +4,8 @@ import SwiftUI
 
 /// One window: the sidebar, the note, and the inspector beside it.
 struct ContentView: View {
+    /// The note a new tab opens on.
+    var initialPath: String?
     @Environment(VaultStore.self) private var store
     @ViewState private var model = WindowModel()
     @Environment(\.openWindow) private var openWindow
@@ -63,6 +65,12 @@ struct ContentView: View {
                 .accessibilityHidden(true)
         }
         .focusedSceneValue(\.window, model)
+        .background(TabbedWindow())
+        .onAppear {
+            if let initialPath, model.request == nil, store.index.files.contains(initialPath) || store.loading {
+                model.open(initialPath, store: store)
+            }
+        }
         .onOpenURL { url in model.handle(url, store: store) }
         // A `daftar://` link goes to the window that is open, not to a new one.
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
@@ -79,19 +87,31 @@ struct ContentView: View {
         } else if model.showsToday {
             TodayView(model: model)
         } else if let path = model.path, model.editing {
-            EditorView(path: path, store: store)
+            EditorView(path: path, store: store) { text, replace in
+                model.extractReplace = replace
+                model.fileAction = .extract(folder: model.currentFolder, text: text)
+            }
         } else if model.request != nil {
             ReaderView(
                 request: model.request, store: store,
                 onOpen: { path, anchor, newWindow in
                     if newWindow {
-                        openWindow(value: path)
+                        openWindow(value: TabRequest(path: path))
                     } else {
                         model.open(path, heading: anchor, store: store)
                     }
                 },
                 onTag: { model.searchTag($0) },
                 onEditTask: { model.taskEdit = TaskRef(path: $0, line: $1) },
+                onCreate: { target, from in
+                    do {
+                        let path = try store.createNote(forLink: target, from: from)
+                        model.open(path, store: store)
+                        model.editing = true
+                    } catch {
+                        store.notice = (error as? VaultMoves.Failure)?.description ?? error.localizedDescription
+                    }
+                },
                 findText: model.findText,
                 findCommand: model.readerFind)
         } else {
@@ -158,28 +178,26 @@ struct ContentView: View {
 
 }
 
-/// A window opened on one note, by ⌘-click on a link.
-struct NoteWindow: View {
-    var path: String
-    @Environment(VaultStore.self) private var store
-    @ViewState private var model = WindowModel()
+/// What a new tab opens: a note, or nothing. Each request is new, so the
+/// same note can be open in two tabs.
+struct TabRequest: Codable, Hashable {
+    var path: String?
+    var id = UUID()
+}
 
-    var body: some View {
-        ReaderView(
-            request: model.request, store: store,
-            onOpen: { path, anchor, _ in model.open(path, heading: anchor, store: store) },
-            onTag: { _ in }, findText: nil)
-            .tint(Palette.accent)
-            .navigationTitle(model.path.map(Vault.title(of:)) ?? "")
-            .toolbar {
-                ToolbarItemGroup(placement: .navigation) {
-                    Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
-                        .disabled(!model.canGoBack)
-                }
-            }
-            .onAppear { if model.request == nil { model.open(path, store: store) } }
-            .frame(minWidth: 400, minHeight: 300)
+/// Makes the window a tab of the others: every Daftar window is one tab
+/// group, as Obsidian keeps its notes in tabs of one window.
+struct TabbedWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            view.window?.tabbingMode = .preferred
+            view.window?.tabbingIdentifier = "daftar.main"
+        }
+        return view
     }
+
+    func updateNSView(_ view: NSView, context: Context) {}
 }
 
 /// Git in the toolbar: the branch and how it stands, and a menu to sync.

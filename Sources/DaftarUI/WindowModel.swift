@@ -21,6 +21,8 @@ final class WindowModel {
     var graph = false
     /// The task whose edit form is open.
     var taskEdit: TaskRef?
+    /// After an extract: puts the new note's link where the selection was.
+    @ObservationIgnored var extractReplace: ((String) -> Void)?
     var inspector = true
     /// The terminal pane under the note.
     var terminal = false
@@ -161,6 +163,8 @@ enum FileAction: Identifiable, Equatable {
     case rename(String)
     case move(String)
     case delete(String)
+    /// The editor's selection, to become a note of its own.
+    case extract(folder: String, text: String)
 
     var id: String {
         switch self {
@@ -169,6 +173,7 @@ enum FileAction: Identifiable, Equatable {
         case .rename(let path): "rename:" + path
         case .move(let path): "move:" + path
         case .delete(let path): "delete:" + path
+        case .extract(let folder, let text): "extract:\(folder):\(text.hashValue)"
         }
     }
 }

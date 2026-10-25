@@ -68,6 +68,7 @@ struct FileActionSheet: View {
         case .rename: "character.cursor.ibeam"
         case .move: "folder.badge.gearshape"
         case .delete: "trash"
+        case .extract: "rectangle.portrait.and.arrow.right"
         }
     }
 
@@ -78,6 +79,7 @@ struct FileActionSheet: View {
         case .rename: Palette.blue
         case .move: Palette.purple
         case .delete: Palette.red
+        case .extract: Palette.pink
         }
     }
 
@@ -88,6 +90,7 @@ struct FileActionSheet: View {
         case .rename: Palette.green
         case .move: Palette.blue
         case .delete: Palette.pink
+        case .extract: Palette.purple
         }
     }
 
@@ -98,12 +101,13 @@ struct FileActionSheet: View {
         case .rename(let path): store.index.files.contains(path) ? "Rename File" : "Rename Folder"
         case .move(let path): "Move “\(shortName(path))”"
         case .delete(let path): "Move “\(shortName(path))” to the Trash?"
+        case .extract: "Extract to a New Note"
         }
     }
 
     private var subtitle: String {
         switch action {
-        case .newNote(let folder), .newFolder(let folder): "In " + where_(folder)
+        case .newNote(let folder), .newFolder(let folder), .extract(let folder, _): "In " + where_(folder)
         case .rename(let path), .move(let path), .delete(let path): path
         }
     }
@@ -114,6 +118,7 @@ struct FileActionSheet: View {
         case .rename: "Rename"
         case .move: "Move"
         case .delete: "Move to Trash"
+        case .extract: "Extract"
         }
     }
 
@@ -135,6 +140,19 @@ struct FileActionSheet: View {
                 .foregroundStyle(.secondary)
         case .move:
             folderPicker
+        case .extract(_, let text):
+            TextField("Name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .font(.title3)
+                .focused($focused)
+                .onSubmit { Task { await commit() } }
+                .onChange(of: name) { error = nil }
+            Text(text.split(whereSeparator: \.isNewline).prefix(4).joined(separator: "\n"))
+                .font(.callout).foregroundStyle(.secondary).lineLimit(4)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.pink.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(Palette.pink).frame(width: 3) }
+            Text("The selection becomes a link to the new note.").font(.caption).foregroundStyle(.secondary)
         default:
             TextField("Name", text: $name)
                 .textFieldStyle(.roundedBorder)
@@ -226,6 +244,8 @@ struct FileActionSheet: View {
             name = shortName(VaultMoves.freeName("New Folder", ext: "", in: parent, files: store.index.files))
         case .rename(let path):
             name = shortName(path)
+        case .extract(_, let text):
+            name = EditorCommands.extractName(from: text)
         default:
             break
         }
@@ -261,6 +281,13 @@ struct FileActionSheet: View {
             case .delete(let path):
                 try await store.delete(path)
                 model.forget(path)
+            case .extract(let folder, let text):
+                let path = try store.createNote(named: name, in: folder, text: EditorCommands.extractBody(text))
+                // A bare name when no other file has it, else the path.
+                let title = Vault.title(of: path)
+                let taken = store.index.files.contains { $0 != path && Vault.isNote($0) && Vault.title(of: $0).lowercased() == title.lowercased() }
+                model.extractReplace?("[[\(taken ? String(path.dropLast(3)) : title)]]")
+                model.extractReplace = nil
             }
             dismiss()
         } catch {

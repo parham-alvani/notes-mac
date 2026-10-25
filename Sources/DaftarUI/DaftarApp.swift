@@ -94,11 +94,13 @@ public struct DaftarApp: App {
             }
         }
 
-        WindowGroup("Note", for: String.self) { $path in
-            if let path {
-                NoteWindow(path: path).environment(store)
-            }
+        // A tab: ⌘T, or a link opened with ⌘-click.
+        WindowGroup("Tab", for: TabRequest.self) { $request in
+            ContentView(initialPath: request?.path)
+                .environment(store)
+                .frame(minWidth: 760, minHeight: 440)
         }
+        .windowToolbarStyle(.unified)
 
         Settings {
             SettingsView().environment(store)
@@ -387,6 +389,8 @@ struct FileCommands: Commands {
             Button("New Folder…") { window?.fileAction = .newFolder(parent: window?.currentFolder ?? "") }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(window == nil)
+            Button("New Tab") { openWindow(value: TabRequest(path: window?.showsToday == true ? nil : window?.path)) }
+                .keyboardShortcut("t")
             Button("New Window") { openWindow(id: "main") }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             Divider()
@@ -396,6 +400,11 @@ struct FileCommands: Commands {
             Button("Move to…") { if let path = window?.path { window?.fileAction = .move(path) } }
                 .keyboardShortcut("m", modifiers: [.command, .option])
                 .disabled(window?.path == nil || window?.showsToday == true)
+            Button("Extract Selection to New Note…") {
+                NSApp.sendAction(#selector(NoteTextView.extractSelection(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("x", modifiers: [.command, .option])
+            .disabled(window?.editing != true || window?.showsToday == true)
             Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
                 .disabled(window?.path == nil || window?.showsToday == true)
             Divider()

@@ -26,6 +26,8 @@ struct ReaderView: NSViewRepresentable {
     var onOpen: (_ path: String, _ anchor: String?, _ newWindow: Bool) -> Void
     var onTag: (String) -> Void
     var onEditTask: (String, Int) -> Void = { _, _ in }
+    /// A click on a link to a note that is not there yet: make it.
+    var onCreate: ((_ target: String, _ from: String) -> Void)?
     var findText: String?
     var findCommand = ReaderFind(action: .none, count: 0)
 
@@ -177,8 +179,13 @@ struct ReaderView: NSViewRepresentable {
                 let anchor = (body["anchor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let newWindow = body["newTab"] as? Bool ?? false
                 if path.isEmpty {
-                    NSSound.beep()
-                    parent.store.notice = "“\(body["target"] as? String ?? "")” is not in the vault yet."
+                    let target = body["target"] as? String ?? ""
+                    if let onCreate = parent.onCreate, let from = shown?.path, !target.isEmpty {
+                        onCreate(target, from)
+                    } else {
+                        NSSound.beep()
+                        parent.store.notice = "“\(target)” is not in the vault yet."
+                    }
                 } else {
                     parent.onOpen(path, anchor, newWindow)
                 }

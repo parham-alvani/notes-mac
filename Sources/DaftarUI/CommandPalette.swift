@@ -89,6 +89,10 @@ enum PaletteCommands {
                 PaletteCommand(id: "graph", title: "Show the Note's Graph", group: "Note", symbol: "point.3.connected.trianglepath.dotted", color: Palette.purple, shortcut: "⌥⌘G") {
                     model.graph = true
                 },
+                PaletteCommand(id: "extract", title: "Extract Selection to New Note", group: "Note", symbol: "rectangle.portrait.and.arrow.right", color: Palette.pink, shortcut: "⌥⌘X") {
+                    if !model.editing { model.editing = true }
+                    DispatchQueue.main.async { NSApp.sendAction(#selector(NoteTextView.extractSelection(_:)), to: nil, from: nil) }
+                },
                 PaletteCommand(id: "rename", title: "Rename", group: "Note", symbol: "character.cursor.ibeam", color: Palette.blue, shortcut: "⌘R") {
                     model.fileAction = .rename(note)
                 },
@@ -108,8 +112,8 @@ enum PaletteCommands {
                 PaletteCommand(id: "obsidian", title: "Open in Obsidian", group: "Note", symbol: "arrow.up.forward.app.fill", color: Palette.purple) {
                     openInObsidian(note, store: store)
                 },
-                PaletteCommand(id: "note-window", title: "Open in New Window", group: "Note", symbol: "macwindow", color: Palette.blue) {
-                    openWindow(value: note)
+                PaletteCommand(id: "note-tab", title: "Open in New Tab", group: "Note", symbol: "plus.rectangle.on.rectangle", color: Palette.blue, shortcut: "⌘T") {
+                    openWindow(value: TabRequest(path: note))
                 },
             ]
         }

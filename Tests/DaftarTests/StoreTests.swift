@@ -52,4 +52,12 @@ import Testing
         #expect(throws: VaultMoves.Failure.self) { try store.createNote(named: "a/b", in: "") }
         #expect(try store.createFolder(named: "Archive", in: "") == "Archive")
     }
+
+    @Test func aMissingLinkMakesItsNote() throws {
+        #expect(try store.createNote(forLink: "Retro", from: "Notes/Plan.md") == "Notes/Retro.md")
+        #expect(try store.createNote(forLink: "Projects/New plan#Goals|the plan", from: "Notes/Plan.md") == "Projects/New plan.md")
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Projects/New plan.md").path))
+        #expect(try store.createNote(forLink: "Top.md", from: "Home.md") == "Top.md")
+        #expect(throws: VaultMoves.Failure.self) { try store.createNote(forLink: "Retro", from: "Notes/Plan.md") }
+    }
 }
