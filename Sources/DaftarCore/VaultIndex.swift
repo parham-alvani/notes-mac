@@ -43,6 +43,9 @@ public struct VaultIndex: Sendable {
     public var notes: [String: NoteEntry] = [:]
     /// Every file the vault holds, notes and attachments, by vault path.
     public var files: Set<String> = []
+    /// Folders with no file in them at any depth, which the tree still shows:
+    /// a new folder is empty until something goes into it.
+    public var emptyFolders: Set<String> = []
     public private(set) var resolver = LinkResolver(paths: [])
     public private(set) var backlinks: [String: [Backlink]] = [:]
     public private(set) var tree: [TreeNode] = []
@@ -114,7 +117,7 @@ public struct VaultIndex: Sendable {
         backlinks = back
         tags = tagCounts
         tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags))
-        tree = Vault.tree(of: files)
+        tree = Vault.tree(of: files, emptyFolders: emptyFolders)
     }
 }
 
@@ -185,6 +188,7 @@ public enum Vault {
     public static func index(_ root: URL, search: SearchIndex? = nil) -> VaultIndex {
         var index = VaultIndex()
         index.files = scan(root)
+        index.emptyFolders = emptyFolders(root, files: index.files)
         let notes = read(index.files.filter(isNote).sorted(), in: root)
         for note in notes { index.notes[note.path] = note }
         search?.transaction {
@@ -200,9 +204,12 @@ public enum Vault {
         var index = index
         let manager = FileManager.default
         var reread: [String] = []
+        // A folder came or went, or its last file did: the empty ones are found again.
+        var folders = false
         for path in changed where counts(path) {
             var isDirectory: ObjCBool = false
             let exists = manager.fileExists(atPath: root.appending(path: path).path, isDirectory: &isDirectory)
+            if !exists || isDirectory.boolValue { folders = true }
             if exists && isDirectory.boolValue {
                 // A folder that came or went: its files are found again.
                 let base = path.removingSuffix("/") + "/"
@@ -230,8 +237,39 @@ public enum Vault {
             index.notes[note.path] = note
             search?.put(path: note.path, title: note.title, body: note.parsed.plain)
         }
+        if folders { index.emptyFolders = emptyFolders(root, files: index.files) }
         index.derive()
         return index
+    }
+
+    /// Every folder under [root] that holds none of [files], however deep.
+    public static func emptyFolders(_ root: URL, files: Set<String>) -> Set<String> {
+        let base = root.standardizedFileURL.path.removingSuffix("/") + "/"
+        guard let walker = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
+        else { return [] }
+        var full = Set<String>()
+        for file in files {
+            var parts = file.split(separator: "/").dropLast()
+            while !parts.isEmpty {
+                guard full.insert(parts.joined(separator: "/")).inserted else { break }
+                parts = parts.dropLast()
+            }
+        }
+        var empty = Set<String>()
+        for case let url as URL in walker {
+            if skipped.contains(url.lastPathComponent) {
+                walker.skipDescendants()
+                continue
+            }
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
+            let path = url.standardizedFileURL.path
+            guard path.hasPrefix(base) else { continue }
+            let relative = Slugs.normalize(String(path.dropFirst(base.count)))
+            if !full.contains(relative) { empty.insert(relative) }
+        }
+        return empty
     }
 
     /// The names a folder's logo may have, best first: a drawing before a picture.
@@ -253,12 +291,19 @@ public enum Vault {
 
     /// The folder tree. A folder note `X/X.md` is not listed inside its folder;
     /// the folder opens it, as the folder-notes plugin does.
-    public static func tree(of files: Set<String>) -> [TreeNode] {
+    public static func tree(of files: Set<String>, emptyFolders: Set<String> = []) -> [TreeNode] {
         final class Folder {
             var folders: [String: Folder] = [:]
             var files: [String] = []
         }
         let root = Folder()
+        for path in emptyFolders {
+            var folder = root
+            for part in path.split(separator: "/").map(String.init) {
+                if folder.folders[part] == nil { folder.folders[part] = Folder() }
+                folder = folder.folders[part]!
+            }
+        }
         for path in files {
             var folder = root
             let parts = path.split(separator: "/").map(String.init)

@@ -209,9 +209,16 @@ public enum VaultMoves {
     @discardableResult
     public static func perform(_ from: String, to: String, index: VaultIndex, root: URL) throws -> Set<String> {
         let moves = try plan(from, to: to, files: index.files)
-        guard !moves.isEmpty else { return [] }
         let manager = FileManager.default
         let source = root.appending(path: from), destination = root.appending(path: to)
+        // A folder with no file in it moves alone: no link can name it.
+        if moves.isEmpty {
+            guard index.emptyFolders.contains(from) else { return [] }
+            if Slugs.fold(from) != Slugs.fold(to), manager.fileExists(atPath: destination.path) { throw Failure.exists(to) }
+            try manager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try move(source, to: destination)
+            return [from, to]
+        }
         let oldName = String(from.split(separator: "/").last ?? ""), newName = String(to.split(separator: "/").last ?? "")
         let folderNote = moves[from + "/" + oldName + ".md"] == to + "/" + newName + ".md" && oldName != newName
         // What the disk could refuse is asked before the first file moves,

@@ -198,7 +198,7 @@ struct FileActionSheet: View {
     /// Every folder the item can go to, the vault itself first.
     private var folders: [String] {
         guard case .move(let path) = action else { return [] }
-        var all = Set<String>([""])
+        var all = Set<String>([""]).union(store.index.emptyFolders)
         for file in store.index.files {
             let parts = file.split(separator: "/").dropLast()
             for end in parts.indices { all.insert(parts[...end].joined(separator: "/")) }
@@ -241,7 +241,7 @@ struct FileActionSheet: View {
         case .newNote(let folder):
             name = shortName(VaultMoves.freeName("Untitled", in: folder, files: store.index.files))
         case .newFolder(let parent):
-            name = shortName(VaultMoves.freeName("New Folder", ext: "", in: parent, files: store.index.files))
+            name = shortName(VaultMoves.freeName("New Folder", ext: "", in: parent, files: store.index.files.union(store.index.emptyFolders)))
         case .rename(let path):
             name = shortName(path)
         case .extract(_, let text):

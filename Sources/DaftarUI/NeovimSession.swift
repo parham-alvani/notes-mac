@@ -11,7 +11,7 @@ final class NeovimSession {
     enum State: Equatable { case starting, running, failed(String), ended }
 
     private let client: NeovimClient
-    private let path: String
+    private var path: String
     private let root: URL
     private weak var view: NoteTextView?
     private var mirror = BufferMirror(lines: [""])
@@ -250,6 +250,29 @@ final class NeovimSession {
         saveSoon?.cancel()
         guard case .running = state else { return }
         _ = try? await client.request("nvim_command", ["silent! update"])
+    }
+
+    /// The note moved: the buffer takes the new name, so no later save
+    /// writes the old file again. Keys typed while the move ran are kept and
+    /// written to the new file; with none, the file is read again, for the
+    /// links the move rewrote in it.
+    func rename(to newPath: String) async {
+        saveSoon?.cancel()
+        path = newPath
+        guard case .running = state else { return }
+        // Not `:edit!`: a reload ends the app's attachment to the buffer.
+        let lua = """
+            local name = ...
+            vim.cmd('keepalt file ' .. vim.fn.fnameescape(name))
+            if not vim.bo.modified then
+              local lines = vim.fn.readfile(name)
+              if not vim.deep_equal(lines, vim.api.nvim_buf_get_lines(0, 0, -1, false)) then
+                vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+              end
+            end
+            vim.cmd('silent! write!')
+            """
+        _ = try? await client.request("nvim_exec_lua", [.string(lua), [.string(newPath)]])
     }
 
     /// The file changed on disk: Neovim reads it again if the buffer has no

@@ -266,6 +266,10 @@ final class VaultStore {
         guard let url = Self.file(path, in: root) else { throw StoreError.outside(path) }
         if FileManager.default.fileExists(atPath: url.path) { throw VaultMoves.Failure.exists(path) }
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        // It shows in the tree at once, empty as it is.
+        index.emptyFolders.insert(path)
+        index.derive()
+        revision += 1
         return path
     }
 
@@ -286,6 +290,10 @@ final class VaultStore {
                 note.path = new
                 index.notes[new] = note
             }
+        }
+        for folder in index.emptyFolders where folder == from || folder.hasPrefix(from + "/") {
+            index.emptyFolders.remove(folder)
+            index.emptyFolders.insert(to + folder.dropFirst(from.count))
         }
         index.derive()
         revision += 1
@@ -313,6 +321,7 @@ final class VaultStore {
             index.files.remove(gone)
             index.notes[gone] = nil
         }
+        index.emptyFolders = index.emptyFolders.filter { $0 != path && !$0.hasPrefix(base) }
         index.derive()
         revision += 1
         tell(.deleted(path))

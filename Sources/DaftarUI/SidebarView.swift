@@ -125,7 +125,7 @@ struct FilesList: View {
         let moving = paths.filter { path in
             let parent = path.split(separator: "/").dropLast().joined(separator: "/")
             // Only what is in the vault, and not what moves with its folder.
-            let known = files.contains(path) || files.contains { $0.hasPrefix(path + "/") }
+            let known = files.contains(path) || store.index.emptyFolders.contains(path) || files.contains { $0.hasPrefix(path + "/") }
             return known && parent != node.path && path != node.path && !node.path.hasPrefix(path + "/")
                 && !paths.contains { $0 != path && path.hasPrefix($0 + "/") }
         }

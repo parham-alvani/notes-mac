@@ -69,6 +69,23 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    @Test func aMovedNoteIsSavedAtItsNewPathOnly() async throws {
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        _ = try await store.move("Note.md", to: "Moved.md")
+        #expect(controller.path == "Moved.md")
+        let old = root.appending(path: "Note.md").path
+        // What is typed after the move goes to the new file, never the old one.
+        try await Task.sleep(for: .milliseconds(300))
+        for key in ["A", " ", "y", "\u{1B}"] { press(key) }
+        #expect(await eventually {
+            (try? String(contentsOf: root.appending(path: "Moved.md"), encoding: .utf8)) == "first line y\nسلام دنیا\n"
+        })
+        await session.stop()
+        #expect(!FileManager.default.fileExists(atPath: old))
+    }
+
     @Test func theCursorFollowsNeovimInPersianText() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)

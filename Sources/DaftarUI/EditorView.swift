@@ -197,7 +197,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             let now = moves[path] ?? path
             guard now != path || touched.contains(path) else { return }
             if let session {
-                if now != path { load(now) } else { session.checkDisk() }
+                self.path = now
+                if now != path { Task { await session.rename(to: now) } } else { session.checkDisk() }
                 return
             }
             self.path = now

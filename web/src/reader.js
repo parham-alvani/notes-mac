@@ -61,6 +61,17 @@ async function drawDiagrams(root) {
   }
 }
 
+/**
+ * The heading [anchor] names. `## **Bold** [[X]]` is named as written, or as
+ * it reads, `Bold X`, as Obsidian writes the link: the marks are not compared.
+ */
+function heading(root, anchor) {
+  const plain = (text) => text.replace(/[*_`=~[\]#|^:%]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const wanted = plain(anchor);
+  const headings = [...root.querySelectorAll("[data-heading]")];
+  return headings.find((h) => plain(h.dataset.heading) === wanted) ?? headings.find((h) => plain(h.textContent) === wanted);
+}
+
 /** The part of a note an embed names: the section under a heading, or all of it. */
 function section(root, anchor) {
   if (!anchor) return root;
@@ -70,9 +81,7 @@ function section(root, anchor) {
     if (block) wrap.appendChild(block.cloneNode(true));
     return wrap;
   }
-  const wanted = anchor.trim().toLowerCase();
-  const headings = [...root.querySelectorAll("[data-heading]")];
-  const start = headings.find((h) => h.dataset.heading.toLowerCase() === wanted);
+  const start = heading(root, anchor);
   const wrap = document.createElement("div");
   if (!start) return wrap;
   const level = Number(start.tagName.slice(1));
@@ -607,10 +616,7 @@ window.daftar = {
     const main = document.getElementById("note");
     let target;
     if (anchor.startsWith("^")) target = main.querySelector(`[id="${CSS.escape(anchor)}"]`);
-    else {
-      const wanted = anchor.trim().replace(/\s+/g, " ").toLowerCase();
-      target = [...main.querySelectorAll("[data-heading]")].find((h) => h.dataset.heading.replace(/\s+/g, " ").toLowerCase() === wanted);
-    }
+    else target = heading(main, anchor);
     target?.scrollIntoView({ block: "start" });
   },
 

@@ -100,4 +100,18 @@ import Testing
         #expect(window.path == nil)
         #expect(editor.path == nil)
     }
+
+    @Test func anEmptyFolderIsInTheTreeAndMoves() async throws {
+        let made = try store.createFolder(named: "Ideas", in: "")
+        #expect(store.index.tree.contains { $0.isFolder && $0.path == made })
+        _ = try store.createFolder(named: "Later", in: "Ideas")
+        _ = try await store.move("Ideas", to: "Notes/Ideas")
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "Notes/Ideas/Later").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "Ideas").path))
+        #expect(store.index.emptyFolders == ["Notes/Ideas", "Notes/Ideas/Later"])
+        let notes = try #require(store.index.folder("Notes"))
+        #expect(notes.contains { $0.path == "Notes/Ideas" })
+        // A folder found on disk, as at launch, is listed too.
+        #expect(Vault.index(root).emptyFolders == ["Notes/Ideas", "Notes/Ideas/Later"])
+    }
 }
