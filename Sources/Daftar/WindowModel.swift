@@ -13,6 +13,9 @@ final class WindowModel {
     var query = ""
     var quickOpen = false
     var inspector = true
+    /// The terminal pane under the note.
+    var terminal = false
+    @ObservationIgnored let terminalSession = TerminalSession()
     /// Set to select the text in the reader after a search hit opens.
     var findText: String?
 
@@ -70,6 +73,11 @@ enum Palette {
     static let blue = dynamic(dark: 0x40D0FF, light: 0x0070A0)
     static let green = dynamic(dark: 0x20FFA0, light: 0x0A7A48)
     static let muted = dynamic(dark: 0xA8A8A0, light: 0x6A6A62)
+    static let yellow = dynamic(dark: 0xF0E890, light: 0x8A6A00)
+    static let mint = dynamic(dark: 0xB8FFD0, light: 0x0A7A48)
+    static let purple = dynamic(dark: 0xF0A0F0, light: 0x8040A0)
+    static let pink = dynamic(dark: 0xFF69B4, light: 0xB02A70)
+    static let chartreuse = dynamic(dark: 0xA0FF40, light: 0x5A7A00)
     static let background = dynamic(dark: 0x323232, light: 0xFAF9F5)
     static let panel = dynamic(dark: 0x282826, light: 0xEFEDE6)
 

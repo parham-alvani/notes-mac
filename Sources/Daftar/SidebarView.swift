@@ -35,8 +35,12 @@ struct FilesList: View {
         let groups = store.taskGroups()
         List(selection: selection) {
             Section {
-                Label("Today", systemImage: "sun.max")
-                    .badge(groups.today.count + groups.overdue.count)
+                Label {
+                    Text("Today")
+                } icon: {
+                    Image(systemName: "sun.max.fill").foregroundStyle(Palette.yellow)
+                }
+                .badge(groups.today.count + groups.overdue.count)
                     .tag(SidebarItem.today)
             }
             Section(store.name) {
@@ -68,23 +72,24 @@ struct FilesList: View {
 
 struct FileRow: View {
     var node: TreeNode
+    @Environment(VaultStore.self) private var store
 
     var body: some View {
-        if node.isFolder {
-            Label {
-                Text(node.name)
-            } icon: {
-                Image(systemName: node.folderNote != nil ? "folder.fill" : "folder")
-                    .foregroundStyle(Palette.accent)
+        let icon = store.iconic.icon(for: node.path, folder: node.isFolder)
+        Label {
+            Text(node.name).foregroundStyle(Vault.isNote(node.path) || node.isFolder ? .primary : .secondary)
+        } icon: {
+            if node.isFolder {
+                IconicImage(icon: icon, fallback: node.folderNote != nil ? "folder.fill" : "folder", fallbackColor: Palette.accent)
+            } else if Vault.isNote(node.path) {
+                IconicImage(icon: icon, fallback: "doc.text", fallbackColor: Palette.muted)
+            } else {
+                IconicImage(icon: icon, fallback: attachmentSymbol, fallbackColor: Palette.purple)
             }
-        } else if Vault.isNote(node.path) {
-            Label(node.name, systemImage: "doc.text")
-        } else {
-            Label(node.name, systemImage: icon).foregroundStyle(.secondary)
         }
     }
 
-    private var icon: String {
+    private var attachmentSymbol: String {
         switch node.path.split(separator: ".").last?.lowercased() {
         case "png", "jpg", "jpeg", "gif", "webp", "svg", "heic": "photo"
         case "pdf": "doc.richtext"
@@ -126,8 +131,8 @@ struct FileMenu: View {
 struct SearchResults: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
-    @State private var hits: [SearchIndex.Hit] = []
-    @State private var searched = false
+    @ViewState private var hits: [SearchIndex.Hit] = []
+    @ViewState private var searched = false
 
     var body: some View {
         List {
@@ -293,8 +298,8 @@ struct QuickOpenView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    @State private var selected = 0
+    @ViewState private var query = ""
+    @ViewState private var selected = 0
     @FocusState private var focused: Bool
 
     var body: some View {

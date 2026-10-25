@@ -11,7 +11,10 @@ import UserNotifications
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
-    private let center = UNUserNotificationCenter.current()
+    /// Nil outside an app bundle (`swift run`), where asking for the center
+    /// aborts the process.
+    private let center: UNUserNotificationCenter? =
+        Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
     private var authorized = false
 
     private static let meetingPrefix = "meeting."
@@ -19,6 +22,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     nonisolated private static let joinAction = "join"
 
     func start() {
+        guard let center else { return }
         center.delegate = self
         let join = UNNotificationAction(identifier: Self.joinAction, title: "Join", options: [.foreground])
         center.setNotificationCategories([
@@ -31,6 +35,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Replaces every pending request with the ones the vault calls for now.
     func plan(store: VaultStore) async {
+        guard let center else { return }
         if !authorized { authorized = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false }
         guard authorized else { return }
         let settings = store.settings

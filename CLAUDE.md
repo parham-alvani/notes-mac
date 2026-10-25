@@ -32,22 +32,28 @@ Keep logic in `DaftarCore`: its tests run in a second and need no window.
 
 ## Toolchain traps
 
-- **No Xcode on this machine, only the command line tools.** Their newest SDK (27) makes SwiftUI's `@State` and `@Entry` macros, and the `SwiftUIMacros` plugin ships only with Xcode. The justfile builds against `MacOSX26.5.sdk` when `xcodebuild` is missing. `@Entry` fails even there: use a plain `FocusedValueKey` or `EnvironmentKey`.
+- **No Xcode on this machine, only the command line tools.** In the macOS 27 SDK, `@State` and `@Entry` are macros, and the `SwiftUIMacros` plugin ships only with Xcode. Write `@ViewState` (a type alias of the `State` property wrapper, which no macro shadows) and a plain `FocusedValueKey` or `EnvironmentKey` instead of `@Entry`. Do not build against an older SDK to avoid this: SwiftTerm 1.99 needs the Swift 6.4 standard library of the 27 SDK.
 - **`Regex` is not `Sendable`.** A shared pattern is `nonisolated(unsafe) static let`; its lazy compile is thread safe, and the index parses notes on many threads.
 - **No lookbehind** in Swift regex literals.
 - **`Settings` is a SwiftUI scene.** The app's own settings class is `AppSettings`.
+- **`UNUserNotificationCenter.current()` aborts outside an app bundle** (`swift run`). `Notifier` checks for a bundle identifier first.
+- **A `daftar://` URL opens a new window unless the window says otherwise.** `handlesExternalEvents` on the scene and on `ContentView` keep it in the open window.
 
 ## Rules the code keeps
+
+- **Every setting is in one file, `~/.config/daftar/config.toml`** (`$XDG_CONFIG_HOME` is honoured). Nothing goes into `UserDefaults`. `ConfigFile` reads a small TOML subset and writes a changed value on its own line, keeping the person's comments. A new setting gets a line in `ConfigFile.template`, a property in `AppSettings`, and a control in the Settings window; the app follows edits to the file while it runs. Window frames that AppKit saves by itself are not settings.
 
 - **An edit reads the file again and refuses when the line changed.** `VaultEdits.toggleTask` checks that the clicked line is still a task with the status the view showed. Never write from what the view or the index remembers.
 - **The index is in memory and is built at launch.** The files are the record; there is no database on disk to migrate. File events are gathered for 250 ms and applied together.
 - **The reader page reaches nothing but two schemes:** `daftar://reader/…` (the bundle) and `vault:///…` (the vault, and nothing outside it). The page has a content security policy; keep `script-src 'self'`.
 - **The week notes in `Calendar/` are read-only here.** The phone writes them whole at every change; see `Calendar/CLAUDE.md` in the vault for the format.
 - **Git runs with `GIT_TERMINAL_PROMPT=0` and `ssh -o BatchMode=yes`.** A sync that needs a password fails and says so; it never waits. Commit messages use the obsidian-git format of the vault's history: `update notes @ 2026-10-25 09:30:00 on host`.
-- **Colors are Daftar's:** naz on dark, Daylight on light, copied from `notes-droid/app/.../ui/theme/Naz.kt` and `Markup.kt`. They are in `web/src/reader.css` and in `Palette` (`WindowModel.swift`).
+- **Colors are Daftar's:** naz on dark, Daylight on light, copied from `notes-droid/app/.../ui/theme/Naz.kt` and `Markup.kt`. They are in `web/src/reader.css`, in `Palette` (`WindowModel.swift`) and in the terminal's ANSI palette (`TerminalPane.swift`). Iconic's colour names map to naz as `IconColors.kt` does on the phone.
+- **Iconic's icons are Lucide names; the tree draws SF Symbols.** `IconicImage.symbols` maps the ones the vault uses. A new icon in the vault needs a line there; an unknown or missing symbol draws the default icon.
+- **The terminal is SwiftTerm, pinned exactly.** It runs the login shell in the vault's folder and lives in the window's model, so hiding the pane keeps the shell.
 
 ## Testing the app
 
-`just run` opens the app on the vault in `defaults read me.parham1995.notes vaultPath`. `open "daftar://open?path=Folder/Note.md"` opens a note, and `daftar://open?path=today` the Today page. A debug build makes the web view inspectable in Safari.
+`just install` puts the app in `/Applications`: notifications and their icon belong to that path, and a build run from `build/` asks for permissions again. The vault is the `vault` line of the config file. `open "daftar://open?path=Folder/Note.md"` opens a note, `daftar://open?path=today` the Today page, and `daftar://terminal` the terminal. A debug build makes the web view inspectable in Safari.
 
 **Do not click a task in the real vault to test.** A tick writes the file, and with automatic sync on, it commits and pushes. Test writes on a copy, or with the unit tests.

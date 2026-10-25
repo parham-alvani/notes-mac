@@ -1,8 +1,3 @@
-# Without Xcode, the command line tools' newest SDK cannot build SwiftUI:
-# its `@State` is a macro whose plugin ships only with Xcode. The 26.5 SDK
-# still has the plain property wrapper. With Xcode installed, its SDK is used.
-export SDKROOT := env_var_or_default("SDKROOT", `if xcrun --find xcodebuild >/dev/null 2>&1; then xcrun --show-sdk-path; else echo /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk; fi`)
-
 VERSION := `cat VERSION`
 APP := "build/Daftar.app"
 

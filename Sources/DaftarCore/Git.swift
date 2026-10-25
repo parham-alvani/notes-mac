@@ -75,6 +75,36 @@ public struct Git: Sendable {
         (try? await run(["rev-parse", "--is-inside-work-tree"])) == "true"
     }
 
+    /// Pulls with a rebase, keeping local changes aside while it does.
+    public func pull() async throws {
+        try await run(["pull", "--rebase", "--autostash"])
+    }
+
+    public struct Status: Sendable, Equatable {
+        public var branch: String
+        public var ahead: Int
+        public var behind: Int
+        public var changed: Int
+    }
+
+    /// The branch, how far it is from its upstream, and how many files changed.
+    public func status() async throws -> Status {
+        let lines = try await run(["status", "--porcelain=v2", "--branch"]).components(separatedBy: "\n")
+        var status = Status(branch: "", ahead: 0, behind: 0, changed: 0)
+        for line in lines {
+            if line.hasPrefix("# branch.head ") {
+                status.branch = String(line.dropFirst("# branch.head ".count))
+            } else if line.hasPrefix("# branch.ab ") {
+                let parts = line.split(separator: " ")
+                status.ahead = parts.count > 2 ? abs(Int(parts[2]) ?? 0) : 0
+                status.behind = parts.count > 3 ? abs(Int(parts[3]) ?? 0) : 0
+            } else if !line.hasPrefix("#"), !line.isEmpty {
+                status.changed += 1
+            }
+        }
+        return status
+    }
+
     /// Paths with changes not yet committed.
     public func changes() async throws -> [String] {
         try await run(["status", "--porcelain=v1", "-z"]).split(separator: "\0").map { String($0.dropFirst(3)) }

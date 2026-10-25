@@ -5,7 +5,7 @@ import SwiftUI
 @main
 struct DaftarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var store = VaultStore()
+    @ViewState private var store = VaultStore()
     @FocusedValue(\.window) private var window
 
     var body: some Scene {
@@ -21,8 +21,14 @@ struct DaftarApp: App {
                     await Notifier.shared.plan(store: store)
                 }
                 .onChange(of: store.settings.dockBadge) { updateBadge() }
+                // The settings file can change under the app: follow it.
+                .onChange(of: store.settings.syncInterval) { store.scheduleAutoSync() }
+                .onChange(of: store.settings.vaultPath) { _, path in
+                    if let path, path != store.root?.path { store.open(URL(filePath: path)) }
+                }
         }
         .windowToolbarStyle(.unified)
+        .handlesExternalEvents(matching: ["*"])
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Open Vault…") { chooseVault(store) }
@@ -35,6 +41,8 @@ struct DaftarApp: App {
             CommandGroup(after: .sidebar) {
                 Button("Show Inspector") { window?.inspector.toggle() }
                     .keyboardShortcut("i", modifiers: [.command, .option])
+                Button("Show Terminal") { window?.terminal.toggle() }
+                    .keyboardShortcut("`", modifiers: .control)
                 Divider()
                 Button("Bigger Text") { store.settings.textSize = min(store.settings.textSize + 1, 28) }
                     .keyboardShortcut("+")
@@ -111,6 +119,7 @@ struct SettingsView: View {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             NotificationSettings().tabItem { Label("Notifications", systemImage: "bell.badge") }
             GitSettings().tabItem { Label("Git", systemImage: "arrow.triangle.2.circlepath") }
+            TerminalSettings().tabItem { Label("Terminal", systemImage: "apple.terminal") }
         }
         .frame(width: 520)
         .tint(Palette.accent)
@@ -135,6 +144,17 @@ private struct GeneralSettings: View {
             .pickerStyle(.segmented)
             Stepper("Text size: \(settings.textSize) pt", value: $settings.textSize, in: 10...28)
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
+            Section {
+                LabeledContent("Settings file") {
+                    HStack {
+                        Text(settings.url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                            .foregroundStyle(.secondary).font(.callout.monospaced())
+                        Button("Show in Finder") { settings.revealFile() }
+                    }
+                }
+            } footer: {
+                Text("Every setting is in this file. Edit it in any editor; the app follows the change at once.")
+            }
         }
         .formStyle(.grouped)
     }
@@ -199,7 +219,7 @@ private struct GitSettings: View {
                     Text("Every 5 minutes").tag(5)
                     Text("Every 15 minutes").tag(15)
                 }
-                .onChange(of: settings.syncInterval) { store.scheduleAutoSync() }
+                Toggle("Pull when the app starts", isOn: $settings.pullOnLaunch)
             } footer: {
                 Text("A sync commits, pulls with a rebase and pushes, with the system git and your SSH keys. Keep it off while Obsidian's git plugin syncs the same folder: two syncs at once can conflict.")
             }
@@ -209,6 +229,23 @@ private struct GitSettings: View {
                 }
             } else if let last = store.lastSync {
                 LabeledContent("Last sync", value: last.formatted(date: .abbreviated, time: .shortened))
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct TerminalSettings: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        @Bindable var settings = store.settings
+        Form {
+            Section {
+                TextField("Shell", text: $settings.shell, prompt: Text(ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"))
+                Stepper("Font size: \(settings.terminalFontSize) pt", value: $settings.terminalFontSize, in: 9...24)
+            } footer: {
+                Text("The terminal opens in the vault's folder with ⌃`. A change here applies to the next terminal.")
             }
         }
         .formStyle(.grouped)

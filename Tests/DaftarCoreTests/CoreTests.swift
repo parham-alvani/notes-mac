@@ -312,3 +312,49 @@ import Testing
         #expect(try await !vault.sync(message: "nothing"))
     }
 }
+
+@Suite struct ConfigFileTests {
+    @Test func readsTheTemplate() {
+        let file = ConfigFile(text: ConfigFile.template)
+        #expect(file.string("vault") == "")
+        #expect(file.string("appearance.theme") == "system")
+        #expect(file.int("appearance.text_size") == 15)
+        #expect(file.bool("git.pull_on_launch") == true)
+        #expect(file.string("notifications.digest_time") == "09:00")
+    }
+
+    @Test func setKeepsCommentsAndOrder() {
+        var file = ConfigFile(text: "# mine\nvault = \"~/a\"\n\n[git]\nsync_interval = 0 # off\n")
+        file.set("git.sync_interval", .int(5))
+        file.set("vault", .string("/x \"y\""))
+        file.set("git.pull_on_launch", .bool(false))
+        file.set("terminal.font_size", .int(14))
+        #expect(file.text == "# mine\nvault = \"/x \\\"y\\\"\"\n\n[git]\nsync_interval = 5 # off\npull_on_launch = false\n\n[terminal]\nfont_size = 14\n")
+        #expect(file.string("vault") == "/x \"y\"")
+        #expect(file.int("git.sync_interval") == 5)
+        #expect(file.bool("git.pull_on_launch") == false)
+    }
+
+    @Test func aKeyInAnotherSectionIsAnotherKey() {
+        let file = ConfigFile(text: "[a]\nsize = 1\n[b]\nsize = 2\n")
+        #expect(file.int("a.size") == 1)
+        #expect(file.int("b.size") == 2)
+        #expect(file.int("size") == nil)
+    }
+}
+
+@Suite struct IconicTests {
+    @Test func iconsAndFolderRules() throws {
+        let json = """
+            {"fileIcons": {"Banking": {"icon": "lucide-piggy-bank", "color": "green"}, "Food.md": {"icon": "🍲"}},
+             "folderRules": [{"enabled": true, "match": "all", "icon": "lucide-building", "color": "cyan",
+               "conditions": [{"source": "tree", "operator": "matches", "value": "^Work/[^/]*$"}]}]}
+            """
+        let iconic = Iconic.parse(Data(json.utf8))
+        #expect(iconic.icon(for: "Banking", folder: true) == .init(name: "lucide-piggy-bank", color: "green"))
+        #expect(iconic.icon(for: "Food.md", folder: false)?.isEmoji == true)
+        #expect(iconic.icon(for: "Work/Acme", folder: true)?.name == "lucide-building")
+        #expect(iconic.icon(for: "Work/Acme/Team", folder: true) == nil)
+        #expect(iconic.icon(for: "Work/Acme", folder: false) == nil)
+    }
+}

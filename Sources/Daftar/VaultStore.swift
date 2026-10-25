@@ -8,6 +8,8 @@ import Observation
 final class VaultStore {
     private(set) var root: URL?
     private(set) var index = VaultIndex()
+    /// The Iconic plugin's icons and colours for the tree.
+    private(set) var iconic = Iconic()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0
@@ -18,6 +20,8 @@ final class VaultStore {
     private(set) var lastSync: Date?
     private(set) var syncError: String?
     private(set) var isRepository = false
+    /// The branch and how it stands, refreshed after each sync and file change.
+    private(set) var gitStatus: Git.Status?
 
     /// A message the window shows once, then clears: an edit that failed.
     var notice: String?
@@ -41,6 +45,7 @@ final class VaultStore {
         let url = url.standardizedFileURL
         root = url
         settings.vaultPath = url.path
+        iconic = Iconic.load(url)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
             Task { @MainActor in self?.changed(paths) }
@@ -58,6 +63,11 @@ final class VaultStore {
         }
         Task {
             isRepository = await Git(root: url).isRepository()
+            guard isRepository else { return }
+            if settings.pullOnLaunch {
+                await run { try await Git(root: url).pull() }
+            }
+            await refreshStatus()
             scheduleAutoSync()
         }
     }
@@ -78,6 +88,7 @@ final class VaultStore {
             index = updated
             lastChanged = changed
             revision += 1
+            await refreshStatus()
         }
     }
 
@@ -114,16 +125,33 @@ final class VaultStore {
 
     /// Commit, pull and push now.
     func sync() async {
-        guard let root, isRepository, !syncing else { return }
+        guard let root else { return }
+        await run { try await Git(root: root).sync(message: Git.message()) }
+    }
+
+    /// Pull only: nothing is committed or pushed.
+    func pull() async {
+        guard let root else { return }
+        await run { try await Git(root: root).pull() }
+    }
+
+    private func run(_ work: () async throws -> Void) async {
+        guard isRepository, !syncing else { return }
         syncing = true
         defer { syncing = false }
         do {
-            try await Git(root: root).sync(message: Git.message())
+            try await work()
             lastSync = Date()
             syncError = nil
         } catch {
             syncError = String(describing: error)
         }
+        await refreshStatus()
+    }
+
+    func refreshStatus() async {
+        guard let root, isRepository else { return }
+        gitStatus = try? await Git(root: root).status()
     }
 
     /// After an edit: a sync a little later, when automatic sync is on, so

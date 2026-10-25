@@ -5,7 +5,7 @@ import SwiftUI
 /// One window: the sidebar, the note, and the inspector beside it.
 struct ContentView: View {
     @Environment(VaultStore.self) private var store
-    @State private var model = WindowModel()
+    @ViewState private var model = WindowModel()
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -18,7 +18,15 @@ struct ContentView: View {
                     SidebarView(model: model)
                         .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
                 } detail: {
-                    detail
+                    if model.terminal {
+                        VSplitView {
+                            detail.frame(minHeight: 160)
+                            TerminalPane(session: model.terminalSession, folder: store.root)
+                                .frame(minHeight: 120, idealHeight: 260)
+                        }
+                    } else {
+                        detail
+                    }
                 }
                 .inspector(isPresented: Binding { model.inspector && !model.showsToday } set: { model.inspector = $0 }) {
                     InspectorView(model: model)
@@ -36,6 +44,8 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { noticeBanner }
         .focusedSceneValue(\.window, model)
         .onOpenURL { url in openFromURL(url) }
+        // A `daftar://` link goes to the window that is open, not to a new one.
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
     }
 
     private var title: String {
@@ -70,6 +80,7 @@ struct ContentView: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        @Bindable var model = model
         ToolbarItemGroup(placement: .navigation) {
             Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
                 .disabled(!model.canGoBack)
@@ -89,6 +100,10 @@ struct ContentView: View {
             if store.isRepository {
                 SyncButton()
             }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Toggle(isOn: $model.terminal) { Label("Terminal", systemImage: "apple.terminal") }
+                .help("Show or hide a terminal in the vault's folder (⌃`)")
         }
         ToolbarItem(placement: .primaryAction) {
             Button { model.inspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
@@ -115,8 +130,13 @@ struct ContentView: View {
         return parts.joined(separator: " › ")
     }
 
-    /// `daftar://open?path=Folder/Note.md`, which the notifications use.
+    /// `daftar://open?path=Folder/Note.md`, which the notifications use, and
+    /// `daftar://terminal`.
     private func openFromURL(_ url: URL) {
+        if url.scheme == "daftar", url.host == "terminal" {
+            model.terminal = true
+            return
+        }
         guard url.scheme == "daftar", url.host == "open",
             let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "path" })?.value
         else { return }
@@ -132,7 +152,7 @@ struct ContentView: View {
 struct NoteWindow: View {
     var path: String
     @Environment(VaultStore.self) private var store
-    @State private var model = WindowModel()
+    @ViewState private var model = WindowModel()
 
     var body: some View {
         ReaderView(
@@ -152,30 +172,54 @@ struct NoteWindow: View {
     }
 }
 
+/// Git in the toolbar: the branch and how it stands, and a menu to sync.
 struct SyncButton: View {
     @Environment(VaultStore.self) private var store
 
     var body: some View {
-        Button {
-            Task { await store.sync() }
-        } label: {
-            if store.syncing {
-                ProgressView().controlSize(.small)
-            } else if store.syncError != nil {
-                Label("Sync failed", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
-                    .foregroundStyle(Palette.red)
-            } else {
-                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+        Menu {
+            if let status = store.gitStatus {
+                Text("On \(status.branch)")
+                Text(describe(status))
             }
+            if let last = store.lastSync {
+                Text("Last sync \(last.formatted(date: .omitted, time: .shortened))")
+            }
+            if let error = store.syncError {
+                Text("Failed: \(error)")
+            }
+            Divider()
+            Button("Sync Now") { Task { await store.sync() } }
+            Button("Pull") { Task { await store.pull() } }
+        } label: {
+            Label(title, systemImage: symbol)
+                .foregroundStyle(store.syncError != nil ? Palette.red : (store.gitStatus?.changed ?? 0) > 0 ? Palette.accent : .primary)
+        } primaryAction: {
+            Task { await store.sync() }
         }
         .disabled(store.syncing)
-        .help(help)
+        .help(store.syncError.map { "The last sync failed: \($0)" } ?? "Commit, pull and push. Hold for more.")
     }
 
-    private var help: String {
-        if let error = store.syncError { return "The last sync failed: \(error)" }
-        if let last = store.lastSync { return "Commit, pull and push. Last sync \(last.formatted(date: .omitted, time: .shortened))." }
-        return "Commit, pull and push"
+    private var symbol: String {
+        if store.syncing { return "arrow.triangle.2.circlepath.circle" }
+        if store.syncError != nil { return "exclamationmark.arrow.triangle.2.circlepath" }
+        if let status = store.gitStatus, status.changed > 0 || status.ahead > 0 { return "arrow.up.circle" }
+        if let status = store.gitStatus, status.behind > 0 { return "arrow.down.circle" }
+        return "checkmark.circle"
+    }
+
+    private var title: String {
+        guard let status = store.gitStatus else { return "Sync" }
+        return status.changed > 0 ? "\(status.changed) changed" : status.branch
+    }
+
+    private func describe(_ status: Git.Status) -> String {
+        var parts: [String] = []
+        parts.append(status.changed == 0 ? "No changes" : "\(status.changed) files changed")
+        if status.ahead > 0 { parts.append("\(status.ahead) to push") }
+        if status.behind > 0 { parts.append("\(status.behind) to pull") }
+        return parts.joined(separator: ", ")
     }
 }
 

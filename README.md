@@ -18,7 +18,13 @@ The aim is to replace Obsidian on the Mac. This first release is the reader and 
 - **Today:** the meetings of the day from the week notes in `Calendar/` (which Daftar on the phone writes), the free time, and the tasks that are overdue, due, in progress and coming. A click on a checkbox completes a task, also a repeating one, as the Tasks plugin does.
 - **Notifications:** an alert before each meeting, with a Join button, and a morning digest of the tasks that are due.
 - **Menu bar and Dock:** today's meetings and tasks in the menu bar, and the count of tasks due on the Dock icon.
-- **Git:** commit, pull with a rebase, and push, with the system `git` and your own SSH keys. Automatic sync is a setting, and it is off at first.
+- **Git:** commit, pull with a rebase, and push, with the system `git` and your own SSH keys. The toolbar shows the branch and the changed files. The app pulls when it starts, and automatic sync is a setting that is off at first.
+- **Terminal:** ⌃` opens your login shell in the vault's folder, under the note, in the same colors.
+- **Icons:** the folders and notes show the icons and colors of the Iconic plugin.
+
+## Configuration
+
+Every setting is in one file, `~/.config/daftar/config.toml`. The app makes it on the first start, with a comment on each setting. Edit it in any editor and the app follows the change at once, or use the Settings window, which writes back only the value that you change. The file is safe to keep in your dotfiles.
 
 ## Build
 
@@ -31,7 +37,7 @@ just run      # build and start it
 just install  # copy it to /Applications
 ```
 
-Without Xcode, the build uses the macOS 26.5 SDK of the command line tools. The newest SDK makes SwiftUI's `@State` a macro, and the plugin for that macro ships only with Xcode.
+Xcode is not necessary. The code uses no SwiftUI macro, because the plugin for those macros ships only with Xcode.
 
 ## License
 
