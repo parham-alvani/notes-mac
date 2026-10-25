@@ -1,0 +1,306 @@
+/* The reading view. The colours are Daftar's on the phone: naz
+   (`1995parham/naz.vim`, the colour scheme the vault is written in) on dark,
+   and Daftar's Daylight palette on light, where naz's accents are darkened
+   until they read on paper. The values are copied from
+   `notes-droid/.../ui/theme/Naz.kt` and `Markup.kt`; change them there and
+   here together. */
+
+@font-face {
+  font-family: "Persian Fallback";
+  src: local("Vazirmatn"), local("Vazirmatn UI");
+  font-weight: 100 900;
+  /* Only the Persian and Arabic letters: the face is never picked for Latin
+     text or ASCII digits. */
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+200C-200D, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+:root {
+  color-scheme: light dark;
+  --font-text: -apple-system, BlinkMacSystemFont, "Persian Fallback", "Geeza Pro", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-size: 15px;
+
+  /* Daylight */
+  --background: #faf9f5;
+  --panel: #efede6;
+  --text: #2a2a28;
+  --text-muted: #6a6a62;
+  --text-faint: #6a6a62;
+  --rule-color: #d8d5cc;
+  --accent: #a85200;
+  --h1-color: #a85200;
+  --h2-color: #8a6a00;
+  --h3-color: #0070a0;
+  --h4-color: #0a7a48;
+  --h5-color: #a85200;
+  --h6-color: #a85200;
+  --strong-color: #a85200;
+  --em-color: #0a7a48;
+  --strike-color: #2a2a28;
+  --code-inline: #8a6a00;
+  --code-background: #efede6;
+  --link-color: #00707a;
+  --link-external-color: #00707a;
+  --quote-color: #a85200;
+  --list-marker: #a85200;
+  --done-color: #6a6a62;
+  --table-header-color: #a85200;
+  --table-row-alt: rgba(0, 0, 0, 0.03);
+  --table-hairline: #d8d5cc;
+  --highlight-bg: #8a6a00;
+  --highlight-fg: #faf9f5;
+  --img-border: #d8d5cc;
+
+  --red: #c01030;
+  --orange: #a85200;
+  --yellow: #8a6a00;
+  --vivid-yellow: #8a6a00;
+  --spring-green: #0a7a48;
+  --chartreuse: #5a7a00;
+  --lime-green: #0a7a48;
+  --blue: #0070a0;
+  --aqua: #00707a;
+  --purple: #8040a0;
+  --pink: #b02a70;
+  --grey: #6a6a62;
+  --warm-grey: #7a5a3a;
+
+  --code-text: #2a2a28;
+  --code-keyword: #00707a;
+  --code-string: #5a7a00;
+  --code-literal: #8040a0;
+  --code-comment: #6a6a62;
+  --code-key: #a85200;
+  --code-punctuation: #6a6a62;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* naz */
+    --background: #323232;
+    --panel: #3a3a35;
+    --text: #f5f5f0;
+    --text-muted: #a8a8a0;
+    --text-faint: #707080;
+    --rule-color: #4a4a4a;
+    --accent: #ffb040;
+    --h1-color: #ffe0a0;
+    --h2-color: #ffff88;
+    --h3-color: #60d8ff;
+    --h4-color: #e0ffd8;
+    --h5-color: #ffe0a0;
+    --h6-color: #ffe0a0;
+    --strong-color: #ffb070;
+    --em-color: #b8ffd0;
+    --strike-color: #f5f5f0;
+    --code-inline: #ffd850;
+    --code-background: #282826;
+    --link-color: #80e5ff;
+    --link-external-color: #80e5ff;
+    --quote-color: #ffb040;
+    --list-marker: #ffb040;
+    --done-color: #707080;
+    --table-header-color: #ffb040;
+    --table-row-alt: rgba(255, 255, 255, 0.03);
+    --table-hairline: #4a4a4a;
+    --highlight-bg: #f0e890;
+    --highlight-fg: #323232;
+    --img-border: #4a4a4a;
+
+    --red: #ff5070;
+    --orange: #ffb040;
+    --yellow: #f0e890;
+    --vivid-yellow: #ffe040;
+    --spring-green: #20ffa0;
+    --chartreuse: #a0ff40;
+    --lime-green: #b8ffd0;
+    --blue: #40d0ff;
+    --aqua: #80e5ff;
+    --purple: #f0a0f0;
+    --pink: #ff69b4;
+    --grey: #a8a8a0;
+    --warm-grey: #b09070;
+
+    --code-text: #f5f5f0;
+    --code-keyword: #80e5ff;
+    --code-string: #a0ff40;
+    --code-literal: #f0a0f0;
+    --code-comment: #a8a8a0;
+    --code-key: #ffb040;
+    --code-punctuation: #d0d0d0;
+  }
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-text);
+  font-size: var(--text-size);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+#note {
+  max-width: 46em;
+  margin: 0 auto;
+  padding: 1.5em 2.5em 6em;
+  overflow-wrap: break-word;
+}
+
+[dir="rtl"] {
+  line-height: 2;
+}
+
+.inline-title {
+  font-size: 2em;
+  margin: 0.2em 0 0.6em;
+  color: var(--h1-color);
+  border: none !important;
+}
+
+h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.4em 0 0.5em; }
+h1 { font-size: 1.7em; color: var(--h1-color); }
+h2 { font-size: 1.45em; color: var(--h2-color); }
+h3 { font-size: 1.25em; color: var(--h3-color); }
+h4 { font-size: 1.1em; color: var(--h4-color); }
+h5 { font-size: 1em; color: var(--h5-color); }
+h6 { font-size: 0.95em; color: var(--h6-color); }
+h1, h2 {
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid color-mix(in oklch, currentColor 35%, transparent);
+}
+
+p, ul, ol, table, pre, blockquote, .callout { margin: 0 0 1em; }
+strong { color: var(--strong-color); }
+em { color: var(--em-color); }
+mark { background: var(--highlight-bg); color: var(--highlight-fg); border-radius: 3px; padding: 0 2px; }
+hr { border: none; border-top: 1px solid var(--rule-color); margin: 2em 0; }
+del { color: var(--strike-color); }
+
+a { color: var(--link-external-color); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a.internal-link { color: var(--link-color); }
+a.internal-link.is-unresolved, span.internal-link.is-unresolved { color: var(--link-color); opacity: 0.6; text-decoration: underline dotted; }
+a.tag {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  border-radius: 1em;
+  padding: 0 0.5em;
+  font-size: 0.9em;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--code-inline);
+  background: var(--code-background);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+pre {
+  background: var(--code-background);
+  border-radius: 8px;
+  padding: 0.9em 1.1em;
+  overflow-x: auto;
+  direction: ltr;
+  text-align: left;
+}
+pre code { color: inherit; background: none; padding: 0; font-size: 0.85em; }
+
+ul, ol { padding-inline-start: 1.6em; }
+li { margin: 0.15em 0; }
+li::marker { color: var(--list-marker); }
+li > p { margin: 0; }
+li.task-list-item { list-style: none; }
+li.task-list-item > input, li.task-list-item > p > input {
+  margin-inline: -1.4em 0.45em;
+  vertical-align: -0.1em;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+li.task-list-item.is-checked[data-task="x"], li.task-list-item.is-checked[data-task="X"] { color: var(--done-color); }
+li.task-list-item.is-checked[data-task="x"] > p, li.task-list-item.is-checked[data-task="x"]:not(:has(> p)) { text-decoration: line-through; text-decoration-color: var(--text-faint); }
+li.task-list-item[data-task="-"] { color: var(--done-color); text-decoration: line-through; }
+li.task-list-item[data-task="/"] > input { accent-color: var(--accent); }
+li.task-list-item.is-checked > input, li.task-list-item.is-checked > p > input { accent-color: var(--done-color); }
+
+blockquote {
+  color: var(--quote-color);
+  border-inline-start: 3px solid var(--quote-color);
+  margin-inline: 0;
+  padding: 0.4em 1em;
+  border-radius: 4px;
+}
+blockquote > :last-child { margin-bottom: 0; }
+
+table { border-collapse: collapse; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--table-hairline); padding: 0.35em 0.7em; text-align: start; }
+th { color: var(--table-header-color); }
+tbody tr:nth-child(even) { background: var(--table-row-alt); }
+
+table.properties { font-size: 0.85em; margin-bottom: 1.5em; color: var(--text-muted); }
+table.properties th { color: var(--text-muted); font-weight: 500; }
+table.properties th, table.properties td { border: none; padding: 0.15em 1em 0.15em 0; }
+table.properties tbody tr:nth-child(even) { background: none; }
+
+img { max-width: 100%; border-radius: 6px; border: 1px solid var(--img-border); }
+
+.callout {
+  /* note, info and any kind Daftar does not know */
+  --callout-color: var(--blue);
+  border-inline-start: 3px solid color-mix(in oklch, var(--callout-color) 35%, transparent);
+  background-color: color-mix(in oklch, var(--callout-color) 10%, transparent);
+  border-radius: 8px;
+  padding: 0.7em 1em;
+}
+.callout-title { color: var(--callout-color); font-weight: 650; display: flex; gap: 0.4em; align-items: baseline; }
+summary.callout-title { cursor: pointer; list-style: none; }
+summary.callout-title::-webkit-details-marker { display: none; }
+summary.callout-title::after { content: "›"; margin-inline-start: auto; transition: transform 0.15s; }
+details[open] > summary.callout-title::after { transform: rotate(90deg); }
+.callout-content { margin-top: 0.4em; }
+.callout-content > :last-child { margin-bottom: 0; }
+.callout:not(:has(.callout-content > *)) .callout-content { display: none; }
+/* Daftar's kind-to-accent table (`Blocks.kt`, `CalloutKind.accent`), with
+   Obsidian's aliases for each kind. */
+.callout[data-callout="warning"], .callout[data-callout="caution"], .callout[data-callout="attention"] { --callout-color: var(--orange); }
+.callout[data-callout="danger"], .callout[data-callout="error"], .callout[data-callout="bug"], .callout[data-callout="failure"], .callout[data-callout="fail"], .callout[data-callout="missing"] { --callout-color: var(--red); }
+.callout[data-callout="success"], .callout[data-callout="check"], .callout[data-callout="done"] { --callout-color: var(--spring-green); }
+.callout[data-callout="tip"], .callout[data-callout="hint"], .callout[data-callout="important"] { --callout-color: var(--chartreuse); }
+.callout[data-callout="todo"] { --callout-color: var(--vivid-yellow); }
+.callout[data-callout="question"], .callout[data-callout="help"], .callout[data-callout="faq"] { --callout-color: var(--yellow); }
+.callout[data-callout="abstract"], .callout[data-callout="summary"], .callout[data-callout="tldr"] { --callout-color: var(--lime-green); }
+.callout[data-callout="example"] { --callout-color: var(--purple); }
+.callout[data-callout="quote"], .callout[data-callout="cite"] { --callout-color: var(--warm-grey); }
+.callout[data-callout="figure"] { --callout-color: var(--pink); }
+.callout[data-callout="read"] { --callout-color: var(--aqua); }
+
+.embed {
+  border-inline-start: 2px solid var(--accent);
+  padding-inline-start: 1em;
+  margin: 0 0 1em;
+}
+.embed-title { font-size: 0.8em; color: var(--text-muted); margin-bottom: 0.3em; }
+
+.math-block { overflow-x: auto; margin: 0 0 1em; }
+pre.mermaid { background: none; text-align: center; }
+pre.mermaid:not([data-processed]) { color: transparent; }
+pre.mermaid.mermaid-error { color: var(--red); text-align: left; }
+
+.footnotes { font-size: 0.88em; color: var(--text-muted); }
+.footnotes-sep { border-top: 1px solid var(--rule-color); }
+
+/* Code colours: Daftar's `CodeHighlighter` roles. */
+pre code { color: var(--code-text); }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-type, .hljs-title { color: var(--code-keyword); }
+.hljs-string, .hljs-template-string, .hljs-regexp, .hljs-addition { color: var(--code-string); }
+.hljs-number, .hljs-literal, .hljs-symbol { color: var(--code-literal); }
+.hljs-comment, .hljs-quote { color: var(--code-comment); font-style: italic; }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-meta, .hljs-section, .hljs-variable { color: var(--code-key); }
+.hljs-punctuation, .hljs-operator { color: var(--code-punctuation); }
+.hljs-deletion { color: var(--red); }

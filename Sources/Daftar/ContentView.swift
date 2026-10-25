@@ -1,0 +1,219 @@
+import AppKit
+import DaftarCore
+import SwiftUI
+
+/// One window: the sidebar, the note, and the inspector beside it.
+struct ContentView: View {
+    @Environment(VaultStore.self) private var store
+    @State private var model = WindowModel()
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        @Bindable var model = model
+        Group {
+            if store.root == nil {
+                WelcomeView()
+            } else {
+                NavigationSplitView {
+                    SidebarView(model: model)
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
+                } detail: {
+                    detail
+                }
+                .inspector(isPresented: Binding { model.inspector && !model.showsToday } set: { model.inspector = $0 }) {
+                    InspectorView(model: model)
+                        .inspectorColumnWidth(min: 200, ideal: 260, max: 400)
+                }
+            }
+        }
+        .tint(Palette.accent)
+        .navigationTitle(title)
+        .navigationSubtitle(model.showsToday ? store.name : model.path.map { folder(of: $0) } ?? "")
+        .toolbar { toolbar }
+        .sheet(isPresented: $model.quickOpen) {
+            QuickOpenView(model: model)
+        }
+        .overlay(alignment: .bottom) { noticeBanner }
+        .focusedSceneValue(\.window, model)
+        .onOpenURL { url in openFromURL(url) }
+    }
+
+    private var title: String {
+        if model.showsToday { return "Today" }
+        return model.path.map(Vault.title(of:)) ?? store.name
+    }
+
+    @ViewBuilder private var detail: some View {
+        if store.loading {
+            ProgressView("Reading \(store.name)…")
+        } else if model.showsToday {
+            TodayView(model: model)
+        } else if model.request != nil {
+            ReaderView(
+                request: model.request, store: store,
+                onOpen: { path, anchor, newWindow in
+                    if newWindow {
+                        openWindow(value: path)
+                    } else {
+                        model.open(path, heading: anchor, store: store)
+                    }
+                },
+                onTag: { model.searchTag($0) },
+                findText: model.findText)
+        } else {
+            ContentUnavailableView {
+                Label("No note open", systemImage: "doc.text")
+            } description: {
+                Text("Choose a note in the sidebar, or press ⌘O to find one by name.")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
+                .disabled(!model.canGoBack)
+            Button { model.goForward() } label: { Label("Forward", systemImage: "chevron.right") }
+                .disabled(!model.canGoForward)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            if let path = model.path, !model.showsToday {
+                Button {
+                    openInObsidian(path, store: store)
+                } label: { Label("Edit in Obsidian", systemImage: "square.and.pencil") }
+                    .help("Open this note in Obsidian, to edit it")
+                if let url = store.url(of: path) {
+                    ShareLink(item: url)
+                }
+            }
+            if store.isRepository {
+                SyncButton()
+            }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button { model.inspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
+                .help("Show or hide the outline and backlinks")
+        }
+    }
+
+    @ViewBuilder private var noticeBanner: some View {
+        if let notice = store.notice {
+            Text(notice)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.bottom, 16)
+                .task {
+                    try? await Task.sleep(for: .seconds(5))
+                    store.notice = nil
+                }
+                .onTapGesture { store.notice = nil }
+        }
+    }
+
+    private func folder(of path: String) -> String {
+        let parts = path.split(separator: "/").dropLast()
+        return parts.joined(separator: " › ")
+    }
+
+    /// `daftar://open?path=Folder/Note.md`, which the notifications use.
+    private func openFromURL(_ url: URL) {
+        guard url.scheme == "daftar", url.host == "open",
+            let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "path" })?.value
+        else { return }
+        if path == "today" {
+            model.showsToday = true
+        } else {
+            model.open(path, store: store)
+        }
+    }
+}
+
+/// A window opened on one note, by ⌘-click on a link.
+struct NoteWindow: View {
+    var path: String
+    @Environment(VaultStore.self) private var store
+    @State private var model = WindowModel()
+
+    var body: some View {
+        ReaderView(
+            request: model.request, store: store,
+            onOpen: { path, anchor, _ in model.open(path, heading: anchor, store: store) },
+            onTag: { _ in }, findText: nil)
+            .tint(Palette.accent)
+            .navigationTitle(model.path.map(Vault.title(of:)) ?? "")
+            .toolbar {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
+                        .disabled(!model.canGoBack)
+                }
+            }
+            .onAppear { if model.request == nil { model.open(path, store: store) } }
+            .frame(minWidth: 400, minHeight: 300)
+    }
+}
+
+struct SyncButton: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        Button {
+            Task { await store.sync() }
+        } label: {
+            if store.syncing {
+                ProgressView().controlSize(.small)
+            } else if store.syncError != nil {
+                Label("Sync failed", systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                    .foregroundStyle(Palette.red)
+            } else {
+                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+            }
+        }
+        .disabled(store.syncing)
+        .help(help)
+    }
+
+    private var help: String {
+        if let error = store.syncError { return "The last sync failed: \(error)" }
+        if let last = store.lastSync { return "Commit, pull and push. Last sync \(last.formatted(date: .omitted, time: .shortened))." }
+        return "Commit, pull and push"
+    }
+}
+
+struct WelcomeView: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 128, height: 128)
+            Text("Daftar").font(.largeTitle.bold())
+            Text("Open the folder of an Obsidian vault. The app reads it where it is, and changes only what you change.")
+                .multilineTextAlignment(.center).frame(maxWidth: 360).foregroundStyle(.secondary)
+            Button("Open Vault…") { chooseVault(store) }.keyboardShortcut(.defaultAction)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+@MainActor
+func chooseVault(_ store: VaultStore) {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.prompt = "Open Vault"
+    if panel.runModal() == .OK, let url = panel.url { store.open(url) }
+}
+
+/// The focused window's model, for the menu commands. A plain key rather
+/// than `@Entry`: the macro's plugin ships with Xcode, not with the command
+/// line tools this builds with.
+struct FocusedWindowKey: FocusedValueKey {
+    typealias Value = WindowModel
+}
+
+extension FocusedValues {
+    var window: WindowModel? {
+        get { self[FocusedWindowKey.self] }
+        set { self[FocusedWindowKey.self] = newValue }
+    }
+}
