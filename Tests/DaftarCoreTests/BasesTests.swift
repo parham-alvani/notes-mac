@@ -224,6 +224,56 @@ import Testing
         #expect(engine.problems.contains { $0.contains("loop uses itself") })
     }
 
+    @Test func cardsAndListOptions() {
+        let base = Base.parse("""
+            views:
+              - type: cards
+                name: Gallery
+                image: note.cover
+                imageFit: contain
+                imageAspectRatio: 0.75
+                cardSize: 260
+              - type: list
+                name: Lines
+                markers: number
+                indentProperties: true
+                separator: "|"
+              - type: cards
+                name: Odd
+                imageFit: stretch
+                imageAspectRatio: -1
+                cardSize: wide
+              - type: kanban
+                name: Plugin
+            """)
+        #expect(base.views.map(\.kind) == ["cards", "list", "cards", "table"])
+        let cards = base.views[0].layout
+        #expect(cards.image == "note.cover" && cards.imageFit == "contain" && cards.imageAspectRatio == 0.75 && cards.cardSize == 260)
+        let list = base.views[1].layout
+        #expect(list.markers == "number" && list.indentProperties && list.separator == "|")
+        // A value the app cannot read keeps the default.
+        #expect(base.views[2].layout == BaseLayout())
+        #expect(base.views[3].type == "kanban")
+    }
+
+    @Test func aCardsCoverIsAPictureAWebAddressOrAColour() {
+        var index = VaultIndex()
+        let notes = [
+            "A.md": "---\ncover: \"[[map.png]]\"\n---\n", "B.md": "---\ncover: https://example.com/b.jpg\n---\n",
+            "C.md": "---\ncover: \"#ff5070\"\n---\n", "D.md": "---\ncover: \"[[A]]\"\n---\n", "E.md": "---\ncover: uploads/map.png\n---\n",
+        ]
+        for (path, text) in notes { index.notes[path] = NoteEntry(path: path, modified: now, parsed: NoteParser.parse(text)) }
+        index.files = Set(notes.keys).union(["uploads/map.png"])
+        index.derive()
+        let base = Base.parse("filters: file.ext == \"md\"\nviews:\n  - type: cards\n    name: C\n    image: note.cover\n  - type: table\n    name: T\n    image: note.cover\n")
+        let tables = BaseEngine(index: index, now: now).run(base, context: "")
+        let covers = tables[0].groups[0].rows.map(\.image)
+        #expect(tables[0].kind == "cards")
+        #expect(covers == [.file("uploads/map.png"), .url("https://example.com/b.jpg"), .color("#ff5070"), nil, .file("uploads/map.png")])
+        // A table has no covers.
+        #expect(tables[1].groups[0].rows.allSatisfy { $0.image == nil })
+    }
+
     @Test func aBaseWithNoViewsHasOne() {
         let tables = engine().run(Base.parse("filters: file.name == \"Home.md\""), context: "")
         #expect(tables.count == 1)

@@ -97,7 +97,7 @@ export function parseWikilink(inner) {
   return { target, anchor, alias };
 }
 
-function escapeHtml(text) {
+export function escapeHtml(text) {
   return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 

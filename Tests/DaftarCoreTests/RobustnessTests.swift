@@ -131,6 +131,26 @@ import Testing
         }
     }
 
+    @Test func canvasesFromAnyJSON() throws {
+        var random = Seeded(state: 11)
+        let words = ["{", "}", "[", "]", ",", ":", "\"nodes\"", "\"edges\"", "\"id\"", "\"type\"", "\"text\"", "\"file\"", "\"link\"", "\"group\"",
+            "\"x\"", "\"y\"", "\"width\"", "\"height\"", "\"color\"", "\"fromNode\"", "\"toNode\"", "\"toEnd\"", "\"arrow\"", "\"a\"", "\"b\"",
+            "\"1\"", "\"#ff0000\"", "0", "-1", "1e308", "1e999", "null", "true", "\"120\"", "\"", "\\"]
+        for _ in 0..<3000 {
+            let text = (0..<Int.random(in: 0...40, using: &random)).map { _ in words.randomElement(using: &random)! }.joined()
+            let canvas = Canvas.parse(text)
+            // What the parser keeps is drawable: every number finite, every
+            // edge between two cards; and written out, it reads back the same.
+            #expect(canvas.nodes.allSatisfy { [$0.x, $0.y, $0.width, $0.height].allSatisfy(\.isFinite) && $0.width > 0 && $0.height > 0 })
+            let ids = Set(canvas.nodes.map(\.id))
+            #expect(canvas.edges.allSatisfy { ids.contains($0.fromNode) && ids.contains($0.toNode) })
+            let again = Canvas.parse(String(decoding: try JSONEncoder().encode(canvas), as: UTF8.self))
+            #expect(again == canvas, "\(text)")
+            _ = canvas.nodes.map { Canvas.color($0.color) }
+        }
+        for text in Self.samples(300, seed: 12) { _ = Canvas.parse(text) }
+    }
+
     @Test func pastesFromAnyHTML() {
         var random = Seeded(state: 7)
         let tags = ["<p>", "</p>", "<b>", "</b>", "<ul>", "<li>", "</ul>", "<ol start=\"x\">", "<table><tr><td>", "</td><td>", "</table>",

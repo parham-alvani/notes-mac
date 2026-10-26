@@ -129,6 +129,10 @@ struct ReaderView: NSViewRepresentable {
                 showBase(request, source: text, keepScroll: keepScroll)
                 return
             }
+            if Canvas.isCanvas(request.path) {
+                showCanvas(request, source: text, keepScroll: keepScroll)
+                return
+            }
             let parsed = NoteParser.parse(text)
             var note: [String: Any] = [
                 "path": request.path,
@@ -182,6 +186,46 @@ struct ReaderView: NSViewRepresentable {
                 ]
                 _ = try? await view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             }
+        }
+
+        /// A `.canvas` file: its board in place of a note's text. A note on
+        /// the board can change, so any change to a note draws it again.
+        private func showCanvas(_ request: ReaderRequest, source: String, keepScroll: Bool) {
+            hasQuery = true
+            let store = parent.store
+            let canvas = Canvas.parse(source)
+            let files = canvas.files(in: store.index, from: request.path)
+            let nodes: [[String: Any]] = canvas.nodes.map { node in
+                var out: [String: Any] = [
+                    "id": node.id, "type": node.type, "x": node.x, "y": node.y, "width": node.width, "height": node.height,
+                ]
+                out["color"] = Canvas.color(node.color)
+                out["text"] = node.text
+                out["file"] = node.file
+                out["path"] = files[node.id]
+                out["subpath"] = node.subpath
+                out["url"] = node.url
+                out["label"] = node.label
+                return out
+            }
+            let edges: [[String: Any]] = canvas.edges.map { edge in
+                var out: [String: Any] = [
+                    "id": edge.id, "fromNode": edge.fromNode, "toNode": edge.toNode, "fromEnd": edge.fromEnd, "toEnd": edge.toEnd,
+                ]
+                out["fromSide"] = edge.fromSide
+                out["toSide"] = edge.toSide
+                out["color"] = Canvas.color(edge.color)
+                out["label"] = edge.label
+                return out
+            }
+            let note: [String: Any] = [
+                "path": request.path, "title": Vault.title(of: request.path), "text": "",
+                "links": canvas.links(in: store.index, from: request.path),
+                "properties": [[String]](), "keepScroll": keepScroll, "canvas": ["nodes": nodes, "edges": edges],
+                "textSize": store.settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
+            ]
+            view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+            if !keepScroll { takeKeys() }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
@@ -349,11 +393,19 @@ extension ReaderView.Coordinator {
         }.value
         let views: [[String: Any]] = tables.map { table in
             [
-                "name": table.name, "type": table.type, "columns": table.columns, "count": table.count,
+                "name": table.name, "type": table.type, "kind": table.kind, "layout": Self.json(table.layout),
+                "columns": table.columns, "count": table.count,
                 "groups": table.groups.map { group -> [String: Any] in
                     var out: [String: Any] = [
                         "rows": group.rows.map { row -> [String: Any] in
-                            ["path": row.path, "cells": row.cells.map(Self.json)]
+                            var out: [String: Any] = ["path": row.path, "cells": row.cells.map(Self.json)]
+                            switch row.image {
+                            case .file(let path): out["image"] = ["file": path]
+                            case .url(let url): out["image"] = ["url": url]
+                            case .color(let color): out["image"] = ["color": color]
+                            case nil: break
+                            }
+                            return out
                         }
                     ]
                     out["name"] = group.name
@@ -362,6 +414,13 @@ extension ReaderView.Coordinator {
             ]
         }
         return ["views": views, "problems": problems]
+    }
+
+    private static func json(_ layout: BaseLayout) -> [String: Any] {
+        [
+            "imageFit": layout.imageFit, "imageAspectRatio": layout.imageAspectRatio, "cardSize": layout.cardSize,
+            "markers": layout.markers, "indentProperties": layout.indentProperties, "separator": layout.separator,
+        ]
     }
 
     private static func json(_ cell: BaseCell) -> [String: Any] {

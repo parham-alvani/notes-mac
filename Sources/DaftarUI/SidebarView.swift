@@ -826,6 +826,7 @@ struct QuickOpenView: View {
 
     private func symbol(_ path: String) -> String {
         if Base.isBase(path) { return "tablecells" }
+        if Canvas.isCanvas(path) { return "rectangle.on.rectangle" }
         if Vault.isNote(path) { return "doc.text" }
         switch (path as NSString).pathExtension.lowercased() {
         case "png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "tiff", "svg": return "photo"
@@ -837,7 +838,7 @@ struct QuickOpenView: View {
     }
 
     private func color(_ path: String) -> Color {
-        Base.isBase(path) ? Palette.green : Vault.isNote(path) ? Palette.accent : Palette.yellow
+        Base.isBase(path) ? Palette.green : Canvas.isCanvas(path) ? Palette.purple : Vault.isNote(path) ? Palette.accent : Palette.yellow
     }
 
     /// [text] with the letters at [marks] bold and in the accent colour.
