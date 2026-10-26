@@ -111,12 +111,6 @@ public enum MomentFormat {
 }
 
 extension Day {
-    private static var utc: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar
-    }
-
     /// 0 for Sunday, as moment counts.
     var momentWeekday: Int { weekday - 1 }
     var dayOfYear: Int { Self.utc.ordinality(of: .day, in: .year, for: date)! }

@@ -18,6 +18,10 @@ test: web
     swift test
     cd web && npm test
 
+# the paths a person waits on, timed on a made-up vault of 20,000 notes, in a release build
+bench: web
+    DAFTAR_BENCH=1 swift test -c release --filter BenchmarkTests
+
 # build/Daftar.app, signed ad hoc
 app: web
     swift build -c release --arch arm64

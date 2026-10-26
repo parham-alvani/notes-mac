@@ -52,6 +52,10 @@ public struct VaultIndex: Sendable {
     public private(set) var tags: [String: Int] = [:]
     /// The tags as the tag pane shows them, each note counted once per branch.
     public private(set) var tagTree: [TagNode] = []
+    /// What the resolver and the tree were made from. A saved note changes
+    /// neither, and with 20,000 files they took most of a second to make.
+    private var resolved: (files: Set<String>, aliases: [String: [String]])?
+    private var treed: (files: Set<String>, empty: Set<String>)?
 
     public init() {}
 
@@ -95,11 +99,21 @@ public struct VaultIndex: Sendable {
         notes.values.flatMap { note in note.parsed.tasks.map { VaultTask(path: note.path, task: $0) } }
     }
 
+    /// Every task by its note's path, then by its line: the order a
+    /// ` ```tasks ` query keeps for ties. The notes are put in order, not
+    /// the tasks, which are in line order in each note already.
+    public var tasksInOrder: [VaultTask] {
+        notes.values.sorted { $0.path < $1.path }.flatMap { note in note.parsed.tasks.map { VaultTask(path: note.path, task: $0) } }
+    }
+
     /// The links, tags, tree and resolver again, after [notes] or [files] changed.
     public mutating func derive() {
         var aliases: [String: [String]] = [:]
         for note in notes.values where !note.parsed.aliases.isEmpty { aliases[note.path] = note.parsed.aliases }
-        resolver = LinkResolver(paths: files, aliases: aliases)
+        if resolved?.files != files || resolved?.aliases != aliases {
+            resolver = LinkResolver(paths: files, aliases: aliases)
+            resolved = (files, aliases)
+        }
 
         var back: [String: [Backlink]] = [:]
         var tagCounts: [String: Int] = [:]
@@ -117,7 +131,10 @@ public struct VaultIndex: Sendable {
         backlinks = back
         tags = tagCounts
         tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags))
-        tree = Vault.tree(of: files, emptyFolders: emptyFolders)
+        if treed?.files != files || treed?.empty != emptyFolders {
+            tree = Vault.tree(of: files, emptyFolders: emptyFolders)
+            treed = (files, emptyFolders)
+        }
     }
 }
 
@@ -151,11 +168,20 @@ public enum Vault {
         guard let walker = FileManager.default.enumerator(
             at: root, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey], options: [.skipsHiddenFiles])
         else { return [] }
+        // The walker's URLs are the root's with plain names after it, so the
+        // part after the root is the vault path: standardizing every URL
+        // was half of the scan of 20,000 files.
+        let start = root.path.removingSuffix("/") + "/"
         var found = Set<String>()
         for case let url as URL in walker {
-            let path = url.standardizedFileURL.path
-            guard path.hasPrefix(base) else { continue }
-            let relative = String(path.dropFirst(base.count))
+            let relative: String
+            if case let path = url.path, path.hasPrefix(start) {
+                relative = String(path.dropFirst(start.count))
+            } else {
+                let path = url.standardizedFileURL.path
+                guard path.hasPrefix(base) else { continue }
+                relative = String(path.dropFirst(base.count))
+            }
             if skipped.contains(url.lastPathComponent) {
                 walker.skipDescendants()
                 continue
@@ -172,7 +198,11 @@ public enum Vault {
         // Each iteration writes its own slot, so the slots need no lock.
         nonisolated(unsafe) let results = UnsafeMutableBufferPointer<NoteEntry?>.allocate(capacity: paths.count)
         results.initialize(repeating: nil)
-        defer { results.deallocate() }
+        // Deinitialized too, or every note read stays in memory for good.
+        defer {
+            _ = results.deinitialize()
+            results.deallocate()
+        }
         DispatchQueue.concurrentPerform(iterations: paths.count) { index in
             results[index] = read(paths[index], in: root)
         }
@@ -333,8 +363,9 @@ public enum Vault {
                 }
                 return TreeNode(path: path, name: name, children: children, folderNote: hasNote ? note : nil, logo: logo)
             }
-            let leaves = folder.files.sorted { order(title(of: $0), title(of: $1)) }.map {
-                TreeNode(path: $0, name: isNote($0) ? title(of: $0) : String($0.split(separator: "/").last!), children: nil)
+            // Each title once, not twice in every comparison of the sort.
+            let leaves = folder.files.map { ($0, title(of: $0)) }.sorted { order($0.1, $1.1) }.map {
+                TreeNode(path: $0.0, name: isNote($0.0) ? $0.1 : String($0.0.split(separator: "/").last!), children: nil)
             }
             return subfolders + leaves
         }

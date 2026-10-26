@@ -567,16 +567,15 @@ final class VaultStore {
     func renameTag(_ old: String, to new: String) -> Int {
         guard let root, TagRename.isValid(old), TagRename.isValid(new) else { return 0 }
         var written: Set<String> = []
-        for path in notes(tagged: old) where url(of: path) != nil {
-            do {
-                var changedNote = false
-                try ownEdit(path, in: root) { text in
-                    let result = TagRename.rename(text, from: old, to: new)
-                    changedNote = result != text
-                    return result
-                }
+        // The notes are read, renamed and written several at a time.
+        let paths = notes(tagged: old).filter { url(of: $0) != nil }
+        let outcomes = VaultEdits.apply(paths, in: root) { TagRename.rename($0, from: old, to: new) }
+        for (path, outcome) in zip(paths, outcomes) {
+            switch outcome {
+            case .success(let changedNote):
+                places.markRead(path)
                 if changedNote { written.insert(path) }
-            } catch {
+            case .failure(let error):
                 notice = "\(Vault.title(of: path)) could not be written: \(error.localizedDescription)"
             }
         }

@@ -16,6 +16,7 @@ public enum TaskMetadata {
 
     nonisolated(unsafe) private static let value = /^[0-9A-Za-z\/,:. -]{0,32}$/
     nonisolated(unsafe) private static let dateValue = /^\d{4}-\d{2}-\d{2}$/
+    nonisolated(unsafe) private static let trailingTags = /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/
     private static let dated: Set<String> = ["done", "created", "scheduled", "cancelled", "due", "start"]
 
     /// Whether [value] can follow [symbol]: nothing after a priority, only
@@ -37,9 +38,13 @@ public enum TaskMetadata {
         // the text, as the Tasks plugin keeps them.
         var tags: [String] = []
         var kinds = Set<String>()
+        // Each symbol is one scalar: only those in the line are looked for,
+        // not all fifteen at each step.
+        let scalars = Set(line.unicodeScalars)
+        let present = symbols.keys.filter { scalars.contains($0.unicodeScalars.first!) }
         while true {
             var last: (String, Range<String.Index>)?
-            for symbol in symbols.keys {
+            for symbol in present {
                 if let range = remaining.range(of: symbol, options: .backwards),
                     last == nil || range.lowerBound > last!.1.lowerBound
                 {
@@ -49,7 +54,7 @@ public enum TaskMetadata {
             guard let (symbol, range) = last, !kinds.contains(symbols[symbol]!) else { break }
             var value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
             if !takes(symbol, value) {
-                guard let match = value.wholeMatch(of: /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/),
+                guard let match = value.wholeMatch(of: trailingTags),
                     takes(symbol, String(match.1))
                 else { break }
                 tags.insert(String(match.2).trimmingCharacters(in: .whitespaces), at: 0)
@@ -86,8 +91,8 @@ public enum TaskLine {
     }
 
     static func parse(_ raw: String, line: Int, section: String) -> ParsedTask? {
-        guard let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
-        let body = String(match.3).replacing(/\s+\^[A-Za-z0-9-]+\s*$/, with: "")
+        guard raw.hasMark("["), let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
+        let body = match.3.hasMark("^") ? String(match.3).replacing(blockId, with: "") : String(match.3)
         let split = TaskMetadata.split(body)
         func date(_ emoji: String) -> String? {
             split.meta.first { $0.emoji == emoji }?.value.nilIfEmpty
@@ -221,11 +226,14 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
     public var month: Int
     public var day: Int
 
-    private static var utc: Calendar {
+    /// Made once: a calendar made for each day read was most of the time
+    /// a tasks query over a large vault took.
+    static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return calendar
-    }
+    }()
+    nonisolated(unsafe) private static let pattern = /(\d{4})-(\d{2})-(\d{2})/
 
     public init(year: Int, month: Int, day: Int) {
         self.year = year
@@ -234,18 +242,28 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
     }
 
     public init?(_ text: String) {
-        guard let match = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: /(\d{4})-(\d{2})-(\d{2})/),
+        guard let match = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: Self.pattern),
             let y = Int(match.1), let m = Int(match.2), let d = Int(match.3),
             (1...12).contains(m), (1...31).contains(d)
         else { return nil }
         self.init(year: y, month: m, day: d)
+        // From 1583 on, Foundation's calendar is the plain Gregorian one, and
+        // the length of the month says whether the day is real; before, it
+        // is Julian, and the calendar is asked. It was most of what reading
+        // a task's date took.
+        if y >= 1583 {
+            let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
+            let length = m == 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].contains(m) ? 30 : 31
+            guard d <= length else { return nil }
+            return
+        }
         guard description == "\(match.1)-\(match.2)-\(match.3)", Day(date: date) == self else { return nil }
     }
 
     /// The day [date] falls on in [zone].
     public init(date: Date, in zone: TimeZone = TimeZone(identifier: "UTC")!) {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = zone
+        var calendar = Self.utc
+        if zone != calendar.timeZone { calendar.timeZone = zone }
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         self.init(year: parts.year!, month: parts.month!, day: parts.day!)
     }

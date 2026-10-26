@@ -119,29 +119,48 @@ public struct GraphLayout: Sendable {
         var dx = [Double](repeating: 0, count: count)
         var dy = [Double](repeating: 0, count: count)
         var grid: [Int64: [Int]] = [:]
-        func key(_ i: Int) -> (Int64, Int64) { (Int64((x[i] / cell).rounded(.down)), Int64((y[i] / cell).rounded(.down))) }
+        let xs = x, ys = y
+        func key(_ i: Int) -> (Int64, Int64) { (Int64((xs[i] / cell).rounded(.down)), Int64((ys[i] / cell).rounded(.down))) }
         for i in 0..<count {
             let (cx, cy) = key(i)
             grid[cx &* 1_000_003 &+ cy, default: []].append(i)
         }
-        for i in 0..<count {
-            let (cx, cy) = key(i)
-            for ox in -1...1 {
-                for oy in -1...1 {
-                    for j in grid[(cx + Int64(ox)) &* 1_000_003 &+ (cy + Int64(oy))] ?? [] where j != i {
-                        var ddx = x[i] - x[j], ddy = y[i] - y[j]
-                        var distance = (ddx * ddx + ddy * ddy).squareRoot()
-                        if distance < 0.01 {
-                            ddx = Double((i * 7919 + j) % 13) - 6
-                            ddy = Double((i * 104_729 + j) % 11) - 5
-                            distance = 1
+        // The push on each node is its own sum, so the nodes are shared
+        // out among the cores: a whole vault's thousands of notes gather
+        // in crowded cells as the layout cools, and one core took seconds.
+        // Each node adds its pushes in the same order as before.
+        let pushes = UnsafeMutableBufferPointer<Double>.allocate(capacity: count * 2)
+        defer { pushes.deallocate() }
+        let chunk = 256
+        nonisolated(unsafe) let out = pushes
+        DispatchQueue.concurrentPerform(iterations: (count + chunk - 1) / chunk) { part in
+            for i in (part * chunk)..<min(count, (part + 1) * chunk) {
+                var px = 0.0, py = 0.0
+                let (cx, cy) = key(i)
+                for ox in -1...1 {
+                    for oy in -1...1 {
+                        guard let near = grid[(cx + Int64(ox)) &* 1_000_003 &+ (cy + Int64(oy))] else { continue }
+                        for j in near where j != i {
+                            var ddx = xs[i] - xs[j], ddy = ys[i] - ys[j]
+                            var distance = (ddx * ddx + ddy * ddy).squareRoot()
+                            if distance < 0.01 {
+                                ddx = Double((i * 7919 + j) % 13) - 6
+                                ddy = Double((i * 104_729 + j) % 11) - 5
+                                distance = 1
+                            }
+                            let push = spacing * spacing / distance
+                            px += ddx / distance * push
+                            py += ddy / distance * push
                         }
-                        let push = spacing * spacing / distance
-                        dx[i] += ddx / distance * push
-                        dy[i] += ddy / distance * push
                     }
                 }
+                out[i * 2] = px
+                out[i * 2 + 1] = py
             }
+        }
+        for i in 0..<count {
+            dx[i] = pushes[i * 2]
+            dy[i] = pushes[i * 2 + 1]
         }
         for edge in edges {
             let ddx = x[edge.to] - x[edge.from], ddy = y[edge.to] - y[edge.from]

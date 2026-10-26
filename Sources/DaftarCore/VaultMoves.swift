@@ -85,7 +85,7 @@ public enum VaultMoves {
 
     /// The notes whose links change with [moves], each with its new text,
     /// by the path it has after the moves.
-    public static func relinked(index: VaultIndex, moves: [String: String], read: (String) -> String?) -> [String: String] {
+    public static func relinked(index: VaultIndex, moves: [String: String], read: @Sendable (String) -> String?) -> [String: String] {
         guard !moves.isEmpty else { return [:] }
         var after = index.files
         for (old, new) in moves {
@@ -97,18 +97,29 @@ public enum VaultMoves {
         let resolver = LinkResolver(paths: after, aliases: aliases)
         var names: [String: Int] = [:]
         for path in after { names[Slugs.fold(shortName(path)), default: 0] += 1 }
-        let unique = { (name: String) in names[Slugs.fold(name)] == 1 }
+        let unique: @Sendable (String) -> Bool = { [names] name in names[Slugs.fold(name)] == 1 }
         var sources = Set<String>()
         for old in moves.keys { sources.formUnion((index.backlinks[old] ?? []).map(\.source)) }
         // A moved note's links to itself, and its relative links, change too.
         sources.formUnion(moves.keys.filter(Vault.isNote))
-        var out: [String: String] = [:]
-        for source in sources {
-            guard let text = read(source) else { continue }
+        // Each note is read and relinked on its own, several at a time: a
+        // much-linked note has thousands of notes that name it.
+        let list = Array(sources)
+        nonisolated(unsafe) let results = UnsafeMutableBufferPointer<(String, String)?>.allocate(capacity: list.count)
+        results.initialize(repeating: nil)
+        defer {
+            _ = results.deinitialize()
+            results.deallocate()
+        }
+        DispatchQueue.concurrentPerform(iterations: list.count) { at in
+            let source = list[at]
+            guard let text = read(source) else { return }
             let target = moves[source] ?? source
             let new = relink(text, source: source, newSource: target, index: index, moves: moves, resolver: resolver, unique: unique)
-            if new != text { out[target] = new }
+            if new != text { results[at] = (target, new) }
         }
+        var out: [String: String] = [:]
+        for case let (target, text)? in results { out[target] = text }
         return out
     }
 
@@ -122,15 +133,16 @@ public enum VaultMoves {
         let rebased = source.split(separator: "/").dropLast() != newSource.split(separator: "/").dropLast()
         for at in lines.indices {
             let line = lines[at]
-            if let match = line.firstMatch(of: fence) {
+            // The patterns run only on a line with the marks they need.
+            if line.contains("```") || line.contains("~~~"), let match = line.firstMatch(of: fence) {
                 let marker = String(match.1)
                 if open == nil { open = marker } else if let first = open, marker.first == first.first, marker.count >= first.count { open = nil }
                 continue
             }
             if open != nil || (!line.contains("[[") && !line.contains("](")) { continue }
-            let code = line.matches(of: inlineCode).map(\.range)
+            let code = line.contains("`") ? line.matches(of: inlineCode).map(\.range) : []
             func inCode(_ range: Range<String.Index>) -> Bool { code.contains { $0.overlaps(range) } }
-            var result = line.replacing(wikilink) { match -> String in
+            var result = !line.contains("[[") ? line : line.replacing(wikilink) { match -> String in
                 guard !inCode(match.range) else { return String(match.output.0) }
                 let link = Wikilink(String(match.output.2))
                 guard !link.target.isEmpty, let old = index.resolver.resolve(link.target, from: source, aliases: false),
@@ -150,7 +162,7 @@ public enum VaultMoves {
                 return match.output.1 + "[[" + inner + "]]"
             }
             if result.contains("](") {
-                let code = result.matches(of: inlineCode).map(\.range)
+                let code = result.contains("`") ? result.matches(of: inlineCode).map(\.range) : []
                 result = result.replacing(markdownLink) { match -> String in
                     guard !code.contains(where: { $0.overlaps(match.range) }) else { return String(match.output.0) }
                     let url = String(match.output.3)

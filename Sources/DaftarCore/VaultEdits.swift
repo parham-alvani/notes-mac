@@ -41,6 +41,29 @@ public enum VaultEdits {
     }
 
     /// Applies [edit] to the file at [path] in [root], written in place.
+    /// [edit] applied to each of [paths], several files at a time: a tag
+    /// rename can write thousands of notes. For each path, in order, whether
+    /// its text changed, or what stopped it.
+    public static func apply(_ paths: [String], in root: URL, _ edit: @Sendable (String) throws -> String) -> [Result<Bool, any Error>] {
+        nonisolated(unsafe) let results = UnsafeMutableBufferPointer<Result<Bool, any Error>>.allocate(capacity: paths.count)
+        defer { results.deallocate() }
+        DispatchQueue.concurrentPerform(iterations: paths.count) { index in
+            var changed = false
+            do {
+                try apply(paths[index], in: root) { text in
+                    let result = try edit(text)
+                    changed = result != text
+                    return result
+                }
+                (results.baseAddress! + index).initialize(to: .success(changed))
+            } catch {
+                (results.baseAddress! + index).initialize(to: .failure(error))
+            }
+        }
+        defer { _ = results.deinitialize() }
+        return Array(results)
+    }
+
     public static func apply(_ path: String, in root: URL, _ edit: (String) throws -> String) throws {
         let url = root.appending(path: path)
         guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else {

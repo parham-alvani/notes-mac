@@ -10,6 +10,10 @@ import SQLite3
 public final class SearchIndex: @unchecked Sendable {
     private var db: OpaquePointer?
     private let lock = NSLock()
+    /// Each note's row. `path` is not indexed, so a delete by path reads
+    /// the whole table: at every put, that made the first build of a
+    /// 20,000-note vault take a minute.
+    private var rows: [String: Int64] = [:]
 
     public struct Hit: Sendable, Hashable {
         public var path: String
@@ -48,7 +52,7 @@ public final class SearchIndex: @unchecked Sendable {
             sqlite3_bind_text(statement, 1, path, -1, Self.transient)
             sqlite3_bind_text(statement, 2, title, -1, Self.transient)
             sqlite3_bind_text(statement, 3, body, -1, Self.transient)
-            sqlite3_step(statement)
+            if sqlite3_step(statement) == SQLITE_DONE { rows[path] = sqlite3_last_insert_rowid(db) }
             sqlite3_finalize(statement)
         }
     }
@@ -58,9 +62,10 @@ public final class SearchIndex: @unchecked Sendable {
     }
 
     private func delete(_ path: String) {
+        guard let row = rows.removeValue(forKey: path) else { return }
         var statement: OpaquePointer?
-        sqlite3_prepare_v2(db, "DELETE FROM note_fts WHERE path = ?", -1, &statement, nil)
-        sqlite3_bind_text(statement, 1, path, -1, Self.transient)
+        sqlite3_prepare_v2(db, "DELETE FROM note_fts WHERE rowid = ?", -1, &statement, nil)
+        sqlite3_bind_int64(statement, 1, row)
         sqlite3_step(statement)
         sqlite3_finalize(statement)
     }
