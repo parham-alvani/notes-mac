@@ -77,7 +77,7 @@ public enum NoteParser {
         note.tags = note.tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
 
         // A link in a property, `up: "[[Parent]]"`, is a link as Obsidian counts them.
-        for index in 1..<max(1, front.lineCount - 1) {
+        for index in 1..<max(1, front.lineCount - 1) where lines[index].contains("[[") {
             for match in lines[index].matches(of: wikilink) {
                 let parts = Wikilink(String(match.2))
                 note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
@@ -90,7 +90,10 @@ public enum NoteParser {
         var section = ""
         for index in front.lineCount..<lines.count {
             let raw = lines[index]
-            if let match = raw.firstMatch(of: fence) {
+            // Each pattern runs only on a line that has the marks it needs:
+            // a regular expression on every line was most of the time a
+            // large vault took to open.
+            if raw.contains("```") || raw.contains("~~~"), let match = raw.firstMatch(of: fence) {
                 let marker = String(match.1)
                 if fenceMarker == nil {
                     fenceMarker = marker
@@ -106,17 +109,17 @@ public enum NoteParser {
             let line = Comments.strip(raw, open: &inComment)
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
 
-            if let match = line.firstMatch(of: heading) {
+            if line.hasPrefix("#"), let match = line.firstMatch(of: heading) {
                 let text = String(match.2)
                 note.headings.append(Heading(level: match.1.count, text: text, line: index))
                 section = text
             }
-            let code = line.replacing(inlineCode, with: "")
-            for match in code.matches(of: wikilink) {
+            let code = line.contains("`") ? line.replacing(inlineCode, with: "") : line
+            for match in code.contains("[[") ? code.matches(of: wikilink) : [] {
                 let parts = Wikilink(String(match.2))
                 note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
             }
-            for match in code.matches(of: markdownLink) {
+            for match in code.contains("](") ? code.matches(of: markdownLink) : [] {
                 let url = String(match.2)
                 guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { continue }
                 let decoded = url.removingPercentEncoding ?? url
@@ -125,7 +128,7 @@ public enum NoteParser {
                 let anchor = hash.map { String(decoded[decoded.index(after: $0)...]) }
                 note.links.append(Link(target: target, anchor: anchor, embed: !match.1.isEmpty, line: index))
             }
-            for match in code.matches(of: tag) where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
+            for match in code.contains("#") ? code.matches(of: tag) : [] where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
                 note.tags.append(String(match.1))
             }
             if let task = TaskLine.parse(line, line: index, section: section) {

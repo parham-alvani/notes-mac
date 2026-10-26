@@ -16,6 +16,7 @@ public enum TaskMetadata {
 
     nonisolated(unsafe) private static let value = /^[0-9A-Za-z\/,:. -]{0,32}$/
     nonisolated(unsafe) private static let dateValue = /^\d{4}-\d{2}-\d{2}$/
+    nonisolated(unsafe) private static let trailingTags = /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/
     private static let dated: Set<String> = ["done", "created", "scheduled", "cancelled", "due", "start"]
 
     /// Whether [value] can follow [symbol]: nothing after a priority, only
@@ -49,7 +50,7 @@ public enum TaskMetadata {
             guard let (symbol, range) = last, !kinds.contains(symbols[symbol]!) else { break }
             var value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
             if !takes(symbol, value) {
-                guard let match = value.wholeMatch(of: /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/),
+                guard let match = value.wholeMatch(of: trailingTags),
                     takes(symbol, String(match.1))
                 else { break }
                 tags.insert(String(match.2).trimmingCharacters(in: .whitespaces), at: 0)
@@ -86,8 +87,8 @@ public enum TaskLine {
     }
 
     static func parse(_ raw: String, line: Int, section: String) -> ParsedTask? {
-        guard let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
-        let body = String(match.3).replacing(/\s+\^[A-Za-z0-9-]+\s*$/, with: "")
+        guard raw.contains("["), let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
+        let body = match.3.contains("^") ? String(match.3).replacing(blockId, with: "") : String(match.3)
         let split = TaskMetadata.split(body)
         func date(_ emoji: String) -> String? {
             split.meta.first { $0.emoji == emoji }?.value.nilIfEmpty
