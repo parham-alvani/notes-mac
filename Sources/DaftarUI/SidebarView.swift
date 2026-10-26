@@ -377,10 +377,13 @@ struct SearchResults: View {
     }
 }
 
-/// The note's outline, its backlinks and its tags.
+/// The note's outline, its backlinks, its unlinked mentions and its tags.
 struct InspectorView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
+    /// Found again for each note and each change to the vault, off the main thread.
+    @ViewState private var mentions: [MentionHit] = []
+    @ViewState private var mentionsFor = ""
 
     /// The note's links, each once, with where it goes when it goes anywhere.
     private func outgoingLinks(_ note: NoteEntry, from path: String) -> [(target: String, path: String?, embed: Bool)] {
@@ -436,6 +439,22 @@ struct InspectorView: View {
                 } header: {
                     SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua)
                 }
+                Section {
+                    if mentionsFor != path {
+                        Text("Looking…").foregroundStyle(.secondary)
+                    } else if mentions.isEmpty {
+                        Text("No note names this one without a link.").foregroundStyle(.secondary)
+                    }
+                    ForEach(mentionsFor == path ? mentions : [], id: \.self) { item in
+                        MentionRow(source: item.source, mention: item.mention) {
+                            model.open(item.source, line: item.mention.line, store: store)
+                        } link: {
+                            store.link(item.mention, in: item.source, to: path)
+                        }
+                    }
+                } header: {
+                    SectionTitle(title: "Unlinked mentions", count: mentionsFor == path ? mentions.count : 0, color: Palette.purple)
+                }
                 let outgoing = outgoingLinks(note, from: path)
                 if !outgoing.isEmpty {
                     Section {
@@ -465,6 +484,16 @@ struct InspectorView: View {
                 }
             }
             .listStyle(.sidebar)
+            .task(id: "\(path)\u{0}\(store.revision)") {
+                // Each save while typing changes the vault: wait for a pause
+                // before looking again, but not for a note just opened.
+                if mentionsFor == path { try? await Task.sleep(for: .milliseconds(600)) }
+                guard !Task.isCancelled else { return }
+                let found = await store.unlinkedMentions(of: path)
+                guard !Task.isCancelled else { return }
+                mentions = found
+                mentionsFor = path
+            }
         } else {
             ContentUnavailableView("No note", systemImage: "sidebar.right", description: Text("Open a note to see its outline and backlinks."))
         }
@@ -511,6 +540,43 @@ struct SectionTitle: View {
 }
 
 /// A note in a list of links: its name, its folder, a coloured mark.
+/// An unlinked mention: the note it is in, the line around it with the
+/// name in bold, and a button that makes it a link.
+struct MentionRow: View {
+    var source: String
+    var mention: UnlinkedMentions.Mention
+    var open: () -> Void
+    var link: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 2) {
+                    LinkRow(path: source, symbol: "text.quote", color: Palette.purple)
+                    Text(excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        .multilineTextAlignment(TextDirection.startsRtl(mention.excerpt) ? .trailing : .leading)
+                        .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(mention.excerpt) ? .trailing : .leading)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button("Link", action: link)
+                .buttonStyle(.bordered).controlSize(.small)
+                .help("Make “\(mention.text)” a link to this note")
+        }
+    }
+
+    private var excerpt: AttributedString {
+        let text = mention.excerpt as NSString
+        let range = mention.excerptRange
+        guard NSMaxRange(range) <= text.length else { return AttributedString(mention.excerpt) }
+        var name = AttributedString(text.substring(with: range))
+        name.inlinePresentationIntent = .stronglyEmphasized
+        name.foregroundColor = Palette.purple
+        return AttributedString(text.substring(to: range.location)) + name + AttributedString(text.substring(from: NSMaxRange(range)))
+    }
+}
+
 struct LinkRow: View {
     var path: String
     var symbol: String

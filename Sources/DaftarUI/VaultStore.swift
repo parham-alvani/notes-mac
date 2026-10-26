@@ -219,6 +219,50 @@ final class VaultStore {
         }
     }
 
+    // MARK: Unlinked mentions
+
+    /// Where other notes write [path]'s name or an alias without linking to
+    /// it. The notes that link to it already are left out, as in Obsidian.
+    func unlinkedMentions(of path: String) async -> [MentionHit] {
+        guard let root, let note = index.notes[path] else { return [] }
+        let names = [Vault.title(of: path)] + note.parsed.aliases
+        let linking = Set((index.backlinks[path] ?? []).map(\.source))
+        var sources = Set<String>()
+        for name in names where name.count >= UnlinkedMentions.shortest {
+            for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
+        }
+        let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
+        return await Task.detached(priority: .userInitiated) {
+            var out: [MentionHit] = []
+            for source in candidates {
+                guard let text = try? String(contentsOf: root.appending(path: source), encoding: .utf8) else { continue }
+                // A few from each note, so that one note that names it all
+                // the time does not fill the list.
+                out += UnlinkedMentions.find(names, in: text).prefix(5).map { MentionHit(source: source, mention: $0) }
+                if out.count >= 300 { break }
+            }
+            return out
+        }.value
+    }
+
+    /// The mention in [source] made a link to [target], with the shortest
+    /// name that still finds it.
+    func link(_ mention: UnlinkedMentions.Mention, in source: String, to target: String) {
+        guard let root, url(of: source) != nil else { return }
+        let title = Vault.title(of: target)
+        let name = index.resolve(title, from: source) == target ? title : String(target.dropLast(3))
+        do {
+            try VaultEdits.apply(source, in: root) { try UnlinkedMentions.link(mention, to: name, in: $0) }
+            changed([source])
+            requestSync()
+        } catch VaultEdits.Failure.textMoved {
+            notice = "The note changed before the click. Nothing was written; the list is made again."
+            changed([source])
+        } catch {
+            notice = "The link could not be written: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: Files
 
     /// Iconic's file in the vault, which Obsidian and the phone read too.
@@ -546,6 +590,12 @@ final class VaultStore {
         return items
     }
 
+}
+
+/// A place in [source] that names a note without linking to it.
+struct MentionHit: Hashable {
+    var source: String
+    var mention: UnlinkedMentions.Mention
 }
 
 /// A row of ⌘P: a file, or a heading in a note.

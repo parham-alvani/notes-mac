@@ -7,6 +7,8 @@ public enum VaultEdits {
     public enum Failure: Error, Equatable {
         /// The line is not the task that was clicked: the file changed under the view.
         case taskMoved
+        /// The text to change is no longer where it was found.
+        case textMoved
         case unreadable
     }
 

@@ -76,6 +76,16 @@ import Testing
         #expect(store.switcherRows("#hot", recent: [], current: nil).rows.isEmpty)
     }
 
+    @Test func findsAndLinksUnlinkedMentions() async throws {
+        try "Call the Plan people.\nThe plan is late.\n".write(to: root.appending(path: "Notes/Call.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        // Home links to Plan already, so it is not listed.
+        let found = await store.unlinkedMentions(of: "Notes/Plan.md")
+        #expect(found.map(\.source) == ["Notes/Call.md", "Notes/Call.md"])
+        store.link(found[1].mention, in: "Notes/Call.md", to: "Notes/Plan.md")
+        #expect(try text("Notes/Call.md") == "Call the Plan people.\nThe [[Plan|plan]] is late.\n")
+    }
+
     @Test func createsNotesAndFolders() throws {
         let path = try store.createNote(named: "Ideas", in: "Notes")
         #expect(path == "Notes/Ideas.md")
