@@ -122,15 +122,16 @@ public enum VaultMoves {
         let rebased = source.split(separator: "/").dropLast() != newSource.split(separator: "/").dropLast()
         for at in lines.indices {
             let line = lines[at]
-            if let match = line.firstMatch(of: fence) {
+            // The patterns run only on a line with the marks they need.
+            if line.contains("```") || line.contains("~~~"), let match = line.firstMatch(of: fence) {
                 let marker = String(match.1)
                 if open == nil { open = marker } else if let first = open, marker.first == first.first, marker.count >= first.count { open = nil }
                 continue
             }
             if open != nil || (!line.contains("[[") && !line.contains("](")) { continue }
-            let code = line.matches(of: inlineCode).map(\.range)
+            let code = line.contains("`") ? line.matches(of: inlineCode).map(\.range) : []
             func inCode(_ range: Range<String.Index>) -> Bool { code.contains { $0.overlaps(range) } }
-            var result = line.replacing(wikilink) { match -> String in
+            var result = !line.contains("[[") ? line : line.replacing(wikilink) { match -> String in
                 guard !inCode(match.range) else { return String(match.output.0) }
                 let link = Wikilink(String(match.output.2))
                 guard !link.target.isEmpty, let old = index.resolver.resolve(link.target, from: source, aliases: false),
@@ -150,7 +151,7 @@ public enum VaultMoves {
                 return match.output.1 + "[[" + inner + "]]"
             }
             if result.contains("](") {
-                let code = result.matches(of: inlineCode).map(\.range)
+                let code = result.contains("`") ? result.matches(of: inlineCode).map(\.range) : []
                 result = result.replacing(markdownLink) { match -> String in
                     guard !code.contains(where: { $0.overlaps(match.range) }) else { return String(match.output.0) }
                     let url = String(match.output.3)
