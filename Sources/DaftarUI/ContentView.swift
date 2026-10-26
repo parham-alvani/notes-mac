@@ -145,6 +145,7 @@ struct ContentView: View {
                     model.cursorLine = line
                     model.editing = true
                 },
+                onSection: { model.section = $0 },
                 onView: { model.readerView = $0 })
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = model.path { Breadcrumb(path: path, model: model) }

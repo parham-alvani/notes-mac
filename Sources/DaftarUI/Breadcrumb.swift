@@ -9,6 +9,7 @@ struct Breadcrumb: View {
     var path: String
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
+    @ViewState private var words: Int?
 
     var body: some View {
         let parts = path.split(separator: "/").map(String.init)
@@ -26,9 +27,18 @@ struct Breadcrumb: View {
                 }
                 .padding(.horizontal, 12)
             }
+            if let words, words >= 50 {
+                Text("\(words.formatted()) words · \(max(1, Int((Double(words) / 220).rounded()))) min")
+                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1).fixedSize()
+                    .padding(.trailing, 10)
+                    .help("The words of the note, and how long it takes to read at 220 words a minute")
+            }
             if store.periodic.period(of: path) != nil { periodicControls.padding(.trailing, 10) }
         }
         .frame(height: 34)
+        .task(id: "\(path)\u{0}\(store.revision)") {
+            words = Vault.isNote(path) ? store.text(of: path).map { EditorController.words(in: $0 as NSString, range: NSRange(location: 0, length: ($0 as NSString).length)) } : nil
+        }
         .overlay(alignment: .bottom) {
             LinearGradient(colors: [Palette.accent.opacity(0.5), Palette.pink.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
                 .frame(height: 1)

@@ -65,3 +65,13 @@ import Testing
         #expect(EditorCommands.extractBody("Plain text\nmore") == "Plain text\nmore")
     }
 }
+
+@Suite struct HeadingShortcutTests {
+    @Test func theLevelIsSetChangedOrTakenOff() {
+        #expect(EditorCommands.heading("Plan", level: 2) == "## Plan")
+        #expect(EditorCommands.heading("## Plan", level: 3) == "### Plan")
+        #expect(EditorCommands.heading("## Plan", level: 2) == "Plan")
+        #expect(EditorCommands.heading("### Plan", level: 0) == "Plan")
+        #expect(EditorCommands.heading("#tag line", level: 1) == "# #tag line")
+    }
+}

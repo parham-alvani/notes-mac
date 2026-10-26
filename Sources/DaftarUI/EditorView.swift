@@ -832,6 +832,8 @@ final class NoteTextView: NSTextView {
             // ⌥↑ and ⌥↓ move the line, or the selected lines.
             let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
             if flags == .option, event.keyCode == 126 || event.keyCode == 125 { return moveLines(up: event.keyCode == 126) }
+            // ⇧⌥↑ and ⇧⌥↓ copy them above or below.
+            if flags == [.option, .shift], event.keyCode == 126 || event.keyCode == 125 { return duplicateLines(up: event.keyCode == 126) }
             return super.keyDown(with: event)
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -1111,10 +1113,52 @@ final class NoteTextView: NSTextView {
             default: break
             }
         }
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "h" {
-            wrap("=="); return true
+        if flags == [.command, .shift] {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "h": wrap("=="); return true
+            case "x": wrap("~~"); return true
+            case "c": wrap("`"); return true
+            case "k": deleteLines(); return true
+            default: break
+            }
+        }
+        // ⌥⌘1 to ⌥⌘6 make the line a heading, ⌥⌘0 plain text.
+        if flags == [.command, .option], let digit = event.charactersIgnoringModifiers.flatMap(Int.init), (0...6).contains(digit) {
+            let line = currentLineRange()
+            let text = ns.substring(with: line)
+            let body = text.hasSuffix("\n") ? String(text.dropLast()) : text
+            let headed = EditorCommands.heading(body, level: digit)
+            replace(NSRange(location: line.location, length: (body as NSString).length), with: headed,
+                select: NSRange(location: line.location + (headed as NSString).length, length: 0))
+            return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// The selected lines again, above or below them; the copy is selected.
+    private func duplicateLines(up: Bool) {
+        let lines = linesInSelection()
+        var text = ns.substring(with: lines)
+        let selection = selectedRange()
+        if !text.hasSuffix("\n") {
+            // The last line: the copy needs its own line break.
+            replace(NSRange(location: NSMaxRange(lines), length: 0), with: "\n" + text,
+                select: NSRange(location: selection.location + (up ? 0 : (text as NSString).length + 1), length: selection.length))
+            return
+        }
+        text = String(text)
+        replace(NSRange(location: lines.location, length: 0), with: text,
+            select: NSRange(location: selection.location + (up ? 0 : (text as NSString).length), length: selection.length))
+    }
+
+    /// ⇧⌘K: the selected lines go, and the cursor stays on the line after them.
+    private func deleteLines() {
+        var lines = linesInSelection()
+        // The last line takes the line break before it.
+        if NSMaxRange(lines) == ns.length, lines.location > 0, !ns.substring(with: lines).hasSuffix("\n") {
+            lines = NSRange(location: lines.location - 1, length: lines.length + 1)
+        }
+        replace(lines, with: "", select: NSRange(location: min(lines.location, ns.length), length: 0))
     }
 
     /// ⌘↩: tick, open, or make a task of the line.
@@ -1345,6 +1389,11 @@ final class NoteTextView: NSTextView {
         {
             let label = ns.substring(with: selection)
             return replace(selection, with: "[\(label)](\(text))", select: NSRange(location: selection.location + (label as NSString).length + (text as NSString).length + 4, length: 0))
+        }
+        // A web page or a document pasted as rich text keeps its headings,
+        // links and lists as Markdown. ⌥⇧⌘V pastes the plain text.
+        if board.string(forType: .string) != nil, let html = board.string(forType: .html), let markdown = HTMLMarkdown.convert(html) {
+            return replace(selection, with: markdown, select: NSRange(location: selection.location + (markdown as NSString).length, length: 0))
         }
         guard board.string(forType: .string) == nil, let controller, let root = controller.store.root,
             let image = NSImage(pasteboard: board), let tiff = image.tiffRepresentation,

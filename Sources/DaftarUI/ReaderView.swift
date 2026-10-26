@@ -34,6 +34,8 @@ struct ReaderView: NSViewRepresentable {
     var onCursor: ((Int) -> Void)?
     /// `e` on a block: edit the note there.
     var onEdit: ((Int) -> Void)?
+    /// The heading at the top of the window, by its line; nil above the first.
+    var onSection: ((Int?) -> Void)?
     /// The web view, for the window's commands that act on the page.
     var onView: ((WKWebView) -> Void)?
 
@@ -233,6 +235,8 @@ struct ReaderView: NSViewRepresentable {
             case "detected":
                 guard let kind = body["type"] as? String, let value = body["value"] as? String else { return }
                 Detected.open(kind: kind, value: value)
+            case "section":
+                if let line = body["line"] as? Int { parent.onSection?(line < 0 ? nil : line) }
             case "stopSpeaking":
                 ReadAloud.shared.stop()
             case "folds":

@@ -175,6 +175,8 @@ final class WindowModel {
     var fileAction: FileAction?
     /// The last Find command for the reader; it grows with each one.
     var readerFind = ReaderFind(action: .none, count: 0)
+    /// The line of the heading the reader is in, for the outline.
+    var section: Int?
     /// The reader's page, for read aloud and Export as PDF.
     @ObservationIgnored weak var readerView: WKWebView?
 

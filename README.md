@@ -22,10 +22,12 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Pictures:** a click on an image or a Mermaid diagram shows it as large as the window. A click or Escape closes it.
 - **Quick open:** ⌘P or ⌘O finds a note or a base by its name. Obsidian's excluded files (`userIgnoreFilters`) stay out of it and out of search.
 - **Files:** ⌘N makes a note in the open note's folder, ⇧⌘N a folder. Rename (⌘R), move (⌥⌘M, or drag onto a folder in the sidebar) and move to the Trash, from the File menu or a right click. When a file or a folder moves, every link to it in the vault follows, in the style it was written, as Obsidian's "always update links" does. A folder note takes its folder's new name.
-- **Inspector:** the outline in the heading colors, the backlinks, the outgoing links (a missing note in red) and the tags of the note.
+- **Inspector:** the outline in the heading colors, with the section on screen marked, the backlinks, the outgoing links (a missing note in red) and the tags of the note.
 - **Edit a task:** a right click on a task, in a note or on the Today page, opens a form for its text, status, priority, due, scheduled and start dates and repeat rule. It writes the line in the Tasks plugin's order and keeps the tags, the block ID and the rest.
 - **Tags:** the sidebar lists the vault's tags as a tree, `#a/b` under `#a`, each in its color with its count. A click lists the notes.
 - **Missing links:** a click on a link to a note that is not there yet makes the note and opens it in the editor.
+- **Paste as Markdown:** rich text pasted from a web page, Google Docs or Word keeps its headings, emphasis, links, lists, quotes, code and tables as Markdown; ⌥⇧⌘V pastes the plain text. A code editor's coloured lines stay plain.
+- **Line and heading keys:** ⌥⌘1 to ⌥⌘6 make the line a heading (the same level again, or ⌥⌘0, takes it off), ⇧⌥↑ and ⇧⌥↓ copy the lines, ⇧⌘K deletes them, ⇧⌘X strikes the selection through and ⇧⌘C makes it code.
 - **Slash commands:** in the editor, `/` at the start of a line or after a space opens a menu of headings, tasks, callouts, code, Mermaid, math, tables, links, dates and the six highlight colors.
 - **Extract:** ⌥⌘X moves the editor's selection to a new note and puts a link to it in its place, as Obsidian's note composer does.
 - **Tabs:** every window is a tab of one window. ⌘T opens a tab, and ⌘-click on a link opens the note in a new tab.
@@ -35,6 +37,7 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Graph:** ⌥⌘G shows the open note and the notes up to four links away, or the whole vault. Each top folder has its color, a note grows with its links, and a click opens it.
 - **Periodic notes:** ⌘3 opens the note of this day, week or month, as the Daily notes plugin names it (`.obsidian/daily-notes.json`), and makes it from the plugin's template when it is not there yet. On a periodic note, the bar above it has arrows to the nearest earlier and later notes (⌥⌘← and ⌥⌘→), and a menu with the same time in earlier years.
 - **Templates:** New Note can start from a note in the Templates plugin's folder (`.obsidian/templates.json`, or `Templates/`), with `{{title}}`, `{{date}}`, `{{time}}` and `{{date:FORMAT}}` filled in.
+- **Reading keys and time:** in the reader, `[` and `]` go to the previous and the next heading. The bar above a note says how many words it has and how long it takes to read.
 - **Folding:** a chevron before a heading folds its section shut, as in Obsidian's reading view; `z` folds the section of the reading cursor and `Z` folds or opens them all. Each note remembers its folds.
 - **Updated since you read:** the notes that changed on disk since you last read them, by a pull or another app, are listed at the top of the sidebar and marked with a dot in the tree. The app's own edits do not count.
 - **Read aloud:** ⌥⌘R reads the note from the reading cursor on, a paragraph at a time, each in its own language when the Mac has a voice for it (a Persian voice for Persian). The page marks the paragraph being read; Escape or ⌥⌘R again stops.

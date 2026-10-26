@@ -446,7 +446,8 @@ struct InspectorView: View {
                             Button {
                                 model.open(path, heading: heading.text, store: store)
                             } label: {
-                                // Each level in its heading colour, as the reader shows it.
+                                // Each level in its heading colour, as the reader shows it;
+                                // the section on screen is marked.
                                 HStack(spacing: 6) {
                                     RoundedRectangle(cornerRadius: 1.5)
                                         .fill(Palette.heading(heading.level))
@@ -458,6 +459,9 @@ struct InspectorView: View {
                                 }
                                 .padding(.leading, CGFloat(heading.level - 1) * 10)
                                 .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(heading.text) ? .trailing : .leading)
+                                .padding(.vertical, 1).padding(.horizontal, 4)
+                                .background(model.section == heading.line && !model.editing ? Palette.heading(heading.level).opacity(0.16) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 5))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)

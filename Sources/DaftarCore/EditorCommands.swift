@@ -194,4 +194,15 @@ extension EditorCommands {
         while lines.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeFirst() }
         return lines.joined(separator: "\n")
     }
+
+    nonisolated(unsafe) private static let headingMarks = /^(\s{0,3})(#{1,6})\s+/
+
+    /// ⌥⌘1 to ⌥⌘6: the line as a heading of [level]; the same level again,
+    /// or 0, makes it plain text. A list or quote mark stays where it is not a heading.
+    public static func heading(_ line: String, level: Int) -> String {
+        let current = line.firstMatch(of: headingMarks)
+        let text = current.map { String(line[$0.range.upperBound...]) } ?? line
+        if level == 0 || current.map({ $0.2.count == level }) == true { return text }
+        return String(repeating: "#", count: level) + " " + text
+    }
 }

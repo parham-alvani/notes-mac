@@ -614,6 +614,21 @@ function decorate(root) {
   });
 }
 
+/** The section at the top of the window, told to the app when it changes, for the outline. */
+let lastSection = null;
+function reportSection() {
+  const headings = [...document.querySelectorAll("#note > [data-heading]")].filter((h) => !h.classList.contains("folded-away"));
+  let at = null;
+  for (const heading of headings) {
+    if (heading.getBoundingClientRect().top > 90) break;
+    at = Number(heading.dataset.line);
+  }
+  if (at === lastSection) return;
+  lastSection = at;
+  post({ kind: "section", line: at ?? -1 });
+}
+window.addEventListener("scroll", reportSection, { passive: true });
+
 /** The thin bar at the top that fills as the note is read. */
 function progress() {
   const bar = document.getElementById("progress");
@@ -796,6 +811,8 @@ window.daftar = {
     // Embeds, queries and pictures made the page longer.
     progress();
     reading.redraw();
+    lastSection = undefined;
+    reportSection();
     if (finder.bar?.classList.contains("is-open")) search(finder.input.value);
   },
 
@@ -1040,7 +1057,14 @@ document.addEventListener("keydown", (event) => {
   }
   const moves = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   if (event.key in moves) reading.move(moves[event.key]);
-  else if (event.key === "g" || event.key === "Home") reading.end(false);
+  else if (event.key === "[" || event.key === "]") {
+    // The previous or the next heading, as a reading cursor move.
+    const headings = reading.blocks().filter((b) => /^H[1-6]$/.test(b.tagName));
+    const line = reading.line ?? -1;
+    const target = event.key === "]" ? headings.find((h) => Number(h.dataset.line) > line) : headings.filter((h) => Number(h.dataset.line) < line).pop();
+    if (!target) return;
+    reading.place(target, true);
+  } else if (event.key === "g" || event.key === "Home") reading.end(false);
   else if (event.key === "G" || event.key === "End") reading.end(true);
   else if (event.key === " ") reading.page(event.shiftKey ? -1 : 1);
   else if (event.key === "e" && reading.line != null) post({ kind: "edit", line: reading.line });

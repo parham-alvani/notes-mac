@@ -272,6 +272,24 @@ import Testing
         #expect(view.string == "two\none\n")
     }
 
+    @Test func richTextIsPastedAsMarkdownAndLinesAreCopied() {
+        put("", cursor: 0)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("Title\nA link", forType: .string)
+        NSPasteboard.general.setString(#"<h2>Title</h2><p>A <a href="https://example.com">link</a></p>"#, forType: .html)
+        view.paste(nil)
+        #expect(view.string == "## Title\n\nA [link](https://example.com)")
+        put("one\ntwo", cursor: 5)
+        let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.option, .shift], timestamp: 0, windowNumber: 0, context: nil, characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125)!
+        view.keyDown(with: down)
+        #expect(view.string == "one\ntwo\ntwo")
+        #expect(view.selectedRange().location == 9)
+        put("one\ntwo\nthree\n", cursor: 0)
+        view.keyDown(with: down)
+        #expect(view.string == "one\none\ntwo\nthree\n")
+        #expect(view.selectedRange().location == 4)
+    }
+
     func hidden(_ text: String, occurrence: Int = 0) -> Bool {
         var range = NSRange(location: 0, length: 0), from = 0
         for _ in 0...occurrence {
