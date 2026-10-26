@@ -47,6 +47,8 @@ final class VaultStore {
     /// Each window and editor that shows a note, told when a file moves or
     /// goes, so none of them writes the old path again.
     @ObservationIgnored var followers: [ObjectIdentifier: (VaultChange) -> Void] = [:]
+    /// Where each note was being read, for every window.
+    @ObservationIgnored let places = PlaceBook()
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
@@ -73,6 +75,7 @@ final class VaultStore {
         iconic = Iconic.load(url)
         excluded = ExcludedFiles.load(url)
         bookmarks = Bookmarks.load(url)
+        places.load(root: url, directory: settings.stateDirectory)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
             Task { @MainActor in self?.changed(paths) }
@@ -104,6 +107,7 @@ final class VaultStore {
         root = url.standardizedFileURL
         excluded = ExcludedFiles.load(url)
         bookmarks = Bookmarks.load(url)
+        places.load(root: url, directory: settings.stateDirectory)
         index = Vault.index(url, search: search)
         revision += 1
     }
@@ -258,6 +262,7 @@ final class VaultStore {
     }
 
     private func tell(_ change: VaultChange) {
+        places.follow(change)
         for follow in followers.values { follow(change) }
     }
 
@@ -507,8 +512,24 @@ final class VaultStore {
     /// word, in any order, in the name, an alias or the folders, and a word
     /// with a `/` in the path.
     func quickOpen(_ query: String, recent: [String], limit: Int = 100) -> [String] {
+        switcher(query, recent: recent, limit: limit).paths
+    }
+
+    func switcher(_ query: String, recent: [String], limit: Int = 100) -> QuickSwitcher.Ranking {
         let present = recent.filter { index.files.contains($0) }
-        return QuickSwitcher.rank(query, in: quickOpenCandidates(), recent: present, limit: limit)
+        return QuickSwitcher.ranking(query, in: quickOpenCandidates(), recent: present, limit: limit)
+    }
+
+    /// ⌘P's rows: files, or with `Note#Heading` the headings of the note
+    /// that matches best, of [current] when the note part is empty.
+    func switcherRows(_ query: String, recent: [String], current: String?) -> (rows: [SwitcherRow], loose: Bool) {
+        guard let (file, heading) = QuickSwitcher.heading(in: query) else {
+            let ranking = switcher(query, recent: recent)
+            return (ranking.paths.map { SwitcherRow(path: $0, heading: nil) }, ranking.loose)
+        }
+        let path = file.isEmpty ? current : switcher(file, recent: recent).paths.first(where: Vault.isNote)
+        guard let path, let headings = index.notes[path]?.parsed.headings else { return ([], false) }
+        return (QuickSwitcher.headings(heading, in: headings).map { SwitcherRow(path: path, heading: $0) }, false)
     }
 
     /// The files the switcher can offer, notes and attachments, folded once
@@ -525,6 +546,12 @@ final class VaultStore {
         return items
     }
 
+}
+
+/// A row of ⌘P: a file, or a heading in a note.
+struct SwitcherRow: Hashable {
+    var path: String
+    var heading: Heading?
 }
 
 /// A file command's effect, for the windows and editors that show the files.

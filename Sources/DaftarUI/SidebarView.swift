@@ -540,7 +540,9 @@ struct QuickOpenView: View {
     @ViewState private var selected = 0
     /// Worked out once for each keystroke, not in `body`, which SwiftUI may
     /// evaluate many times for one change.
-    @ViewState private var results: [String] = []
+    @ViewState private var results: [SwitcherRow] = []
+    /// The rows only hold the query's letters, spread out.
+    @ViewState private var loose = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -556,7 +558,7 @@ struct QuickOpenView: View {
                             .opacity(0)
                             .accessibilityHidden(true)
                     }
-                TextField("Open a file by name or path", text: $model.switcherQuery)
+                TextField("Open a file by name or path, or Note#Heading", text: $model.switcherQuery)
                     .textFieldStyle(.plain)
                     .font(.title2)
                     .focused($focused)
@@ -570,20 +572,25 @@ struct QuickOpenView: View {
             if results.isEmpty {
                 // One height for the panel, always: a sheet that resizes while
                 // the person types makes SwiftUI lay it out again and again.
-                Text(model.switcherQuery.trimmingCharacters(in: .whitespaces).isEmpty ? "Type a name, or a path such as “Folder/Name”." : "No file matches “\(model.switcherQuery)”.")
+                Text(emptyText)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                if loose {
+                    Label("No close match. These only hold the letters you typed.", systemImage: "questionmark.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18).padding(.top, 8)
+                }
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(results.enumerated()), id: \.element) { index, path in
+                            ForEach(Array(results.enumerated()), id: \.element) { index, row in
                                 let chosen = index == selected
-                                let title = Vault.title(of: path), folder = QuickSwitcher.folder(of: path)
-                                let marks = QuickSwitcher.highlights(model.switcherQuery, title: title, folder: folder)
+                                let (title, folder, marks) = labels(row)
                                 HStack(spacing: 10) {
-                                    Image(systemName: symbol(path))
-                                        .foregroundStyle(chosen ? .white : color(path))
+                                    Image(systemName: row.heading == nil ? symbol(row.path) : "number")
+                                        .foregroundStyle(chosen ? .white : row.heading == nil ? color(row.path) : Palette.purple)
                                         .frame(width: 18)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(Self.marked(title, marks.title, chosen: chosen)).lineLimit(1)
@@ -645,15 +652,42 @@ struct QuickOpenView: View {
         .onChange(of: model.quickOpenRequests) { focused = true }
         // At once on each change, not in a task that runs later: Return
         // pressed before a task ran opened a result for the old text.
-        .onAppear { results = store.quickOpen(model.switcherQuery, recent: model.recent) }
+        .onAppear { (results, loose) = rows() }
         .onChange(of: model.switcherQuery) {
-            results = store.quickOpen(model.switcherQuery, recent: model.recent)
+            (results, loose) = rows()
             selected = 0
         }
         .onChange(of: store.revision) {
-            results = store.quickOpen(model.switcherQuery, recent: model.recent)
+            (results, loose) = rows()
             selected = min(selected, max(results.count - 1, 0))
         }
+    }
+
+    private func rows() -> (rows: [SwitcherRow], loose: Bool) {
+        store.switcherRows(model.switcherQuery, recent: model.recent, current: model.showsPage ? nil : model.path)
+    }
+
+    private var emptyText: String {
+        let query = model.switcherQuery.trimmingCharacters(in: .whitespaces)
+        if query.isEmpty { return "Type a name, a path such as “Folder/Name”, or “Note#Heading”." }
+        if let (file, _) = QuickSwitcher.heading(in: query) {
+            return file.isEmpty && (model.showsPage || model.path == nil) ? "Open a note first, or type its name before the #." : "No heading matches “\(query)”."
+        }
+        return "No file matches “\(query)”."
+    }
+
+    /// A row's two lines and the letters to mark in them. A heading shows
+    /// its text, then its note's name and folder.
+    private func labels(_ row: SwitcherRow) -> (String, String, (title: Set<Int>, folder: Set<Int>)) {
+        let query = model.switcherQuery
+        if let heading = row.heading {
+            let part = QuickSwitcher.heading(in: query)?.heading ?? ""
+            let marks = Set(Fuzzy.match(part, in: heading.text)?.positions ?? [])
+            let place = Vault.title(of: row.path) + (QuickSwitcher.folder(of: row.path).isEmpty ? "" : " — " + QuickSwitcher.folder(of: row.path))
+            return (String(repeating: "#", count: heading.level) + " " + heading.text, place, (Set(marks.map { $0 + heading.level + 1 }), []))
+        }
+        let title = Vault.title(of: row.path), folder = QuickSwitcher.folder(of: row.path)
+        return (title, folder, QuickSwitcher.highlights(query, title: title, folder: folder))
     }
 
     private func symbol(_ path: String) -> String {
@@ -687,9 +721,9 @@ struct QuickOpenView: View {
         return out
     }
 
-    private func choose(_ shown: [String]) {
+    private func choose(_ shown: [SwitcherRow]) {
         // The results for the text in the field now, whatever the list shows.
-        let results = shown == store.quickOpen(model.switcherQuery, recent: model.recent) ? shown : store.quickOpen(model.switcherQuery, recent: model.recent)
+        let results = rows().rows
         if results != shown { selected = 0 }
         guard results.indices.contains(selected) else {
             // Return on an empty list ends the field's editing; the focus
@@ -697,7 +731,7 @@ struct QuickOpenView: View {
             DispatchQueue.main.async { focused = true }
             return
         }
-        model.open(results[selected], store: store)
+        model.open(results[selected].path, heading: results[selected].heading?.text, store: store)
         dismiss()
     }
 }

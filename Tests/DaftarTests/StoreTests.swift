@@ -45,6 +45,37 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "Notes/Roadmap.md").path))
     }
 
+    @Test func readingPlacesOutliveTheApp() async throws {
+        let model = WindowModel()
+        model.places = store.places
+        model.open("Notes/Plan.md", store: store)
+        model.cursorLine = 2
+        let moves = try await store.move("Notes/Plan.md", to: "Notes/Roadmap.md")
+        #expect(moves == ["Notes/Plan.md": "Notes/Roadmap.md"])
+        store.places.write()
+        // A new launch: another store, on the same vault and the same state folder.
+        let again = VaultStore(settings: AppSettings(url: root.appending(path: "config/config.toml")), openVault: false)
+        again.openSynchronously(root)
+        #expect(again.places["Notes/Roadmap.md"] == 2)
+        #expect(again.places["Notes/Plan.md"] == nil)
+        let next = WindowModel()
+        next.places = again.places
+        next.open("Notes/Roadmap.md", store: again)
+        #expect(next.request?.line == 2)
+        // Never beside the person's own configuration.
+        #expect(store.settings.stateDirectory.path.hasPrefix(root.path))
+    }
+
+    @Test func theSwitcherListsANotesHeadings() throws {
+        try "# Trip\n## Hotels\ntext\n## Trains\n".write(to: root.appending(path: "Notes/Trip.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        #expect(store.switcherRows("trip#tra", recent: [], current: nil).rows.map { [$0.path, $0.heading?.text ?? ""] } == [["Notes/Trip.md", "Trains"]])
+        #expect(store.switcherRows("trip#", recent: [], current: nil).rows.map(\.heading?.text) == ["Trip", "Hotels", "Trains"])
+        // "#" alone: the open note's headings.
+        #expect(store.switcherRows("#hot", recent: [], current: "Notes/Trip.md").rows.first?.heading?.text == "Hotels")
+        #expect(store.switcherRows("#hot", recent: [], current: nil).rows.isEmpty)
+    }
+
     @Test func createsNotesAndFolders() throws {
         let path = try store.createNote(named: "Ideas", in: "Notes")
         #expect(path == "Notes/Ideas.md")

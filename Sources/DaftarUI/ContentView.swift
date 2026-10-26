@@ -76,6 +76,7 @@ struct ContentView: View {
         .onAppear {
             // Every window follows a move or a delete, wherever it was made.
             store.followers[ObjectIdentifier(model)] = { [weak model] in model?.follow($0) }
+            model.places = store.places
             if let initialPath, model.request == nil, store.index.files.contains(initialPath) || store.loading {
                 model.open(initialPath, store: store)
             }

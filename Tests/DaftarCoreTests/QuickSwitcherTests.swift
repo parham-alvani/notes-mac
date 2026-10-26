@@ -102,4 +102,31 @@ import Testing
         #expect(plain.title == [0, 1, 2])
         #expect(plain.folder == [10, 11, 12, 13])
     }
+
+    @Test func lettersOnlyAreShownWhenNothingElseMatches() {
+        let files = notes + [.init(path: "Cars/Cards of the week.md", title: "Cards of the week"), .init(path: "Car/Insurance.md", title: "Insurance")]
+        // A file holds both words: the spread-out ones go.
+        let ranked = QuickSwitcher.ranking("car insurance", in: files)
+        #expect(ranked.paths == ["Car/Insurance.md"])
+        #expect(!ranked.loose)
+        // Nothing holds the words: the spread-out letters are all there is, and say so.
+        let spread = QuickSwitcher.ranking("car", in: [.init(path: "Reinsurance Group of America.md", title: "Reinsurance Group of America")])
+        #expect(spread.loose)
+        #expect(spread.paths == ["Reinsurance Group of America.md"])
+        // A match so weak that its score is below zero is still listed.
+        let long = "abbbbbbbbxbbbbbbbbqbbbbbbbbzbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        #expect(QuickSwitcher.rank("xqz", in: [.init(path: long + ".md", title: long)]) == [long + ".md"])
+        // Letters from the start of a word, close together, are a close match.
+        #expect(!QuickSwitcher.ranking("kbrnts", in: notes).loose)
+    }
+
+    @Test func aHashStartsTheHeadingPart() {
+        #expect(QuickSwitcher.heading(in: "Plan#Goals")! == ("Plan", "Goals"))
+        #expect(QuickSwitcher.heading(in: "#")! == ("", ""))
+        #expect(QuickSwitcher.heading(in: "Plan") == nil)
+        let headings = [Heading(level: 1, text: "Plan", line: 0), Heading(level: 2, text: "Goals for the year", line: 3), Heading(level: 2, text: "Budget", line: 9)]
+        #expect(QuickSwitcher.headings("", in: headings) == headings)
+        #expect(QuickSwitcher.headings("goal", in: headings).map(\.text) == ["Goals for the year"])
+        #expect(QuickSwitcher.headings("bud", in: headings).first?.line == 9)
+    }
 }

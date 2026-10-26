@@ -51,6 +51,16 @@ final class AppSettings {
         }
     }
 
+    /// What the app keeps for itself, such as the reading places: not in the
+    /// configuration folder, which is the person's own. Beside a test's
+    /// file, so a test never writes to the person's Library.
+    var stateDirectory: URL {
+        if url == ConfigFile.defaultURL, ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] == nil {
+            return URL.applicationSupportDirectory.appending(path: "Daftar")
+        }
+        return url.deletingLastPathComponent().appending(path: "state")
+    }
+
     /// [url] is for tests, which must never touch the person's own file.
     init(url: URL = ConfigFile.defaultURL) {
         self.url = url

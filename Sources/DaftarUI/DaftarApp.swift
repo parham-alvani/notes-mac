@@ -165,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// a few seconds, so a stuck one cannot keep the app from quitting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated {
+            store?.places.write()
             guard let store, !store.flushers.isEmpty else { return .terminateNow }
             answered = false
             Task { @MainActor in

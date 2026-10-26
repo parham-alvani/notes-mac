@@ -33,15 +33,27 @@ public enum QuickSwitcher {
         path.split(separator: "/").dropLast().joined(separator: "/")
     }
 
+    /// What the switcher lists for a query.
+    public struct Ranking: Sendable, Equatable {
+        public var paths: [String]
+        /// No file holds the words as written or at the start of its
+        /// words: the paths only hold their letters, spread out.
+        public var loose: Bool
+    }
+
     public static func rank(_ query: String, in candidates: [Candidate], recent: [String] = [], limit: Int = 50) -> [String] {
+        ranking(query, in: candidates, recent: recent, limit: limit).paths
+    }
+
+    public static func ranking(_ query: String, in candidates: [Candidate], recent: [String] = [], limit: Int = 50) -> Ranking {
         let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
         let words = needle.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !words.isEmpty else { return Array(recent.prefix(limit)) }
+        guard !words.isEmpty else { return Ranking(paths: Array(recent.prefix(limit)), loose: false) }
         let recency = Dictionary(recent.enumerated().map { ($1, $0) }) { a, _ in a }
-        var scored: [(path: String, score: Int, match: Int)] = []
+        var scored: [(path: String, score: Int, match: Int, close: Bool)] = []
         scored.reserveCapacity(64)
         for candidate in candidates {
-            guard let match = score(words, candidate) else { continue }
+            guard let (match, close) = score(words, candidate) else { continue }
             var score = match
             if candidate.title == needle || candidate.aliases.contains(needle) || candidate.full == needle { score += 1000 }
             else if candidate.title.hasPrefix(needle) { score += 300 }
@@ -49,8 +61,12 @@ public enum QuickSwitcher {
             if candidate.note { score += 8 }
             // A note opened lately wins a close race, not a clear one.
             if let at = recency[candidate.path] { score += max(1, 12 - at) }
-            scored.append((candidate.path, score, match))
+            scored.append((candidate.path, score, match, close))
         }
+        // Once one file holds every word closely, the files that only hold
+        // the letters are noise: "car insurance" is not "Cards … Reinsurance".
+        let loose = !scored.contains(where: \.close)
+        if !loose { scored.removeAll { !$0.close } }
         scored.sort { a, b in
             if a.score != b.score { return a.score > b.score }
             if a.path.count != b.path.count { return a.path.count < b.path.count }
@@ -60,17 +76,19 @@ public enum QuickSwitcher {
         // matches well, what matches under half as well is noise, not a
         // result. The words alone are compared, not the bonus of an exact
         // name, which would leave that one note alone in the list.
-        guard let best = scored.map(\.match).max() else { return [] }
-        return scored.filter { $0.match * 2 >= best }.prefix(limit).map(\.path)
+        guard let best = scored.map(\.match).max() else { return Ranking(paths: [], loose: false) }
+        return Ranking(paths: scored.filter { $0.match == best || $0.match * 2 >= best }.prefix(limit).map(\.path), loose: loose)
     }
 
-    /// The sum of each word's best match, or nil when a word matches nowhere.
-    static func score(_ words: [String], _ candidate: Candidate) -> Int? {
-        var total = 0
+    /// The sum of each word's best match, and whether every word matched
+    /// closely; nil when a word matches nowhere.
+    static func score(_ words: [String], _ candidate: Candidate) -> (Int, Bool)? {
+        var total = 0, close = true
         for word in words {
-            var best: Int?
+            var best: Int?, near = false
             func consider(_ text: String, weight: Int) {
                 guard mayMatch(word, text), let match = Fuzzy.match(word, in: text) else { return }
+                near = near || isClose(word, text, match.positions)
                 var value = match.score * 4 + weight
                 // The word as written, and at the start of a word, beats letters spread out.
                 if text.hasPrefix(word) { value += 40 } else if text.contains(" " + word) || text.contains("-" + word) || text.contains("/" + word) { value += 25 } else if text.contains(word) { value += 12 }
@@ -87,8 +105,37 @@ public enum QuickSwitcher {
             }
             guard let found = best else { return nil }
             total += found
+            close = close && near
         }
-        return total
+        return (total, close)
+    }
+
+    /// The word as written, or its letters from the start of a word and
+    /// not spread far: `kube` in "Kubernetes", `fwr` in "firewall rules".
+    static func isClose(_ word: String, _ text: String, _ positions: [Int]) -> Bool {
+        if text.contains(word) { return true }
+        guard let first = positions.first, let last = positions.last else { return false }
+        let characters = Array(text)
+        let start = first == 0 || " -_/.(".contains(characters[first - 1])
+        return start && last - first + 1 <= word.count * 2
+    }
+
+    // MARK: Headings
+
+    /// `Note#Heading`: the file part and the heading part, or nil when the
+    /// query has no `#`.
+    public static func heading(in query: String) -> (file: String, heading: String)? {
+        guard let mark = query.firstIndex(of: "#") else { return nil }
+        return (String(query[..<mark]).trimmingCharacters(in: .whitespaces), String(query[query.index(after: mark)...]).trimmingCharacters(in: .whitespaces))
+    }
+
+    /// The headings that match [query], best first; all of them, in order,
+    /// for an empty one.
+    public static func headings(_ query: String, in headings: [Heading]) -> [Heading] {
+        guard !query.isEmpty else { return headings }
+        return headings.compactMap { heading in Fuzzy.match(query, in: heading.text).map { (heading, $0.score) } }
+            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.line < $1.0.line }
+            .map(\.0)
     }
 
     /// The letters of [title] and of [folder] that [query] matched, as

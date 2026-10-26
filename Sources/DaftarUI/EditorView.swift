@@ -689,6 +689,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // The shortest name that still finds the note, as Obsidian writes it.
         let names = paths.map { path -> String in
             let title = Vault.title(of: path)
+            guard Vault.isNote(path) else { return store.index.resolve(title, from: self.path ?? "") == path ? title : path }
             return store.index.resolve(title, from: self.path ?? "") == path ? title : String(path.dropLast(3))
         }
         index?.pointee = names.isEmpty ? -1 : 0

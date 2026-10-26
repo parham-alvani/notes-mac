@@ -37,8 +37,9 @@ final class WindowModel {
     @ObservationIgnored var cursorLine: Int? {
         didSet { if let path, let cursorLine { places[path] = cursorLine } }
     }
-    /// Where each note was being read, for the next time it opens.
-    @ObservationIgnored private var places: [String: Int] = [:]
+    /// Where each note was being read, for the next time it opens: the
+    /// store's, once the window shows (`ContentView`), kept across launches.
+    @ObservationIgnored var places = PlaceBook()
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
     var quickOpen = false {
