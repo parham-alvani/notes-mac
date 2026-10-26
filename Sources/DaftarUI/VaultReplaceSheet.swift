@@ -79,6 +79,7 @@ struct VaultReplaceSheet: View {
                 .frame(width: 42, height: 42)
                 .background(LinearGradient(colors: [Palette.accent, Palette.pink], startPoint: .topLeading, endPoint: .bottomTrailing),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Replace in Vault").font(.title3.weight(.semibold))
                 Text(folder.isEmpty ? "Every note of \(store.name), without the excluded files" : "The notes in \(folder)")
@@ -103,11 +104,13 @@ struct VaultReplaceSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .font(Font(Fonts.code(size: 13)))
                         .focused($focused)
+                        .accessibilityLabel("Find")
                 }
                 GridRow {
                     Text("Replace").foregroundStyle(.secondary)
                     TextField(options.regularExpression ? "Replacement: $1 is the first group" : "Replacement", text: $replacement)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Replace with")
                         .font(Font(Fonts.code(size: 13)))
                 }
             }
@@ -169,7 +172,8 @@ struct VaultReplaceSheet: View {
         }
         return HStack(spacing: 8) {
             Toggle("", isOn: on).toggleStyle(.checkbox).labelsHidden()
-            Image(systemName: "doc.text").foregroundStyle(Palette.blue)
+                .accessibilityLabel("Every match in \(Vault.title(of: note.path)), \(Spoken.count(note.matches.count, "match", plural: "matches"))")
+            Image(systemName: "doc.text").foregroundStyle(Palette.blue).accessibilityHidden(true)
             Text(Vault.title(of: note.path)).font(.headline).lineLimit(1)
             Text(note.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             Spacer()
@@ -187,6 +191,7 @@ struct VaultReplaceSheet: View {
         }
         return HStack(alignment: .center, spacing: 6) {
             Toggle("", isOn: on).toggleStyle(.checkbox).labelsHidden()
+                .accessibilityLabel("Line \(match.line + 1): \(match.found) becomes \(match.replacement)")
             VStack(spacing: 0) {
                 DiffRow(kind: .removed, old: match.line + 1, new: nil, text: Text(marked(match, replaced: false)))
                 DiffRow(kind: .added, old: nil, new: match.line + 1, text: Text(marked(match, replaced: true)))

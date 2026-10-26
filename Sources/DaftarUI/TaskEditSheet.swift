@@ -38,6 +38,7 @@ struct TaskEditSheet: View {
                     .background(LinearGradient(colors: [Palette.accent, Palette.purple], startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .shadow(color: Palette.accent.opacity(0.4), radius: 8, y: 3)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Edit Task").font(.title2.weight(.semibold))
                     Text("\(Vault.title(of: task.path)), line \(task.line + 1)").font(.callout).foregroundStyle(.secondary)
@@ -68,12 +69,15 @@ struct TaskEditSheet: View {
         TextField("What to do", text: $fields.text, axis: .vertical)
             .textFieldStyle(.roundedBorder).font(.title3).lineLimit(1...3)
             .focused($focused)
+            .accessibilityLabel("Task")
         row("Status") {
             HStack(spacing: 6) {
                 ForEach(Self.statuses, id: \.0) { status, name, symbol, color in
                     pill(name, symbol, color, on: fields.status == status) { fields.status = status }
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Status")
         }
         row("Priority") {
             HStack(spacing: 6) {
@@ -81,6 +85,8 @@ struct TaskEditSheet: View {
                     pill(name, symbol, color, on: fields.priority == emoji) { fields.priority = emoji }
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Priority")
         }
         row("Dates") {
             VStack(alignment: .leading, spacing: 6) {
@@ -93,6 +99,7 @@ struct TaskEditSheet: View {
             HStack {
                 TextField("every week", text: Binding { fields.recurring ?? "" } set: { fields.recurring = $0.isEmpty ? nil : $0 })
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Repeat")
                 Menu {
                     ForEach(["every day", "every week", "every 2 weeks", "every month", "every year", "every week when done"], id: \.self) { rule in
                         Button(rule) { fields.recurring = rule }
@@ -101,10 +108,13 @@ struct TaskEditSheet: View {
                     Button("Never") { fields.recurring = nil }
                 } label: { Image(systemName: "repeat") }
                 .fixedSize()
+                .help("Common repeat rules")
+                .accessibilityLabel("Repeat Rules")
                 .tint(Palette.pink)
                 if let rule = fields.recurring, Recurrence(rule) == nil {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.yellow)
                         .help("Daftar repeats only plain intervals, such as every 2 weeks; Obsidian reads the rest.")
+                        .accessibilityLabel("Daftar repeats only plain intervals, such as every 2 weeks; Obsidian reads the rest.")
                 }
             }
         }
@@ -113,6 +123,7 @@ struct TaskEditSheet: View {
     private func row<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title).font(.callout.weight(.semibold)).foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
+                .accessibilityHidden(true)
             content()
         }
     }
@@ -128,6 +139,8 @@ struct TaskEditSheet: View {
                 .background(on ? AnyShapeStyle(color.gradient) : AnyShapeStyle(color.opacity(0.12)), in: Capsule())
         }
         .buttonStyle(.plain)
+        // The filled pill is the choice: VoiceOver hears it as selected.
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private func load() {
@@ -172,8 +185,10 @@ struct DateField: View {
                     value = Day(date: date, in: .current).description
                 }, displayedComponents: .date)
                 .labelsHidden().datePickerStyle(.field)
+                .accessibilityLabel("\(title) date")
                 Text(Self.relative(day)).font(.caption).foregroundStyle(color)
                     .padding(.horizontal, 6).padding(.vertical, 1).background(color.opacity(0.12), in: Capsule())
+                    .accessibilityHidden(true)
             }
         }
     }

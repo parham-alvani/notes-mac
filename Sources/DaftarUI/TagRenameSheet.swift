@@ -28,6 +28,7 @@ struct TagRenameSheet: View {
                     .background(LinearGradient(colors: [color, Palette.purple], startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .shadow(color: color.opacity(0.45), radius: 8, y: 3)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Rename #\(target.tag)").font(.title2.weight(.semibold))
                     Text(notes.count == 1 ? "1 note has this tag" : "\(notes.count) notes have this tag or one under it")
@@ -37,6 +38,7 @@ struct TagRenameSheet: View {
             TextField("New name", text: $name)
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
+                .accessibilityLabel("New name of the tag")
                 .onSubmit { if ready { rename() } }
             if !clean.isEmpty, !TagRename.isValid(clean) {
                 Label("A tag has letters, digits, _, - and /, and not only digits.", systemImage: "exclamationmark.triangle.fill")

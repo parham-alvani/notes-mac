@@ -163,6 +163,8 @@ final class CapturePanel: NSPanel, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 110),
             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
             backing: .buffered, defer: false)
+        // Hidden, but VoiceOver says it when the panel opens.
+        title = "Quick Capture"
         isFloatingPanel = true
         level = .floating
         titleVisibility = .hidden
@@ -199,10 +201,13 @@ struct CaptureView: View {
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(LinearGradient(colors: [Palette.accent, Palette.pink], startPoint: .top, endPoint: .bottom))
                     .frame(width: 26)
+                    .accessibilityHidden(true)
                 TextField(model.asTask ? "Add a task" : "Capture a thought", text: $model.draft)
                     .textFieldStyle(.plain)
                     .font(.title2)
                     .focused($focused)
+                    .accessibilityLabel(model.asTask ? "Add a task" : "Capture a thought")
+                    .accessibilityHint("Return adds it to \(model.target), Command-Return adds it as a task, Escape closes")
                     .onSubmit { add(model.asTask) }
                     .onKeyPress(.return, phases: .down) { press in
                         guard press.modifiers.contains(.command) else { return .ignored }
@@ -214,14 +219,17 @@ struct CaptureView: View {
             HStack(spacing: 8) {
                 Toggle("Task", isOn: $model.asTask).toggleStyle(.checkbox)
                 Text("→ \(model.target)").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                    .accessibilityLabel("Adds to \(model.target)")
                 Spacer()
                 // ⌘↩ in the field adds a task whatever the box says.
                 Button("Add as Task ⌘↩") { add(true) }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Add as Task")
             }
             .font(.callout)
             if let error = model.error {
                 Text(error).font(.callout).foregroundStyle(Palette.red).fixedSize(horizontal: false, vertical: true)
+                    .onAppear { announce(error) }
             }
         }
         .padding(16)

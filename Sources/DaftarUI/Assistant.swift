@@ -110,9 +110,12 @@ struct AssistantSheet: View {
             HStack {
                 TextField("Ask about this note", text: $question)
                     .textFieldStyle(.plain)
+                    .accessibilityLabel("Ask about this note")
                     .focused($asking)
                     .onSubmit { ask(.question(question)) }
                 Button { ask(.question(question)) } label: { Image(systemName: "arrow.up") }
+                    .accessibilityLabel("Ask")
+                    .help("Ask")
                     .buttonStyle(.glassProminent)
                     .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -147,7 +150,8 @@ struct AssistantSheet: View {
             Image(systemName: "apple.intelligence")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(.white)
-                .symbolEffect(.pulse, isActive: assistant.working)
+                .symbolEffect(.pulse, isActive: assistant.working && !Motion.reduced)
+                .accessibilityHidden(true)
                 .frame(width: 42, height: 42)
                 .background(
                     LinearGradient(colors: [Palette.blue, Palette.purple, Palette.pink, Palette.accent], startPoint: .topLeading, endPoint: .bottomTrailing),
@@ -166,6 +170,7 @@ struct AssistantSheet: View {
         Button { self.ask(ask) } label: { Label(title, systemImage: symbol) }
             .buttonStyle(.glass)
             .tint(last == ask ? Palette.accent : nil)
+            .accessibilityAddTraits(last == ask ? .isSelected : [])
     }
 
     @ViewBuilder private var answer: some View {

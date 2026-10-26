@@ -70,6 +70,8 @@ import Testing
             let label = text(get("accessibilityLabel", .description))
             let title = text(get("accessibilityTitle", .title))
             out.append(Element(role: text(get("accessibilityRole", .role)), name: label.isEmpty ? title : label, value: text(get("accessibilityValue", .value))))
+            // A scroll bar's arrows and page areas are AppKit's, not the app's.
+            guard out.last?.role != NSAccessibility.Role.scrollBar.rawValue else { return }
             for child in get("accessibilityChildren", .children) as? [Any] ?? [] { walk(child, depth: depth + 1) }
         }
         walk(window, depth: 0)
@@ -126,5 +128,36 @@ import Testing
         expectNamedButtons(found)
         #expect(found.contains { $0.name == "Close Pane" })
         #expect(found.contains { $0.name == "Folder Work" })
+    }
+
+    @Test func theTaskSheetNamesItsFieldsAndSaysTheChoice() async throws {
+        let found = try await elements(TaskEditSheet(task: TaskRef(path: "Work/Plan.md", line: 3)))
+        expectNamedButtons(found)
+        #expect(found.contains { $0.name == "Task" })
+        #expect(found.contains { $0.name == "Repeat Rules" })
+        #expect(found.contains { $0.name == "Due date" })
+    }
+
+    @Test func theMoveSheetListsFoldersAsButtons() async throws {
+        let found = try await elements(FileActionSheet(action: .move("Notes.md"), model: WindowModel()))
+        expectNamedButtons(found)
+        #expect(found.contains { $0.role == NSAccessibility.Role.button.rawValue && $0.name == "Work" })
+    }
+
+    @Test func replaceInVaultNamesItsFieldsAndBoxes() async throws {
+        let found = try await elements(VaultReplaceSheet(target: ReplaceTarget(folder: "")))
+        expectNamedButtons(found)
+        #expect(found.contains { $0.name == "Find" })
+        #expect(found.contains { $0.name == "Replace with" })
+    }
+
+    @Test func quickCaptureAndTheIconPickerHaveNoUnnamedButtons() async throws {
+        let capture = try await elements(CaptureView(model: CaptureModel(), add: { _ in }, close: {}), size: CGSize(width: 560, height: 140))
+        expectNamedButtons(capture)
+        #expect(capture.contains { $0.name == "Add as Task" })
+        let icons = try await elements(IconPicker(target: IconTarget(path: "Notes.md", folder: false)))
+        expectNamedButtons(icons)
+        #expect(icons.contains { $0.name == "No colour" })
+        #expect(icons.contains { $0.role == NSAccessibility.Role.textField.rawValue && $0.name == "Find an icon" })
     }
 }

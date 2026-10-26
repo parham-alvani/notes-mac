@@ -19,6 +19,8 @@ struct HistorySheet: View {
     @ViewState private var selection: String?
     @ViewState private var whole = false
     @ViewState private var confirmRestore = false
+    /// The commits get the focus first, so the arrows choose one at once.
+    @FocusState private var listFocused: Bool
 
     private static let working = "working"
 
@@ -30,7 +32,7 @@ struct HistorySheet: View {
                 detail.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack {
-                Picker("", selection: $whole) {
+                Picker("Show", selection: $whole) {
                     Text("Changes").tag(false)
                     Text("Whole Note").tag(true)
                 }
@@ -64,6 +66,7 @@ struct HistorySheet: View {
                 .frame(width: 42, height: 42)
                 .background(LinearGradient(colors: [Palette.aqua, Palette.blue], startPoint: .topLeading, endPoint: .bottomTrailing),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("History").font(.title3.weight(.semibold))
                 Text(path.map(Vault.title(of:)) ?? "No note").font(.callout).foregroundStyle(.secondary).lineLimit(1)
@@ -93,6 +96,9 @@ struct HistorySheet: View {
             }
         }
         .listStyle(.sidebar)
+        .focused($listFocused)
+        .defaultFocus($listFocused, true)
+        .accessibilityLabel("Commits")
         .overlay {
             if loading {
                 ProgressView()
@@ -107,12 +113,14 @@ struct HistorySheet: View {
     private func row(title: String, detail: String, symbol: String, color: Color) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol).font(.caption).foregroundStyle(color)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).lineLimit(1)
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: The lines
@@ -131,7 +139,9 @@ struct HistorySheet: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 10) {
                         Text("+\(counts.added)").foregroundStyle(Palette.green)
+                            .accessibilityLabel(Spoken.count(counts.added, "line") + " added")
                         Text("−\(counts.removed)").foregroundStyle(Palette.red)
+                            .accessibilityLabel(Spoken.count(counts.removed, "line") + " removed")
                         if let revision = revisions.first(where: { $0.hash == selection }), let parent = parent(of: selection), parent.path != revision.path {
                             Text("moved from \(parent.path)").foregroundStyle(.secondary)
                         }
@@ -213,6 +223,7 @@ private struct DiffLines: View {
                 ForEach(hunks.indices, id: \.self) { index in
                     if index > 0 {
                         Text("⋯").faint().padding(.vertical, 4).padding(.leading, 10)
+                            .accessibilityLabel("Lines left out")
                     }
                     ForEach(Array(hunks[index].enumerated()), id: \.offset) { _, line in
                         row(line)
@@ -254,5 +265,16 @@ struct DiffRow: View {
         .padding(.horizontal, 8).padding(.vertical, 1)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(color.map { $0.opacity(0.12) } ?? Color.clear)
+        // Green and red, and + and −, are "added" and "removed" in words.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(spoken)
+    }
+
+    private var spoken: Text {
+        switch kind {
+        case .added: Text("Added, line \(new.map(String.init) ?? ""): ") + text
+        case .removed: Text("Removed, line \(old.map(String.init) ?? ""): ") + text
+        case .same: text
+        }
     }
 }

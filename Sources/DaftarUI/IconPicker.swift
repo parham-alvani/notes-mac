@@ -20,6 +20,7 @@ struct IconPicker: View {
     @ViewState private var emoji = ""
     @ViewState private var query = ""
     @ViewState private var started = false
+    @FocusState private var searching: Bool
 
     /// Every icon the app can draw, by its Lucide name.
     private var icons: [String] {
@@ -40,6 +41,7 @@ struct IconPicker: View {
             HStack(spacing: 14) {
                 IconicImage(icon: chosen, fallback: target.folder ? "folder.fill" : "doc.text", fallbackColor: Palette.muted)
                     .scaleEffect(2.4)
+                    .accessibilityHidden(true)
                     .frame(width: 52, height: 52)
                     .glassEffect(.regular.tint(color.flatMap(IconicImage.color)?.opacity(0.25)), in: .rect(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 3) {
@@ -48,10 +50,12 @@ struct IconPicker: View {
                 }
             }
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Find an icon", text: $query).textFieldStyle(.plain)
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                TextField("Find an icon", text: $query).textFieldStyle(.plain).focused($searching)
+                    .accessibilityLabel("Find an icon")
                 Divider().frame(height: 16)
                 TextField("or an emoji", text: $emoji).textFieldStyle(.plain).frame(width: 90)
+                    .accessibilityLabel("Emoji")
             }
             .padding(.horizontal, 12).padding(.vertical, 7)
             .glassEffect(.regular, in: .capsule)
@@ -72,6 +76,8 @@ struct IconPicker: View {
                         }
                         .buttonStyle(.plain)
                         .help(String(icon.dropFirst("lucide-".count)))
+                        .accessibilityLabel(String(icon.dropFirst("lucide-".count)).replacingOccurrences(of: "-", with: " "))
+                        .accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
                 .padding(2)
@@ -104,6 +110,7 @@ struct IconPicker: View {
         .onAppear {
             guard !started else { return }
             started = true
+            searching = true
             let now = store.iconic.icon(for: target.path, folder: target.folder)
             if let current = now?.name { if now?.isEmoji == true { emoji = current } else { name = current } }
             color = now?.color
@@ -122,5 +129,7 @@ struct IconPicker: View {
         }
         .buttonStyle(.plain)
         .help(value ?? "No colour")
+        .accessibilityLabel(value.map { "Colour \($0)" } ?? "No colour")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

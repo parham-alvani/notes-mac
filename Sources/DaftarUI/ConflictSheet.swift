@@ -18,6 +18,7 @@ struct ConflictSheet: View {
     /// The side kept of a whole file that has no marks to choose in.
     @ViewState private var whole: [String: Git.Resolution] = [:]
     @ViewState private var confirmAbort = false
+    @FocusState private var listFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -64,6 +65,7 @@ struct ConflictSheet: View {
                 .frame(width: 42, height: 42)
                 .background(LinearGradient(colors: [Palette.accent, Palette.red], startPoint: .topLeading, endPoint: .bottomTrailing),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Sync Conflicts").font(.title3.weight(.semibold))
                 Text("These files changed on the remote and on this Mac. Choose what to keep; the sync waits until you finish.")
@@ -82,6 +84,7 @@ struct ConflictSheet: View {
                     Image(systemName: resolved(file) ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(resolved(file) ? Palette.green : Palette.accent)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Vault.title(of: file.path)).lineLimit(1)
                         Text(status(of: file)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -89,10 +92,16 @@ struct ConflictSheet: View {
                 }
                 .padding(.vertical, 2)
                 .help(file.path)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Vault.title(of: file.path))
+                .accessibilityValue((resolved(file) ? "Resolved, " : "Not resolved, ") + status(of: file))
                 .tag(file.path)
             }
         }
         .listStyle(.sidebar)
+        .focused($listFocused)
+        .defaultFocus($listFocused, true)
+        .accessibilityLabel("Conflicted files")
         .overlay {
             if store.conflicts.isEmpty {
                 ContentUnavailableView("Nothing to choose", systemImage: "checkmark.circle",
@@ -177,6 +186,8 @@ struct ConflictSheet: View {
                 Text("Conflict \(number + 1) of \(count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 choiceButtons(chosen: chosen) { choices[path, default: [:]][number] = $0 }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Conflict \(number + 1)")
             }
             if !before.isEmpty {
                 Text(before).font(Font(Fonts.code(size: 12))).faint().lineLimit(2)
@@ -188,14 +199,19 @@ struct ConflictSheet: View {
         }
         .padding(12)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Conflict \(number + 1) of \(count)")
     }
 
     private func side(_ title: String, text: String, color: Color, kept: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Text(title).font(.caption.weight(.semibold)).foregroundStyle(color)
-                if kept { Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(color) }
+                if kept { Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(color).accessibilityHidden(true) }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(kept ? "\(title), kept" : title)
+            .accessibilityAddTraits(.isHeader)
             Text(text.isEmpty ? "(nothing)" : String(text.dropLast(text.hasSuffix("\n") ? 1 : 0)))
                 .font(Font(Fonts.code(size: 12)))
                 .foregroundStyle(text.isEmpty ? .secondary : .primary)
@@ -221,6 +237,7 @@ struct ConflictSheet: View {
         choose: @escaping (ConflictText.Choice) -> Void, help: String) -> some View {
         if chosen == choice {
             Button(title) { choose(choice) }.buttonStyle(.glassProminent).controlSize(.small).help(help)
+                .accessibilityAddTraits(.isSelected)
         } else {
             Button(title) { choose(choice) }.buttonStyle(.glass).controlSize(.small).help(help)
         }
@@ -241,12 +258,12 @@ struct ConflictSheet: View {
             HStack(spacing: 6) {
                 Spacer()
                 if chosen == .keepRemote {
-                    Button("Keep Remote") { whole[file.path] = .keepRemote }.buttonStyle(.glassProminent)
+                    Button("Keep Remote") { whole[file.path] = .keepRemote }.buttonStyle(.glassProminent).accessibilityAddTraits(.isSelected)
                 } else {
                     Button("Keep Remote") { whole[file.path] = .keepRemote }.buttonStyle(.glass)
                 }
                 if chosen == .keepMine {
-                    Button("Keep Mine") { whole[file.path] = .keepMine }.buttonStyle(.glassProminent)
+                    Button("Keep Mine") { whole[file.path] = .keepMine }.buttonStyle(.glassProminent).accessibilityAddTraits(.isSelected)
                 } else {
                     Button("Keep Mine") { whole[file.path] = .keepMine }.buttonStyle(.glass)
                 }
@@ -259,8 +276,10 @@ struct ConflictSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Text(title).font(.caption.weight(.semibold)).foregroundStyle(color)
-                if kept { Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(color) }
+                if kept { Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(color).accessibilityHidden(true) }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(kept ? "\(title), kept" : title)
             Label(side == .deleted ? "Deleted the file" : side == .added ? "Added the file" : "Changed the file",
                 systemImage: side == .deleted ? "trash" : "doc")
         }

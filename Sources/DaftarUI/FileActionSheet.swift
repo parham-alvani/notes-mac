@@ -34,6 +34,7 @@ struct FileActionSheet: View {
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(Palette.red)
+                    .onAppear { announce(error) }
             }
             HStack {
                 Spacer()
@@ -61,6 +62,7 @@ struct FileActionSheet: View {
                 LinearGradient(colors: [color, secondColor], startPoint: .topLeading, endPoint: .bottomTrailing),
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(color: color.opacity(0.45), radius: 8, y: 3)
+            .accessibilityHidden(true)
     }
 
     private var symbol: String {
@@ -145,6 +147,7 @@ struct FileActionSheet: View {
         case .extract(_, let text):
             TextField("Name", text: $name)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Name")
                 .font(.title3)
                 .focused($focused)
                 .onSubmit { Task { await commit() } }
@@ -158,6 +161,7 @@ struct FileActionSheet: View {
         default:
             TextField("Name", text: $name)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Name")
                 .font(.title3)
                 .focused($focused)
                 .onSubmit { Task { await commit() } }
@@ -180,7 +184,13 @@ struct FileActionSheet: View {
         VStack(spacing: 8) {
             TextField("Find a folder", text: $folderQuery)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Find a folder")
                 .focused($focused)
+                // The arrows choose a folder from the field, as in quick open.
+                .onKeyPress(.downArrow) { step(1); return .handled }
+                .onKeyPress(.upArrow) { step(-1); return .handled }
+                .accessibilityHint("Up and Down Arrow choose a folder, Return moves")
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(folders, id: \.self) { candidate in
@@ -200,12 +210,25 @@ struct FileActionSheet: View {
                             folder = candidate
                             Task { await commit() }
                         }
+                        .accessibilityRow(where_(candidate), selected: chosen) { folder = candidate }
+                        .id(candidate)
                     }
                 }
             }
+            .onChange(of: folder) { _, chosen in if let chosen { proxy.scrollTo(chosen) } }
+            }
             .frame(height: 240)
+            .accessibilityLabel("Folders")
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         }
+    }
+
+    /// The folder [by] rows down or up from the chosen one.
+    private func step(_ by: Int) {
+        let all = folders
+        guard !all.isEmpty else { return }
+        let at = folder.flatMap { all.firstIndex(of: $0) } ?? (by > 0 ? -1 : all.count)
+        folder = all[min(max(at + by, 0), all.count - 1)]
     }
 
     /// Every folder the item can go to, the vault itself first.
