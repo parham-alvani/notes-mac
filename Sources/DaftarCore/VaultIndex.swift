@@ -165,11 +165,20 @@ public enum Vault {
         guard let walker = FileManager.default.enumerator(
             at: root, includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey], options: [.skipsHiddenFiles])
         else { return [] }
+        // The walker's URLs are the root's with plain names after it, so the
+        // part after the root is the vault path: standardizing every URL
+        // was half of the scan of 20,000 files.
+        let start = root.path.removingSuffix("/") + "/"
         var found = Set<String>()
         for case let url as URL in walker {
-            let path = url.standardizedFileURL.path
-            guard path.hasPrefix(base) else { continue }
-            let relative = String(path.dropFirst(base.count))
+            let relative: String
+            if case let path = url.path, path.hasPrefix(start) {
+                relative = String(path.dropFirst(start.count))
+            } else {
+                let path = url.standardizedFileURL.path
+                guard path.hasPrefix(base) else { continue }
+                relative = String(path.dropFirst(base.count))
+            }
             if skipped.contains(url.lastPathComponent) {
                 walker.skipDescendants()
                 continue
