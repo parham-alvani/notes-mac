@@ -186,7 +186,11 @@ public enum Vault {
         // Each iteration writes its own slot, so the slots need no lock.
         nonisolated(unsafe) let results = UnsafeMutableBufferPointer<NoteEntry?>.allocate(capacity: paths.count)
         results.initialize(repeating: nil)
-        defer { results.deallocate() }
+        // Deinitialized too, or every note read stays in memory for good.
+        defer {
+            _ = results.deinitialize()
+            results.deallocate()
+        }
         DispatchQueue.concurrentPerform(iterations: paths.count) { index in
             results[index] = read(paths[index], in: root)
         }
