@@ -75,6 +75,6 @@ Keep logic in `DaftarCore`: its tests run in a second and need no window. `Tests
 
 ## Testing the app
 
-`just install` puts the app in `/Applications`: notifications and their icon belong to that path, and a build run from `build/` asks for permissions again. The vault is the `vault` line of the config file. `open "daftar://open?path=Folder/Note.md"` opens a note, `daftar://open?path=today` the Today page, and `daftar://terminal` the terminal. A debug build makes the web view inspectable in Safari.
+The installed app comes from Homebrew only (`brew install --cask parham-alvani/tap/daftar`): a release (`VERSION` and a `v*` tag) reaches the tap's cask, and the cask installs it. Never copy a test build into `/Applications`; that makes the cask install fail and hides which version is installed. Test from `build/Daftar.app` (`just app`), with `open -n` and a test `XDG_CONFIG_HOME`; a build run from `build/` asks for notification permission again. The vault is the `vault` line of the config file. `open "daftar://open?path=Folder/Note.md"` opens a note, `daftar://open?path=today` the Today page, and `daftar://terminal` the terminal. A debug build makes the web view inspectable in Safari.
 
 **Do not click a task in the real vault to test.** A tick writes the file, and with automatic sync on, it commits and pushes. Test writes on a copy, or with the unit tests.
