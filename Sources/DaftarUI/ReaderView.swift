@@ -34,6 +34,8 @@ struct ReaderView: NSViewRepresentable {
     var onCursor: ((Int) -> Void)?
     /// `e` on a block: edit the note there.
     var onEdit: ((Int) -> Void)?
+    /// The web view, for the window's commands that act on the page.
+    var onView: ((WKWebView) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -54,6 +56,7 @@ struct ReaderView: NSViewRepresentable {
         view.isInspectable = true
         #endif
         context.coordinator.view = view
+        onView?(view)
         view.load(URLRequest(url: URL(string: "daftar://reader/index.html")!))
         return view
     }
@@ -135,6 +138,7 @@ struct ReaderView: NSViewRepresentable {
                 "fontText": Fonts.css.text,
                 "fontCode": Fonts.css.code,
                 "folds": store.places.folds(request.path),
+                "detected": Detected.find(in: text).map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             if !keepScroll {
                 if let heading = request.heading { note["heading"] = heading }
@@ -226,10 +230,16 @@ struct ReaderView: NSViewRepresentable {
                 }
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
+            case "detected":
+                guard let kind = body["type"] as? String, let value = body["value"] as? String else { return }
+                Detected.open(kind: kind, value: value)
+            case "stopSpeaking":
+                ReadAloud.shared.stop()
             case "folds":
                 if let path = shown?.path, let folds = body["folds"] as? [String] { parent.store.places.setFolds(path, folds) }
             case "cursor":
                 if let line = body["line"] as? Int { parent.onCursor?(line) }
+                if let path = shown?.path { WakaTime.shared.heartbeat(path, store: parent.store) }
             case "edit":
                 if let line = body["line"] as? Int { parent.onEdit?(line) }
             case "editTask":

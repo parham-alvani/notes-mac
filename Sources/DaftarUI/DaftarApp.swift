@@ -76,6 +76,9 @@ public struct DaftarApp: App {
                 Button("Translate…") { window?.translate(store: store) }
                     .keyboardShortcut("t", modifiers: [.command, .control])
                     .disabled(window?.path == nil || window?.showsPage == true)
+                Button(ReadAloud.shared.isSpeaking ? "Stop Reading Aloud" : "Read Aloud") { window?.readAloud() }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
+                    .disabled(!ReadAloud.shared.isSpeaking && (window?.path == nil || window?.showsPage == true))
                 Button("Apple Intelligence…") { window?.assistant = true }
                     .keyboardShortcut("a", modifiers: [.command, .option])
                     .disabled(window?.path == nil || window?.showsPage == true)
@@ -165,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             AppSettings.shared.applyAppearance()
+            AppSettings.shared.applyMenuBar()
             FullScreenEscape.install()
             Notifier.shared.start()
         }
@@ -265,6 +269,15 @@ private struct GeneralSettings: View {
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
             Toggle("Show notes in Spotlight", isOn: $settings.spotlight)
                 .help("The index is on this Mac only. Excluded files are left out.")
+            Toggle("Hide the menu bar", isOn: $settings.hideMenuBar)
+                .help("The menu bar comes back when the pointer reaches the top of the screen.")
+            Section {
+                Toggle("Send reading and writing time to WakaTime", isOn: $settings.wakatime)
+            } footer: {
+                Text(WakaTime.cli(settings.wakatimeCLI) == nil
+                    ? "wakatime-cli is not installed: brew install wakatime-cli. The key is read from ~/.wakatime.cfg."
+                    : "Uses wakatime-cli and the key in ~/.wakatime.cfg. The note's path and the vault's name leave this Mac.")
+            }
             Section {
                 LabeledContent("Settings file") {
                     HStack {
@@ -480,6 +493,10 @@ struct FileCommands: Commands {
             .disabled(window?.editing != true || window?.showsPage == true)
             Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
                 .disabled(window?.path == nil || window?.showsPage == true)
+            Divider()
+            Button("Export as PDF…") { window?.exportPDF() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(window?.path == nil || window?.showsPage == true || window?.editing == true)
             Divider()
             Button(window?.path.map { store.bookmarks.contains($0) } == true ? "Remove Bookmark" : "Bookmark") {
                 if let path = window?.path { store.toggleBookmark(path) }

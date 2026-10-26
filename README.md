@@ -37,6 +37,11 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Templates:** New Note can start from a note in the Templates plugin's folder (`.obsidian/templates.json`, or `Templates/`), with `{{title}}`, `{{date}}`, `{{time}}` and `{{date:FORMAT}}` filled in.
 - **Folding:** a chevron before a heading folds its section shut, as in Obsidian's reading view; `z` folds the section of the reading cursor and `Z` folds or opens them all. Each note remembers its folds.
 - **Updated since you read:** the notes that changed on disk since you last read them, by a pull or another app, are listed at the top of the sidebar and marked with a dot in the tree. The app's own edits do not count.
+- **Read aloud:** ⌥⌘R reads the note from the reading cursor on, a paragraph at a time, each in its own language when the Mac has a voice for it (a Persian voice for Persian). The page marks the paragraph being read; Escape or ⌥⌘R again stops.
+- **Export as PDF:** ⇧⌘E prints the note to an A4 PDF, in the light colours and with every section open, for someone who does not read markdown.
+- **Addresses and phone numbers** written as plain text are links: an address opens Maps, a number the app that makes calls. The inspector lists the places a note names.
+- **WakaTime:** a setting sends the time spent reading and writing each note to WakaTime with `wakatime-cli`, as Obsidian's WakaTime plugin does. It is off at first.
+- **Hide the menu bar:** a setting hides the menu bar while Daftar is in front.
 - **Today:** the meetings of the day from the week notes in `Calendar/` (which Daftar on the phone writes), the free time, and the tasks that are overdue, due, in progress and coming. A click on a checkbox completes a task, also a repeating one, as the Tasks plugin does.
 - **Notifications:** an alert before each meeting, with a Join button, and a morning digest of the tasks that are due.
 - **Menu bar and Dock:** today's meetings and tasks in the menu bar, and the count of tasks due on the Dock icon.

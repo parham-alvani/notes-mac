@@ -507,6 +507,49 @@ const folds = {
   },
 };
 
+/**
+ * Addresses and phone numbers the app found in the note's text, made links
+ * where the page shows them: an address opens Maps, a number the phone.
+ * Text in links, code, maths and tags is left alone.
+ */
+function linkDetected(root, items) {
+  if (!items?.length) return;
+  const wanted = [...new Map(items.map((item) => [item.text, item])).values()].sort((a, b) => b.text.length - a.text.length);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement.closest("a, code, pre, .katex, .mermaid, .inline-title, .properties, button") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    let text = node.textContent;
+    const hits = [];
+    for (const item of wanted) {
+      for (let at = text.indexOf(item.text); at >= 0; at = text.indexOf(item.text, at + item.text.length)) {
+        if (!hits.some((hit) => at < hit.at + hit.item.text.length && hit.at < at + item.text.length)) hits.push({ at, item });
+      }
+    }
+    if (hits.length === 0) continue;
+    hits.sort((a, b) => a.at - b.at);
+    const parts = [];
+    let from = 0;
+    for (const { at, item } of hits) {
+      parts.push(document.createTextNode(text.slice(from, at)));
+      const link = Object.assign(document.createElement("a"), { className: `detected detected-${item.kind}`, textContent: item.text, href: "#" });
+      link.dataset.kind = item.kind;
+      link.dataset.value = item.value;
+      link.title = item.kind === "phone" ? `Call ${item.text}` : "Show in Maps";
+      parts.push(link);
+      from = at + item.text.length;
+    }
+    parts.push(document.createTextNode(text.slice(from)));
+    node.replaceWith(...parts);
+  }
+}
+
+/** The blocks being read aloud, so the app can name one by its number. */
+const speech = { blocks: [] };
+
 /** What the page adds after rendering: tag colours, task chips and code block headers. */
 function decorate(root) {
   if (root.id === "note") {
@@ -741,6 +784,7 @@ window.daftar = {
     // The reading cursor: on the line the editor was at, on the same block
     // when the note is shown again, or at the top in a note just opened.
     folds.shut = new Set(note.folds ?? []);
+    linkDetected(main, note.detected);
     decorate(main);
     folds.apply();
     // A link to a heading inside a folded section opens the section.
@@ -763,6 +807,34 @@ window.daftar = {
     else target = heading(main, anchor);
     if (target) folds.reveal(target);
     target?.scrollIntoView({ block: "start" });
+  },
+
+  /**
+   * The blocks to read aloud, from the reading cursor on: each with the
+   * text a voice should say, code and diagrams left out.
+   */
+  speechBlocks() {
+    const blocks = reading.blocks();
+    const from = Math.max(0, blocks.indexOf(reading.block));
+    speech.blocks = blocks;
+    const out = [];
+    blocks.forEach((block, index) => {
+      if (index < from || block.closest("pre, .code-block, .mermaid, .katex-display, .properties")) return;
+      const copy = block.cloneNode(true);
+      copy.querySelectorAll("ul, ol, button, .task-chips, .footnote-ref, sup, input").forEach((node) => node.remove());
+      const text = copy.textContent.replace(/\s+/g, " ").trim();
+      if (text) out.push({ index, text });
+    });
+    return out;
+  },
+
+  /** The voice is on block [index] of the last `speechBlocks()`; -1 when it stopped. */
+  speaking(index) {
+    document.querySelectorAll(".is-speaking").forEach((el) => el.classList.remove("is-speaking"));
+    const block = speech.blocks[index];
+    if (!block?.isConnected) return;
+    block.classList.add("is-speaking");
+    reading.place(block, true);
   },
 
   /** Scrolls to the block that holds a file line. */
@@ -803,6 +875,11 @@ document.addEventListener("click", (event) => {
     return;
   }
   const link = event.target.closest("a");
+  if (link?.classList.contains("detected")) {
+    event.preventDefault();
+    post({ kind: "detected", type: link.dataset.kind, value: link.dataset.value });
+    return;
+  }
   if (!link) {
     const picture = event.target.closest("#note img, #note pre.mermaid svg");
     if (picture && !event.target.closest(".zoom")) zoom(picture);
@@ -956,6 +1033,11 @@ const reading = {
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
   if (event.target.closest?.("input, textarea, [contenteditable], .find-bar") || document.querySelector(".zoom")) return;
+  if (event.key === "Escape" && document.querySelector(".is-speaking")) {
+    post({ kind: "stopSpeaking" });
+    event.preventDefault();
+    return;
+  }
   const moves = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   if (event.key in moves) reading.move(moves[event.key]);
   else if (event.key === "g" || event.key === "Home") reading.end(false);

@@ -76,7 +76,8 @@
   --code-punctuation: #6a6a62;
 }
 
-@media (prefers-color-scheme: dark) {
+/* Paper is Daylight: a PDF of a note is printed light, whatever the screen is. */
+@media screen and (prefers-color-scheme: dark) {
   :root {
     /* naz */
     --background: #323232;
@@ -713,3 +714,30 @@ li.task-list-item.is-checked .query-date { text-decoration: none; opacity: 0.75;
 @media (prefers-reduced-motion: reduce) { .fold-toggle { transition: none; } }
 .fold-toggle:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .is-folded::after { content: " …"; color: var(--text-faint); font-weight: 400; }
+
+/* File › Export as PDF: the note on A4, Daylight, everything unfolded, none of the page's controls. */
+@page { size: A4; margin: 18mm 16mm; }
+@media print {
+  :root { color-scheme: light; }
+  html, body { background: #ffffff !important; }
+  #progress, #reading-cursor, .fold-toggle, .heading-link, .code-copy, .find-bar, .preview { display: none !important; }
+  .folded-away { display: revert !important; }
+  .is-folded::after { content: none; }
+  .is-speaking { background: none !important; box-shadow: none !important; }
+  #note { max-width: none; padding: 0; margin: 0; }
+  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  pre, blockquote, .callout, figure, img, tr, .code-block { break-inside: avoid; }
+  a { text-decoration: none; }
+}
+
+/* The block the voice is reading. */
+.is-speaking {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: -8px 0 0 color-mix(in srgb, var(--accent) 12%, transparent), 8px 0 0 color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 4px;
+  transition: background 200ms;
+}
+
+/* An address or a phone number found in the text: a link, but quieter than one the note wrote. */
+a.detected { color: inherit; text-decoration: underline dotted color-mix(in srgb, var(--link-color, var(--accent)) 70%, transparent); text-underline-offset: 3px; cursor: pointer; }
+a.detected:hover { color: var(--link-color, var(--accent)); }

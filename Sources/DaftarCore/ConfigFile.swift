@@ -186,6 +186,9 @@ public struct ConfigFile: Sendable, Equatable {
         # Show the vault's notes in Spotlight. The index is on this Mac only;
         # excluded files are left out.
         spotlight = true
+        # Hide the menu bar while Daftar is in front; it comes back when the
+        # pointer goes to the top of the screen.
+        hide_menu_bar = false
 
         [editor]
         # Away from the cursor's line, the marks (**, ==, [[ ]], #, a link's
@@ -219,6 +222,14 @@ public struct ConfigFile: Sendable, Equatable {
         # Empty is the login shell in $SHELL.
         shell = ""
         font_size = 13
+
+        [wakatime]
+        # Send the time spent in each note to WakaTime, with wakatime-cli and
+        # the key in ~/.wakatime.cfg, as Obsidian's WakaTime plugin does.
+        # The note's path and the vault's name leave this Mac.
+        enabled = false
+        # Empty finds wakatime-cli in ~/.wakatime or Homebrew.
+        cli = ""
 
         """
 }

@@ -205,6 +205,7 @@ final class VaultStore {
         guard let file = url(of: path), index.files.contains(path) else { throw StoreError.gone(path) }
         try Data(text.utf8).write(to: file, options: .atomic)
         places.markRead(path)
+        WakaTime.shared.heartbeat(path, store: self, write: true)
         changed([path])
         requestSync()
     }

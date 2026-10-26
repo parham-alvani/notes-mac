@@ -66,6 +66,12 @@ enum PaletteCommands {
             PaletteCommand(id: "translate", title: "Translate the Selection or the Note", group: "Note", symbol: "translate", color: Palette.blue, shortcut: "⌃⌘T") {
                 model.translate(store: store)
             },
+            PaletteCommand(id: "read-aloud", title: ReadAloud.shared.isSpeaking ? "Stop Reading Aloud" : "Read the Note Aloud", group: "Note", symbol: "speaker.wave.2.fill", color: Palette.green, shortcut: "⌥⌘R") {
+                model.readAloud()
+            },
+            PaletteCommand(id: "pdf", title: "Export the Note as PDF", group: "Note", symbol: "doc.richtext.fill", color: Palette.red, shortcut: "⇧⌘E") {
+                model.exportPDF()
+            },
             PaletteCommand(id: "assistant", title: "Summarize or Ask with Apple Intelligence", group: "Note", symbol: "apple.intelligence", color: Palette.purple, shortcut: "⌥⌘A") {
                 model.assistant = true
             },

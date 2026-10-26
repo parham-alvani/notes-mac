@@ -422,6 +422,9 @@ struct InspectorView: View {
     /// Found again for each note and each change to the vault, off the main thread.
     @ViewState private var mentions: [MentionHit] = []
     @ViewState private var mentionsFor = ""
+    /// The addresses the note names, found with the mentions.
+    @ViewState private var places: [Detected.Item] = []
+    @ViewState private var placesFor = ""
 
     /// The note's links, each once, with where it goes when it goes anywhere.
     private func outgoingLinks(_ note: NoteEntry, from path: String) -> [(target: String, path: String?, embed: Bool)] {
@@ -513,6 +516,20 @@ struct InspectorView: View {
                         SectionTitle(title: "Outgoing links", count: outgoing.count, color: Palette.accent)
                     }
                 }
+                if placesFor == path, !places.isEmpty {
+                    Section {
+                        ForEach(places, id: \.self) { place in
+                            Button { Detected.open(kind: place.kind.rawValue, value: place.value) } label: {
+                                Label(place.value, systemImage: "mappin.and.ellipse")
+                                    .foregroundStyle(.primary).lineLimit(2)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show in Maps")
+                        }
+                    } header: {
+                        SectionTitle(title: "Places in this note", count: places.count, color: Palette.green)
+                    }
+                }
                 if !note.parsed.tags.isEmpty {
                     Section {
                         FlowTags(tags: note.parsed.tags) { model.searchTag($0) }
@@ -527,6 +544,8 @@ struct InspectorView: View {
                 // before looking again, but not for a note just opened.
                 if mentionsFor == path { try? await Task.sleep(for: .milliseconds(600)) }
                 guard !Task.isCancelled else { return }
+                places = Detected.find(in: store.text(of: path) ?? "").filter { $0.kind == .address }
+                placesFor = path
                 let found = await store.unlinkedMentions(of: path)
                 guard !Task.isCancelled else { return }
                 mentions = found

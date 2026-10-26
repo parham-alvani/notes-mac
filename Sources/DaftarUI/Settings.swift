@@ -23,6 +23,9 @@ final class AppSettings {
     var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
     var dockBadge: Bool { didSet { write("appearance.dock_badge", .bool(dockBadge)) } }
     var spotlight: Bool { didSet { write("appearance.spotlight", .bool(spotlight)) } }
+    var hideMenuBar: Bool { didSet { write("appearance.hide_menu_bar", .bool(hideMenuBar)); applyMenuBar() } }
+    var wakatime: Bool { didSet { write("wakatime.enabled", .bool(wakatime)) } }
+    var wakatimeCLI: String { didSet { write("wakatime.cli", .string(wakatimeCLI)) } }
     /// Minutes between commit-pull-push runs; 0 is off.
     var syncInterval: Int { didSet { write("git.sync_interval", .int(syncInterval)) } }
     var pullOnLaunch: Bool { didSet { write("git.pull_on_launch", .bool(pullOnLaunch)) } }
@@ -71,6 +74,9 @@ final class AppSettings {
         codeFont = "SF Mono"
         dockBadge = true
         spotlight = true
+        hideMenuBar = false
+        wakatime = false
+        wakatimeCLI = ""
         syncInterval = 0
         pullOnLaunch = true
         meetingAlerts = true
@@ -106,6 +112,9 @@ final class AppSettings {
         codeFont = file.string("appearance.code_font") ?? "SF Mono"
         dockBadge = file.bool("appearance.dock_badge") ?? true
         spotlight = file.bool("appearance.spotlight") ?? true
+        hideMenuBar = file.bool("appearance.hide_menu_bar") ?? false
+        wakatime = file.bool("wakatime.enabled") ?? false
+        wakatimeCLI = file.string("wakatime.cli") ?? ""
         syncInterval = file.int("git.sync_interval") ?? 0
         pullOnLaunch = file.bool("git.pull_on_launch") ?? true
         meetingAlerts = file.bool("notifications.meetings") ?? true
@@ -149,6 +158,16 @@ final class AppSettings {
         case .light: NSAppearance(named: .aqua)
         case .dark: NSAppearance(named: .darkAqua)
         }
+    }
+
+    /// The menu bar hides while the app is in front, and shows when the pointer reaches it.
+    func applyMenuBar() {
+        guard let app = NSApp else { return }
+        var options = app.presentationOptions
+        // Full screen hides the menu bar in its own way.
+        guard !options.contains(.fullScreen) else { return }
+        if hideMenuBar { options.insert(.autoHideMenuBar) } else { options.remove(.autoHideMenuBar) }
+        app.presentationOptions = options
     }
 
     func revealFile() {

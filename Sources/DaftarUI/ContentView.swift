@@ -82,6 +82,11 @@ struct ContentView: View {
             }
         }
         .onDisappear { store.followers[ObjectIdentifier(model)] = nil }
+        .onChange(of: model.path) { _, path in
+            if let path { WakaTime.shared.heartbeat(path, store: store) }
+            // The voice reads the note it started on, and stops when this window leaves it.
+            if ReadAloud.shared.path != nil, ReadAloud.shared.path != path, model.readerView === ReadAloud.shared.view { ReadAloud.shared.stop() }
+        }
         .onOpenURL { url in model.handle(url, store: store) }
         // A note chosen in Spotlight.
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
@@ -139,7 +144,8 @@ struct ContentView: View {
                 onEdit: { line in
                     model.cursorLine = line
                     model.editing = true
-                })
+                },
+                onView: { model.readerView = $0 })
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = model.path { Breadcrumb(path: path, model: model) }
             }

@@ -175,6 +175,8 @@ final class WindowModel {
     var fileAction: FileAction?
     /// The last Find command for the reader; it grows with each one.
     var readerFind = ReaderFind(action: .none, count: 0)
+    /// The reader's page, for read aloud and Export as PDF.
+    @ObservationIgnored weak var readerView: WKWebView?
 
     private var back: [ReaderRequest] = []
     private var forward: [ReaderRequest] = []
@@ -204,6 +206,36 @@ final class WindowModel {
         recent.removeAll { $0 == path }
         recent.insert(path, at: 0)
         if recent.count > 30 { recent.removeLast() }
+    }
+
+    /// The open note read aloud, or the voice stopped.
+    func readAloud() {
+        guard let path, !showsPage, let view = readerView else { return }
+        if editing { editing = false }
+        ReadAloud.shared.toggle(path, in: view)
+    }
+
+    /// The open note as a PDF on A4, Daylight and unfolded, where the person chooses.
+    func exportPDF() {
+        guard let path, !showsPage, !editing, let view = readerView, let window = view.window else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = Vault.title(of: path) + ".pdf"
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            let info = NSPrintInfo.shared.copy() as! NSPrintInfo
+            info.paperSize = NSSize(width: 595.28, height: 841.89)
+            info.topMargin = 0; info.bottomMargin = 0; info.leftMargin = 0; info.rightMargin = 0
+            info.horizontalPagination = .fit
+            info.verticalPagination = .automatic
+            info.jobDisposition = .save
+            info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
+            let operation = view.printOperation(with: info)
+            operation.showsPrintPanel = false
+            operation.showsProgressPanel = false
+            operation.view?.frame = view.bounds
+            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        }
     }
 
     /// The periodic note of [day]'s period, made when it is not there yet.
