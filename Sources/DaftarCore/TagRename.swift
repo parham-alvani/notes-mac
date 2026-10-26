@@ -66,10 +66,14 @@ public enum TagRename {
                 continue
             }
             guard fenceMarker == nil, line.contains("#") else { continue }
+            // Code and links are looked for only on a line with the tag: a
+            // heading has a `#` too.
+            let tags = line.matches(of: bodyTag).filter { renamed($0.1) != nil }
+            guard !tags.isEmpty else { continue }
             let taken = line.matches(of: protected).map(\.range)
             var result = ""
             var last = line.startIndex
-            for match in line.matches(of: bodyTag) where !taken.contains(where: { $0.overlaps(match.range) }) {
+            for match in tags where !taken.contains(where: { $0.overlaps(match.range) }) {
                 guard let replacement = renamed(match.1) else { continue }
                 result += line[last..<match.1.startIndex] + replacement
                 last = match.1.endIndex
