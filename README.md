@@ -48,6 +48,7 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Sort tasks:** File › Sort Tasks puts the done and cancelled tasks first and the open ones last in each section, with the lines under each task, as the vault's Task Sorter plugin does. In the editor it is one step to undo.
 - **Postpone:** a right click on a task on the Today page or the board postpones it by a day, some days, a week or a month, as the Tasks plugin's menu does: its due date moves, or else its scheduled or start date, and a date already past moves on from today.
 - **Rename a tag:** a right click on a tag in the sidebar renames it in every note, in the text and in the `tags` property, and the tags under it too: `#work/alpha` follows `#work`. Code and links keep their text.
+- **Quick capture:** a global shortcut (⌃⌥N at first, a setting) opens a small panel over any app, also with no Daftar window open. Return adds the line to today's note, ⌘↩ adds it as a task. The note and a heading to add it under are settings; the menu bar, the File menu and the command palette open the same panel.
 - **Hide the menu bar:** a setting hides the menu bar while Daftar is in front.
 - **Today:** the meetings of the day from the week notes in `Calendar/` (which Daftar on the phone writes), the free time, and the tasks that are overdue, due, in progress and coming. A click on a checkbox completes a task, also a repeating one, as the Tasks plugin does.
 - **Notifications:** an alert before each meeting, with a Join button, and a morning digest of the tasks that are due.

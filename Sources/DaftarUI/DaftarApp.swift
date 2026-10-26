@@ -19,7 +19,10 @@ public struct DaftarApp: App {
             ContentView()
                 .environment(store)
                 .frame(minWidth: 760, minHeight: 440)
-                .onAppear { delegate.store = store }
+                .onAppear {
+                    delegate.store = store
+                    QuickCaptureController.shared.store = store
+                }
                 .task(id: store.revision) {
                     // After the vault changes, the alerts and the badge follow.
                     try? await Task.sleep(for: .seconds(2))
@@ -62,6 +65,7 @@ public struct DaftarApp: App {
                 Button("Command Palette…") { window?.palette = true }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
                     .disabled(window == nil)
+                Button("Quick Capture…") { QuickCaptureController.shared.show() }
             }
             // ⌘P is the file switcher, as in Obsidian; nothing here prints.
             CommandGroup(replacing: .printItem) {}
@@ -141,11 +145,16 @@ public struct DaftarApp: App {
         MenuBarExtra {
             MenuBarView().environment(store)
         } label: {
-            if let icon = Resources.menuBarIcon {
-                Image(nsImage: icon)
-            } else {
-                Image(systemName: "book.closed")
+            // The menu bar's icon is there with no window open: quick capture
+            // gets the store from it too.
+            Group {
+                if let icon = Resources.menuBarIcon {
+                    Image(nsImage: icon)
+                } else {
+                    Image(systemName: "book.closed")
+                }
             }
+            .onAppear { QuickCaptureController.shared.store = store }
         }
         .menuBarExtraStyle(.window)
     }
@@ -171,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.applyMenuBar()
             FullScreenEscape.install()
             Notifier.shared.start()
+            QuickCaptureController.shared.start()
         }
     }
 
@@ -214,6 +224,7 @@ struct SettingsView: View {
             EditorSettings().tabItem { Label("Editor", systemImage: "character.cursor.ibeam") }
             GitSettings().tabItem { Label("Git", systemImage: "arrow.triangle.2.circlepath") }
             TerminalSettings().tabItem { Label("Terminal", systemImage: "apple.terminal") }
+            CaptureSettings().tabItem { Label("Capture", systemImage: "square.and.pencil") }
         }
         .frame(width: 520)
         .tint(Palette.accent)
@@ -439,6 +450,8 @@ struct MenuBarView: View {
                 TaskRow(task: task) { show(task.path) }
             }
             Divider()
+            Button("Quick Capture…") { QuickCaptureController.shared.show() }
+                .buttonStyle(.borderless)
             HStack {
                 Button("Open Daftar") { show("today") }
                 Spacer()

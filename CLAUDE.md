@@ -71,10 +71,13 @@ Keep logic in `DaftarCore`: its tests run in a second and need no window. `Tests
 - **A note's history is `git log --follow`** (`Git.history`), and a restore is an ordinary `VaultStore.write`: the next sync commits it, so nothing in the history is lost.
 - **The dark palette is screen-only** (`@media screen and (prefers-color-scheme: dark)` in `reader.css`), so a PDF export or a print is always in Daylight.
 - **A `@MainActor` suite's `.enabled(if:)` deadlocks the whole test run before it starts.** Put the condition in a global constant.
+- **Quick capture works with no window open.** The store belongs to the app; `QuickCaptureController` gets it from the menu bar icon's label, which is there from launch. The shortcut is a Carbon hot key (`RegisterEventHotKey`, no Accessibility permission) and the panel is a non-activating `NSPanel`, so the app in front stays in front. A capture saves the editors, reads the file again and writes with `VaultStore.write`; `QuickCapture.append` (core) keeps every line.
 - **The terminal is SwiftTerm, pinned exactly.** It runs the login shell in the vault's folder and lives in the window's model, so hiding the pane keeps the shell.
 
 ## Testing the app
 
 The installed app comes from Homebrew only (`brew install --cask parham-alvani/tap/daftar`): a release (`VERSION` and a `v*` tag) reaches the tap's cask, and the cask installs it. Never copy a test build into `/Applications`; that makes the cask install fail and hides which version is installed. Test from `build/Daftar.app` (`just app`), with `open -n` and a test `XDG_CONFIG_HOME`; a build run from `build/` asks for notification permission again. The vault is the `vault` line of the config file. `open "daftar://open?path=Folder/Note.md"` opens a note, `daftar://open?path=today` the Today page, and `daftar://terminal` the terminal. A debug build makes the web view inspectable in Safari.
+
+A Carbon hot key fires for a synthetic key only when the modifier keys go down first, as on a keyboard (`CGEvent` at `.cghidEventTap`); a key posted to the app's pid never reaches it.
 
 **Do not click a task in the real vault to test.** A tick writes the file, and with automatic sync on, it commits and pushes. Test writes on a copy, or with the unit tests.

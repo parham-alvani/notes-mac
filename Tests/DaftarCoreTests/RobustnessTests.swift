@@ -211,7 +211,22 @@ import Testing
             let renamed = TagRename.rename(text, from: "tag", to: "label")
             #expect(renamed.components(separatedBy: "\n").count == text.components(separatedBy: "\n").count)
             #expect(TagRename.rename(text, from: "absent-tag", to: "other") == text)
+            for heading in [nil, "Inbox", "## Note", "word"] {
+                let added = QuickCapture.append("captured ✱", to: text, heading: heading)
+                #expect(Self.keeps(text.components(separatedBy: "\n"), in: added.components(separatedBy: "\n")))
+                #expect(added.components(separatedBy: "\n").count { $0.hasPrefix("captured ✱") } == 1)
+            }
         }
+    }
+
+    /// Every line of [old] is in [new], in the same order.
+    static func keeps(_ old: [String], in new: [String]) -> Bool {
+        var rest = new[...]
+        for line in old {
+            guard let at = rest.firstIndex(of: line) else { return false }
+            rest = rest[(at + 1)...]
+        }
+        return true
     }
 
     @Test func aDiffTakesTheOldTextToTheNew() {
