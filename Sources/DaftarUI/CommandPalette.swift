@@ -89,6 +89,11 @@ enum PaletteCommands {
                 },
             ]
         }
+        if store.rebasing {
+            out.append(PaletteCommand(id: "conflicts", title: "Resolve Sync Conflicts", group: "Git", symbol: "exclamationmark.triangle.fill", color: Palette.accent) {
+                model.conflicts = true
+            })
+        }
         if store.isRepository, note != nil {
             out.append(PaletteCommand(id: "history", title: "Show the Note's History", group: "Git", symbol: "clock.arrow.circlepath", color: Palette.aqua, shortcut: "⌥⌘Y") {
                 model.history = true

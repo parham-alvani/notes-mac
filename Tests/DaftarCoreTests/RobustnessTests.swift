@@ -235,4 +235,26 @@ import Testing
             #expect(LineDiff.hunks(diff).flatMap { $0 }.count { $0.kind != .same } == diff.count { $0.kind != .same })
         }
     }
+
+    @Test func conflictMarksFromAnyText() {
+        let marks = ["<<<<<<< HEAD\n", "||||||| base\n", "=======\n", ">>>>>>> abc (mine)\n", "<<<<<<<\r\n", "=======\r\n", ">>>>>>>"]
+        var random = Seeded(state: 14)
+        for text in Self.samples(1000, seed: 14) {
+            #expect(ConflictText.resolve(ConflictText.parse(text), choices: [:]) == text)
+            if !text.contains("<<<<<<<") { #expect(ConflictText.parse(text) == [.plain(text)]) }
+            // Lines of plain text with marks put in at random.
+            let lines = text.components(separatedBy: "\n").flatMap { line in
+                Int.random(in: 0..<3, using: &random) == 0 ? [line + "\n", marks.randomElement(using: &random)!] : [line + "\n"]
+            }
+            let marked = lines.joined()
+            let parts = ConflictText.parse(marked)
+            #expect(ConflictText.resolve(parts, choices: [:]) == marked)
+            // Keeping both keeps every line of both sides.
+            let both = ConflictText.resolve(parts, all: .both)
+            for conflict in ConflictText.conflicts(in: marked) {
+                for line in ConflictText.lines(of: conflict.remote) + ConflictText.lines(of: conflict.mine) { #expect(both.contains(line)) }
+            }
+            for choice in ConflictText.Choice.allCases { _ = ConflictText.resolve(parts, all: choice) }
+        }
+    }
 }

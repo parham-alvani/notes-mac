@@ -31,7 +31,7 @@ public struct Git: Sendable {
     /// Runs git and returns what it printed. Never asks on a terminal: a sync
     /// that needs a password fails and says so instead of waiting for ever.
     @discardableResult
-    public func run(_ arguments: [String], trimmed: Bool = true) async throws -> String {
+    public func run(_ arguments: [String], trimmed: Bool = true, environment extra: [String: String] = [:]) async throws -> String {
         let process = Process()
         process.executableURL = executable
         process.arguments = ["-C", root.path] + arguments
@@ -42,6 +42,7 @@ public struct Git: Sendable {
         // credential helper still have to be found.
         let path = environment["PATH"] ?? "/usr/bin:/bin"
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
+        environment.merge(extra) { $1 }
         process.environment = environment
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -85,9 +86,20 @@ public struct Git: Sendable {
         (try? await run(["rev-parse", "--is-inside-work-tree"])) == "true"
     }
 
-    /// Pulls with a rebase, keeping local changes aside while it does.
+    /// Pulls with a rebase, keeping local changes aside while it does. A
+    /// rebase that stops on a conflict stays open and throws `Stopped`.
     public func pull() async throws {
-        try await run(["pull", "--rebase", "--autostash"])
+        if try await rebaseInProgress() { throw Stopped(conflicts: try await conflicts()) }
+        try await pullRebase()
+    }
+
+    private func pullRebase() async throws {
+        do {
+            try await run(["pull", "--rebase", "--autostash"])
+        } catch {
+            guard try await rebaseInProgress() else { throw error }
+            throw Stopped(conflicts: try await conflicts())
+        }
     }
 
     public struct Status: Sendable, Equatable {
@@ -122,8 +134,11 @@ public struct Git: Sendable {
 
     /// Commits everything, pulls with a rebase, and pushes: the vault's own
     /// workflow. Returns false when there was nothing to do.
+    /// A rebase open on a conflict is never committed over: it throws
+    /// `Stopped`, and the person resolves it first.
     @discardableResult
     public func sync(message: String) async throws -> Bool {
+        if try await rebaseInProgress() { throw Stopped(conflicts: try await conflicts()) }
         var changed = false
         if try await !changes().isEmpty {
             try await run(["add", "-A"])
@@ -131,13 +146,146 @@ public struct Git: Sendable {
             changed = true
         }
         let before = try await run(["rev-parse", "HEAD"])
-        try await run(["pull", "--rebase", "--autostash"])
+        try await pullRebase()
         let after = try await run(["rev-parse", "HEAD"])
-        if try await !run(["rev-list", "@{upstream}..HEAD"]).isEmpty {
-            try await run(["push"])
-            changed = true
+        return try await pushIfAhead() || changed || before != after
+    }
+
+    /// Pushes when the branch has commits its upstream has not.
+    @discardableResult
+    public func pushIfAhead() async throws -> Bool {
+        guard try await !run(["rev-list", "@{upstream}..HEAD"]).isEmpty else { return false }
+        try await run(["push"])
+        return true
+    }
+
+    // MARK: Conflicts
+
+    /// A pull whose rebase stopped on a conflict. The rebase stays open
+    /// until the person resolves it or aborts it.
+    public struct Stopped: Error, CustomStringConvertible {
+        public var conflicts: [Conflicted]
+        public init(conflicts: [Conflicted]) { self.conflicts = conflicts }
+        public var description: String {
+            conflicts.count == 1 ? "The pull stopped on a conflict in \(conflicts[0].path)." : "The pull stopped on conflicts in \(conflicts.count) files."
         }
-        return changed || before != after
+    }
+
+    /// What one side of a rebase did to a conflicted file.
+    public enum Side: Sendable, Equatable {
+        case changed, added, deleted
+    }
+
+    /// A file a rebase stopped on. During a rebase git's "ours" is the
+    /// upstream and "theirs" is the person's commit being replayed; here
+    /// they are `remote` and `mine`.
+    public struct Conflicted: Sendable, Equatable, Identifiable {
+        public var path: String
+        public var remote: Side
+        public var mine: Side
+        public var id: String { path }
+
+        public init(path: String, remote: Side, mine: Side) {
+            self.path = path
+            self.remote = remote
+            self.mine = mine
+        }
+
+        public var isMarkdown: Bool { path.lowercased().hasSuffix(".md") }
+        /// Both sides changed the text, so it has conflict marks to read.
+        public var hasMarks: Bool { remote != .deleted && mine != .deleted }
+    }
+
+    /// The person's choice for a whole file.
+    public enum Resolution: Sendable, Equatable {
+        /// The text to keep, conflict marks taken out.
+        case text(String)
+        /// The upstream's file, or its deletion.
+        case keepRemote
+        /// The person's file, or their deletion.
+        case keepMine
+    }
+
+    /// A rebase is open: `rebase-merge` or `rebase-apply` in the git folder.
+    public func rebaseInProgress() async throws -> Bool {
+        for name in ["rebase-merge", "rebase-apply"] {
+            let path = try await run(["rev-parse", "--path-format=absolute", "--git-path", name])
+            if FileManager.default.fileExists(atPath: path) { return true }
+        }
+        return false
+    }
+
+    /// The files with unresolved conflicts.
+    public func conflicts() async throws -> [Conflicted] {
+        Git.conflicted(try await run(["status", "--porcelain=v2", "-z"], trimmed: false))
+    }
+
+    /// The `u` records of `git status --porcelain=v2 -z`.
+    public static func conflicted(_ output: String) -> [Conflicted] {
+        output.split(separator: "\0").compactMap { record in
+            guard record.hasPrefix("u ") else { return nil }
+            // u XY sub m1 m2 m3 mW h1 h2 h3 path: the path may hold spaces.
+            let fields = record.split(separator: " ", maxSplits: 10, omittingEmptySubsequences: false)
+            guard fields.count == 11, fields[1].count == 2 else { return nil }
+            func side(_ letter: Character) -> Side { letter == "D" ? .deleted : letter == "A" ? .added : .changed }
+            let code = Array(fields[1])
+            return Conflicted(path: String(fields[10]), remote: side(code[0]), mine: side(code[1]))
+        }
+    }
+
+    /// Resolves one file and stages it. A side that deleted the file
+    /// deletes it when it is kept.
+    public func resolve(_ file: Conflicted, _ resolution: Resolution) async throws {
+        switch resolution {
+        case let .text(text):
+            try Data(text.utf8).write(to: root.appending(path: file.path), options: .atomic)
+            try await run(["add", "--", file.path])
+        case .keepRemote:
+            try await keep(file, side: file.remote, flag: "--ours")
+        case .keepMine:
+            try await keep(file, side: file.mine, flag: "--theirs")
+        }
+    }
+
+    private func keep(_ file: Conflicted, side: Side, flag: String) async throws {
+        if side == .deleted {
+            try await run(["rm", "-q", "--ignore-unmatch", "--", file.path])
+        } else {
+            // In a rebase `--ours` is the upstream and `--theirs` the replayed commit.
+            try await run(["checkout", flag, "--", file.path])
+            try await run(["add", "--", file.path])
+        }
+    }
+
+    /// Goes on with the rebase once every file is resolved. Returns the
+    /// conflicts of the next commit it replays, if that one stops too, or
+    /// none when the rebase is done. Git is never let to open an editor.
+    public func continueRebase() async throws -> [Conflicted] {
+        while try await rebaseInProgress() {
+            let open = try await conflicts()
+            if !open.isEmpty { return open }
+            do {
+                try await run(["rebase", "--continue"], environment: ["GIT_EDITOR": "true"])
+            } catch {
+                // A stop on the next commit's conflict is not a failure.
+                guard try await rebaseInProgress(), try await !conflicts().isEmpty else { throw error }
+            }
+        }
+        return []
+    }
+
+    /// Resolves [resolutions], goes on with the rebase and pushes when it is
+    /// done. Returns the next commit's conflicts when the rebase stops again.
+    public func finishRebase(_ resolutions: [(Conflicted, Resolution)]) async throws -> [Conflicted] {
+        for (file, resolution) in resolutions { try await resolve(file, resolution) }
+        let open = try await continueRebase()
+        if open.isEmpty { try await pushIfAhead() }
+        return open
+    }
+
+    /// Ends the open rebase and puts the branch back as it was before the pull.
+    public func abortRebase() async throws {
+        try await run(["rebase", "--abort"])
     }
 
     /// A commit that changed a note.

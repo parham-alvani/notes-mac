@@ -33,6 +33,14 @@ final class VaultStore {
     private(set) var isRepository = false
     /// The branch and how it stands, refreshed after each sync and file change.
     private(set) var gitStatus: Git.Status?
+    /// A pull's rebase stopped on a conflict and is still open. No sync runs
+    /// until the person resolves it or aborts it.
+    private(set) var rebasing = false
+    /// The files the open rebase stopped on.
+    private(set) var conflicts: [Git.Conflicted] = []
+    /// Grows each time a sync finds the rebase open, so the window in front
+    /// shows the conflicts.
+    private(set) var conflictStops = 0
 
     /// A message the window shows once, then clears: an edit that failed.
     var notice: String?
@@ -100,7 +108,10 @@ final class VaultStore {
         Task {
             isRepository = await Git(root: url).isRepository()
             guard isRepository else { return }
-            if settings.pullOnLaunch {
+            // A rebase left open, by Daftar or in a terminal, is shown, not pulled over.
+            if (try? await Git(root: url).rebaseInProgress()) == true {
+                await refreshConflicts(show: true)
+            } else if settings.pullOnLaunch {
                 await run { try await Git(root: url).pull() }
             }
             await refreshStatus()
@@ -580,15 +591,17 @@ final class VaultStore {
 
     // MARK: Git
 
-    /// Commit, pull and push now.
+    /// Commit, pull and push now. With a conflict open, the conflicts show instead.
     func sync() async {
         guard let root else { return }
+        if rebasing { return conflictStops += 1 }
         await run { try await Git(root: root).sync(message: Git.message()) }
     }
 
     /// Pull only: nothing is committed or pushed.
     func pull() async {
         guard let root else { return }
+        if rebasing { return conflictStops += 1 }
         await run { try await Git(root: root).pull() }
     }
 
@@ -600,10 +613,73 @@ final class VaultStore {
             try await work()
             lastSync = Date()
             syncError = nil
+        } catch let stopped as Git.Stopped {
+            rebasing = true
+            conflicts = stopped.conflicts
+            conflictStops += 1
+            syncError = stopped.description
         } catch {
             syncError = String(describing: error)
         }
         await refreshStatus()
+    }
+
+    // MARK: Conflicts
+
+    /// Reads whether a rebase is open and the files it stopped on.
+    func refreshConflicts(show: Bool = false) async {
+        guard let root, isRepository else { return }
+        let git = Git(root: root)
+        rebasing = (try? await git.rebaseInProgress()) ?? false
+        conflicts = rebasing ? ((try? await git.conflicts()) ?? []) : []
+        if rebasing, show { conflictStops += 1 }
+        await refreshStatus()
+    }
+
+    /// Resolves every file as chosen, goes on with the rebase and pushes.
+    /// Returns false when the next replayed commit stopped on a conflict too,
+    /// or something failed; `conflicts` then holds what is open.
+    func finishConflicts(_ resolutions: [(Git.Conflicted, Git.Resolution)]) async -> Bool {
+        guard let root, rebasing, !syncing else { return false }
+        syncing = true
+        defer { syncing = false }
+        let git = Git(root: root)
+        do {
+            let open = try await git.finishRebase(resolutions)
+            changed(Set(resolutions.map(\.0.path)))
+            if open.isEmpty {
+                rebasing = false
+                conflicts = []
+                lastSync = Date()
+                syncError = nil
+            } else {
+                conflicts = open
+                syncError = Git.Stopped(conflicts: open).description
+            }
+        } catch {
+            syncError = String(describing: error)
+            notice = "The sync could not go on: \(error)"
+            rebasing = (try? await git.rebaseInProgress()) ?? false
+            conflicts = rebasing ? ((try? await git.conflicts()) ?? []) : []
+        }
+        await refreshStatus()
+        return !rebasing
+    }
+
+    /// Ends the open rebase: the branch is as it was before the pull, and
+    /// the next sync pulls again.
+    func abortConflicts() async {
+        guard let root, rebasing, !syncing else { return }
+        syncing = true
+        defer { syncing = false }
+        do {
+            try await Git(root: root).abortRebase()
+            syncError = nil
+            notice = "The sync was stopped. Your commits are as they were before the pull."
+        } catch {
+            notice = "The sync could not be stopped: \(error)"
+        }
+        await refreshConflicts()
     }
 
     func refreshStatus() async {
@@ -614,11 +690,11 @@ final class VaultStore {
     /// After an edit: a sync a little later, when automatic sync is on, so
     /// that several ticks in a row make one commit.
     private func requestSync() {
-        guard settings.syncInterval > 0 else { return }
+        guard settings.syncInterval > 0, !rebasing else { return }
         syncSoon?.cancel()
         syncSoon = Task {
             try? await Task.sleep(for: .seconds(20))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !rebasing else { return }
             await sync()
         }
     }
@@ -629,7 +705,8 @@ final class VaultStore {
         guard minutes > 0, isRepository else { return }
         autoSync = Task {
             while !Task.isCancelled {
-                await sync()
+                // Automatic sync waits while a conflict is open.
+                if !rebasing { await sync() }
                 try? await Task.sleep(for: .seconds(Double(minutes) * 60))
             }
         }

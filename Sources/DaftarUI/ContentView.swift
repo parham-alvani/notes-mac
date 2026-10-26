@@ -58,6 +58,13 @@ struct ContentView: View {
             HistorySheet(model: model)
         }
         .sheet(item: $model.tagRename) { TagRenameSheet(target: $0) }
+        .sheet(isPresented: $model.conflicts) {
+            ConflictSheet(model: model)
+        }
+        // A sync that stopped on a conflict opens the conflicts in the window in front.
+        .onChange(of: store.conflictStops) { _, _ in
+            if store.rebasing, ActiveWindow.shared.model == nil || ActiveWindow.shared.model === model { model.conflicts = true }
+        }
         .translationPresentation(isPresented: Binding { model.translation != nil } set: { if !$0 { model.translation = nil } }, text: model.translation ?? "")
         .sheet(item: $model.taskEdit) { task in
             TaskEditSheet(task: task)
@@ -143,6 +150,14 @@ struct ContentView: View {
                 if let url = store.url(of: path) {
                     ShareLink(item: url)
                 }
+            }
+            if store.rebasing {
+                Button { model.conflicts = true } label: {
+                    Label("Conflicts", systemImage: "exclamationmark.triangle.fill")
+                }
+                .badge(store.conflicts.count)
+                .foregroundStyle(Palette.accent)
+                .help("The pull stopped on a conflict. Choose what to keep; sync waits until then.")
             }
             if store.isRepository {
                 SyncButton()
@@ -269,6 +284,7 @@ struct SyncButton: View {
 
     private var symbol: String {
         if store.syncing { return "arrow.triangle.2.circlepath.circle" }
+        if store.rebasing { return "exclamationmark.arrow.triangle.2.circlepath" }
         if store.syncError != nil { return "exclamationmark.arrow.triangle.2.circlepath" }
         if let status = store.gitStatus, status.changed > 0 || status.ahead > 0 { return "arrow.up.circle" }
         if let status = store.gitStatus, status.behind > 0 { return "arrow.down.circle" }

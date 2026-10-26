@@ -126,6 +126,8 @@ public struct DaftarApp: App {
                 Button("Sync Now") { Task { await store.sync() } }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                     .disabled(!store.isRepository)
+                Button("Resolve Sync Conflicts…") { window?.conflicts = true }
+                    .disabled(!store.rebasing || window == nil)
             }
         }
 

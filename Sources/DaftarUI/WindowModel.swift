@@ -136,6 +136,8 @@ final class WindowModel {
     var assistant = false
     /// The open note's history in the vault's repository.
     var history = false
+    /// A pull stopped on a conflict: the files to resolve.
+    var conflicts = false
     /// "Rename Tag…": the tag whose sheet is open.
     var tagRename: TagTarget?
     /// "Set Icon…": the note or folder the icon picker is open on.
