@@ -222,11 +222,14 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
     public var month: Int
     public var day: Int
 
-    private static var utc: Calendar {
+    /// Made once: a calendar made for each day read was most of the time
+    /// a tasks query over a large vault took.
+    static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return calendar
-    }
+    }()
+    nonisolated(unsafe) private static let pattern = /(\d{4})-(\d{2})-(\d{2})/
 
     public init(year: Int, month: Int, day: Int) {
         self.year = year
@@ -235,7 +238,7 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
     }
 
     public init?(_ text: String) {
-        guard let match = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: /(\d{4})-(\d{2})-(\d{2})/),
+        guard let match = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: Self.pattern),
             let y = Int(match.1), let m = Int(match.2), let d = Int(match.3),
             (1...12).contains(m), (1...31).contains(d)
         else { return nil }
@@ -245,8 +248,8 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
 
     /// The day [date] falls on in [zone].
     public init(date: Date, in zone: TimeZone = TimeZone(identifier: "UTC")!) {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = zone
+        var calendar = Self.utc
+        if zone != calendar.timeZone { calendar.timeZone = zone }
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
         self.init(year: parts.year!, month: parts.month!, day: parts.day!)
     }

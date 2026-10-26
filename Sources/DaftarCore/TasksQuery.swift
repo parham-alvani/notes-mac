@@ -104,11 +104,16 @@ public struct TasksQuery: Sendable {
     /// `sort by`, open tasks come before finished ones and sooner before later;
     /// ties keep the order they were given in.
     public func run<T>(_ tasks: [T], today: Day, view: (T) -> QueryTask) -> [T] {
+        // Each task's groups are worked out once, not in every comparison of the sort.
         let kept = tasks.enumerated().map { ($0.offset, $0.element, view($0.element)) }
             .filter { _, _, task in filters.allSatisfy { $0(task, today) } }
-        let order: [Comparison] = groupers.map { group in { a, b in Self.compare(group(a), group(b)) } }
-            + sorts + [Self.defaultOrder]
+            .map { offset, element, task in (offset, element, task, groupers.map { group in group(task) }) }
+        let order: [Comparison] = sorts + [Self.defaultOrder]
         let sorted = kept.sorted { a, b in
+            for (x, y) in zip(a.3, b.3) {
+                let result = Self.compare(x, y)
+                if result != .orderedSame { return result == .orderedAscending }
+            }
             for compare in order {
                 let result = compare(a.2, b.2)
                 if result != .orderedSame { return result == .orderedAscending }
@@ -245,8 +250,9 @@ public struct TasksQuery: Sendable {
             let relation = match.2.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "on"
             let phrase = String(match.3).trimmingCharacters(in: .whitespaces)
             guard DateRange(phrase, today: Day(year: 2000, month: 1, day: 1)) != nil else { return nil }
+            let ranges = DateRange.Cache(phrase)
             return { task, today in
-                guard let range = DateRange(phrase, today: today), let value = field(task), let day = Day(value) else { return false }
+                guard let range = ranges.range(today: today), let value = field(task), let day = Day(value) else { return false }
                 return range.relation(relation, day) ?? false
             }
         }
@@ -445,6 +451,25 @@ struct DateRange: Equatable {
         }
     }
 
+    /// The range of one phrase, made once for each day the query runs on
+    /// rather than once for each task it tests.
+    final class Cache: @unchecked Sendable {
+        let phrase: String
+        private let lock = NSLock()
+        private var last: (today: Day, range: DateRange?)?
+
+        init(_ phrase: String) { self.phrase = phrase }
+
+        func range(today: Day) -> DateRange? {
+            lock.withLock {
+                if let last, last.today == today { return last.range }
+                let range = DateRange(phrase, today: today)
+                last = (today, range)
+                return range
+            }
+        }
+    }
+
     func relation(_ relation: String, _ date: Day) -> Bool? {
         switch relation {
         case "before": date < start
@@ -460,8 +485,6 @@ struct DateRange: Equatable {
 extension Day {
     /// 1 is Sunday, as `Calendar` counts.
     var weekday: Int {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar.component(.weekday, from: date)
+        Self.utc.component(.weekday, from: date)
     }
 }
