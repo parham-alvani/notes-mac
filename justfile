@@ -1,5 +1,6 @@
 VERSION := `cat VERSION`
 APP := "build/Daftar.app"
+QL := "build/Daftar.app/Contents/PlugIns/DaftarQuickLook.appex"
 
 default:
     @just --list
@@ -29,7 +30,14 @@ app: web
     reader="$(find {{ APP }}/Contents/Resources/Daftar_DaftarUI.bundle -type d -name Reader | head -1)"; test -n "$reader" && cp -R Sources/DaftarUI/Reader/. "$reader/" && cmp -s Sources/DaftarUI/Reader/reader.js "$reader/reader.js"
     sed 's/VERSION/{{ VERSION }}/g' Support/Info.plist > {{ APP }}/Contents/Info.plist
     if [ -f Support/Daftar.icns ]; then cp Support/Daftar.icns {{ APP }}/Contents/Resources/; fi
-    codesign --force --deep --sign - {{ APP }}
+    # The Quick Look extension: its executable, its Info.plist, the renderer and the reader's styles.
+    mkdir -p {{ QL }}/Contents/MacOS {{ QL }}/Contents/Resources
+    cp "$(swift build -c release --arch arm64 --show-bin-path)/DaftarQuickLook" {{ QL }}/Contents/MacOS/
+    sed 's/VERSION/{{ VERSION }}/g' Support/QuickLook/Info.plist > {{ QL }}/Contents/Info.plist
+    cp web/dist/quicklook.js Sources/DaftarUI/Reader/reader.css Sources/DaftarUI/Reader/tasks.css Sources/DaftarUI/Reader/callouts.css {{ QL }}/Contents/Resources/
+    # Inside out, and without --deep: --deep signs the extension again without its sandbox, and Quick Look refuses it.
+    codesign --force --sign - --entitlements Support/QuickLook/QuickLook.entitlements {{ QL }}
+    codesign --force --sign - {{ APP }}
     @echo "{{ APP }} {{ VERSION }}"
 
 # build the app and start it

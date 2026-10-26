@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>DaftarQuickLook</string>
+    <key>CFBundleDisplayName</key>
+    <string>Daftar</string>
+    <key>CFBundleIdentifier</key>
+    <string>me.parham1995.notes.quicklook</string>
+    <key>CFBundleExecutable</key>
+    <string>DaftarQuickLook</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleShortVersionString</key>
+    <string>VERSION</string>
+    <key>CFBundleVersion</key>
+    <string>VERSION</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>26.0</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>GPL-3.0</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.quicklook.preview</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>DaftarPreviewProvider</string>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>QLIsDataBasedPreview</key>
+            <true/>
+            <key>QLSupportsSearchableItems</key>
+            <false/>
+            <key>QLSupportedContentTypes</key>
+            <array>
+                <string>net.daringfireball.markdown</string>
+            </array>
+        </dict>
+    </dict>
+</dict>
+</plist>

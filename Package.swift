@@ -17,6 +17,7 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "Daftar", targets: ["Daftar"]),
+        .executable(name: "DaftarQuickLook", targets: ["DaftarQuickLook"]),
     ],
     dependencies: [
         // The terminal pane. Pinned exactly: a terminal emulator is a parser
@@ -39,6 +40,12 @@ let package = Package(
         .executableTarget(
             name: "Daftar",
             dependencies: ["DaftarUI"]
+        ),
+        // The Quick Look extension: an executable that `just app` puts in
+        // `Contents/PlugIns/DaftarQuickLook.appex`, with Support/QuickLook.
+        .executableTarget(
+            name: "DaftarQuickLook",
+            dependencies: ["DaftarCore"]
         ),
         .testTarget(
             name: "DaftarCoreTests",

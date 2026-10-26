@@ -126,6 +126,9 @@ public enum Vault {
     /// Folders never read: the app's settings, git, dependencies, the trash.
     static let skipped: Set<String> = [".obsidian", ".git", ".trash", "node_modules", ".github"]
 
+    /// Front matter the reader does not print: the plugins' own keys.
+    public static let hiddenProperties: Set<String> = ["cssclasses", "cssclass", "icon", "iconColor", "position"]
+
     public static func title(of path: String) -> String {
         let name = path.split(separator: "/").last.map(String.init) ?? path
         return name.removingSuffix(".md")

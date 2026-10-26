@@ -56,6 +56,7 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Terminal:** ⌃` opens your login shell in the vault's folder, under the note, in the same colors.
 - **Icons:** the folders and notes show the icons and colors of the Iconic plugin. A `logo.svg` (or `logo.png`, `.webp`, `.jpg`) in a folder is that folder's icon, for example a company's logo on its folder; the file itself is not listed. Daftar on Android shows the same logos.
 - **Breadcrumb:** a bar above the note shows the vault, its folders and the note. A folder opens a menu of what is in it, and the note's crumb has the file commands.
+- **Quick Look:** the space bar on a `.md` file in Finder shows the note as the reader draws it: callouts, highlights, tags in their colors, Persian right to left, and the Daylight or naz colors of the system appearance. Wikilinks show as links but do not open, and images that the note embeds from its vault show too. The preview comes with the app; open Daftar once after an install so that macOS finds it.
 
 ## Configuration
 

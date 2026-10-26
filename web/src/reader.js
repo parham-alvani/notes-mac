@@ -2,7 +2,7 @@
 // what the person does with it. Every message to the app goes through
 // `post`, and the app calls `daftar.show` and `daftar.scrollTo`.
 
-import { render, renderInline, isClosed } from "./render.js";
+import { render, renderInline, isClosed, hue, languageColor } from "./render.js";
 
 const app = window.webkit?.messageHandlers;
 
@@ -374,24 +374,6 @@ function zoom(node) {
   document.body.appendChild(overlay);
 }
 
-/** A colour of the palette for each tag, the same one every time. */
-const TAG_COLORS = ["--orange", "--aqua", "--pink", "--purple", "--chartreuse", "--blue", "--spring-green", "--vivid-yellow", "--red"];
-
-function hue(text) {
-  let hash = 0;
-  for (const char of text) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
-  return TAG_COLORS[hash % TAG_COLORS.length];
-}
-
-/** The colour of a code block's language label. */
-const LANGUAGE_COLORS = {
-  go: "--aqua", python: "--vivid-yellow", py: "--vivid-yellow", bash: "--chartreuse", sh: "--chartreuse", shell: "--chartreuse", zsh: "--chartreuse",
-  fish: "--chartreuse", powershell: "--blue", yaml: "--pink", yml: "--pink", toml: "--pink", json: "--orange", sql: "--purple", rust: "--orange",
-  zig: "--orange", c: "--blue", cpp: "--blue", typescript: "--blue", ts: "--blue", javascript: "--vivid-yellow", js: "--vivid-yellow",
-  hcl: "--purple", terraform: "--purple", swift: "--orange", kotlin: "--purple", java: "--red", ruby: "--red", lua: "--blue",
-  dockerfile: "--aqua", nix: "--blue", html: "--orange", css: "--pink", markdown: "--grey", md: "--grey", text: "--grey", diff: "--spring-green",
-};
-
 /** The Tasks plugin's signifiers, each drawn as a chip in its colour. */
 const TASK_META = /(📅|⏳|🛫|✅|❌|➕)\uFE0F?\s*(\d{4}-\d{2}-\d{2})|(🔁)\uFE0F?\s*([^📅⏳🛫✅❌➕🔺⏫🔼🔽⏬#]+?)(?=\s*(?:[📅⏳🛫✅❌➕🔺⏫🔼🔽⏬#]|$))|(🔺|⏫|🔼|🔽|⏬)\uFE0F?/gu;
 const META_KIND = { "📅": "is-due", "⏳": "is-scheduled", "🛫": "is-start", "✅": "is-done", "❌": "is-cancelled", "➕": "is-created" };
@@ -593,8 +575,7 @@ function decorate(root) {
     const lang = /language-([\w+#-]+)/.exec(code.className)?.[1] ?? "";
     const block = document.createElement("div");
     block.className = "code-block";
-    const color = Object.hasOwn(LANGUAGE_COLORS, lang.toLowerCase()) ? LANGUAGE_COLORS[lang.toLowerCase()] : "--accent";
-    block.style.setProperty("--lang-color", `var(${color})`);
+    block.style.setProperty("--lang-color", `var(${languageColor(lang)})`);
     const head = document.createElement("div");
     head.className = "code-head";
     head.innerHTML = `<span class="code-lang">${escape(lang || "code")}</span><button class="code-copy" title="Copy"><span class="icon"></span><span class="label">Copy</span></button>`;

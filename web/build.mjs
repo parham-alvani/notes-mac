@@ -19,6 +19,20 @@ await build({
   legalComments: "eof",
 });
 
+// The Quick Look extension renders notes with the same code, in
+// JavaScriptCore. It is not part of the app's reader: `just app` copies it
+// into the extension.
+mkdirSync("dist", { recursive: true });
+await build({
+  entryPoints: ["src/quicklook.js"],
+  bundle: true,
+  minify: true,
+  format: "iife",
+  target: "safari17",
+  outfile: "dist/quicklook.js",
+  legalComments: "eof",
+});
+
 // Mermaid is most of the weight, and most notes have no diagram: the page
 // loads it the first time a note needs it.
 await build({
