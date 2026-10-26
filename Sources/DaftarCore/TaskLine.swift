@@ -38,9 +38,13 @@ public enum TaskMetadata {
         // the text, as the Tasks plugin keeps them.
         var tags: [String] = []
         var kinds = Set<String>()
+        // Each symbol is one scalar: only those in the line are looked for,
+        // not all fifteen at each step.
+        let scalars = Set(line.unicodeScalars)
+        let present = symbols.keys.filter { scalars.contains($0.unicodeScalars.first!) }
         while true {
             var last: (String, Range<String.Index>)?
-            for symbol in symbols.keys {
+            for symbol in present {
                 if let range = remaining.range(of: symbol, options: .backwards),
                     last == nil || range.lowerBound > last!.1.lowerBound
                 {
@@ -87,8 +91,8 @@ public enum TaskLine {
     }
 
     static func parse(_ raw: String, line: Int, section: String) -> ParsedTask? {
-        guard raw.contains("["), let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
-        let body = match.3.contains("^") ? String(match.3).replacing(blockId, with: "") : String(match.3)
+        guard raw.hasMark("["), let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
+        let body = match.3.hasMark("^") ? String(match.3).replacing(blockId, with: "") : String(match.3)
         let split = TaskMetadata.split(body)
         func date(_ emoji: String) -> String? {
             split.meta.first { $0.emoji == emoji }?.value.nilIfEmpty

@@ -77,7 +77,7 @@ public enum NoteParser {
         note.tags = note.tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
 
         // A link in a property, `up: "[[Parent]]"`, is a link as Obsidian counts them.
-        for index in 1..<max(1, front.lineCount - 1) where lines[index].contains("[[") {
+        for index in 1..<max(1, front.lineCount - 1) where lines[index].hasMark("[[") {
             for match in lines[index].matches(of: wikilink) {
                 let parts = Wikilink(String(match.2))
                 note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
@@ -93,7 +93,7 @@ public enum NoteParser {
             // Each pattern runs only on a line that has the marks it needs:
             // a regular expression on every line was most of the time a
             // large vault took to open.
-            if raw.contains("```") || raw.contains("~~~"), let match = raw.firstMatch(of: fence) {
+            if raw.hasMark("```") || raw.hasMark("~~~"), let match = raw.firstMatch(of: fence) {
                 let marker = String(match.1)
                 if fenceMarker == nil {
                     fenceMarker = marker
@@ -114,12 +114,12 @@ public enum NoteParser {
                 note.headings.append(Heading(level: match.1.count, text: text, line: index))
                 section = text
             }
-            let code = line.contains("`") ? line.replacing(inlineCode, with: "") : line
-            for match in code.contains("[[") ? code.matches(of: wikilink) : [] {
+            let code = line.hasMark("`") ? line.replacing(inlineCode, with: "") : line
+            for match in code.hasMark("[[") ? code.matches(of: wikilink) : [] {
                 let parts = Wikilink(String(match.2))
                 note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
             }
-            for match in code.contains("](") ? code.matches(of: markdownLink) : [] {
+            for match in code.hasMark("](") ? code.matches(of: markdownLink) : [] {
                 let url = String(match.2)
                 guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { continue }
                 let decoded = url.removingPercentEncoding ?? url
@@ -128,7 +128,7 @@ public enum NoteParser {
                 let anchor = hash.map { String(decoded[decoded.index(after: $0)...]) }
                 note.links.append(Link(target: target, anchor: anchor, embed: !match.1.isEmpty, line: index))
             }
-            for match in code.contains("#") ? code.matches(of: tag) : [] where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
+            for match in code.mayHoldTag ? code.matches(of: tag) : [] where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
                 note.tags.append(String(match.1))
             }
             if let task = TaskLine.parse(line, line: index, section: section) {
@@ -141,6 +141,48 @@ public enum NoteParser {
         var seen = Set<String>()
         note.tags = note.tags.filter { !$0.isEmpty && seen.insert(Slugs.fold($0)).inserted }
         return note
+    }
+}
+
+extension StringProtocol {
+    /// Whether the text's UTF-8 holds [mark], a few ASCII characters: the
+    /// quick test before a pattern that needs them. Foundation's `contains`
+    /// took as long as some of the patterns it was there to spare.
+    func hasMark(_ mark: StaticString) -> Bool {
+        let needle = UnsafeBufferPointer(start: mark.utf8Start, count: mark.utf8CodeUnitCount)
+        func search(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+            guard bytes.count >= needle.count, let first = needle.first else { return needle.isEmpty }
+            var at = 0
+            while at <= bytes.count - needle.count {
+                if bytes[at] == first {
+                    var same = true
+                    for offset in 1..<needle.count where bytes[at + offset] != needle[offset] {
+                        same = false
+                        break
+                    }
+                    if same { return true }
+                }
+                at += 1
+            }
+            return false
+        }
+        return utf8.withContiguousStorageIfAvailable(search) ?? Array(utf8).withUnsafeBufferPointer(search)
+    }
+
+    /// Whether a `#` here is followed by something a tag can start with:
+    /// not a space, a tab, another `#` or the end. A heading's marks are not.
+    var mayHoldTag: Bool {
+        func search(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+            var at = 0
+            while at + 1 < bytes.count {
+                if bytes[at] == UInt8(ascii: "#"), ![UInt8(ascii: " "), UInt8(ascii: "\t"), UInt8(ascii: "#")].contains(bytes[at + 1]) {
+                    return true
+                }
+                at += 1
+            }
+            return false
+        }
+        return utf8.withContiguousStorageIfAvailable(search) ?? Array(utf8).withUnsafeBufferPointer(search)
     }
 }
 
@@ -173,7 +215,7 @@ public struct Wikilink: Sendable, Equatable {
 /// `%% comments %%`, which may run over several lines.
 enum Comments {
     static func strip(_ line: String, open: inout Bool) -> String {
-        guard open || line.contains("%%") else { return line }
+        guard open || line.hasMark("%%") else { return line }
         var out = ""
         var rest = Substring(line)
         while true {
