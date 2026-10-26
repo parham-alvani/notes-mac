@@ -50,12 +50,22 @@ public struct Git: Sendable {
 
         return try await withCheckedThrowingContinuation { continuation in
             let output = OutputBuffer()
+            let ended = DispatchSemaphore(value: 0)
             pipe.fileHandleForReading.readabilityHandler = { handle in
-                output.append(handle.availableData)
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                    ended.signal()
+                } else {
+                    output.append(chunk)
+                }
             }
             process.terminationHandler = { process in
-                pipe.fileHandleForReading.readabilityHandler = nil
-                output.append(pipe.fileHandleForReading.readDataToEndOfFile())
+                // The text is complete at the end of the pipe, not when git
+                // exits: the handler may still hold the last chunk. A helper
+                // that git started and that stays, such as an SSH master
+                // connection, can keep the pipe open, so not for ever.
+                if ended.wait(timeout: .now() + 2) == .timedOut { pipe.fileHandleForReading.readabilityHandler = nil }
                 let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if process.terminationStatus == 0 {
                     continuation.resume(returning: text)
