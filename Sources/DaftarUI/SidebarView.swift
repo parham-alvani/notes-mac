@@ -286,6 +286,9 @@ struct FileMenu: View {
         Button("Set Icon…") { model.iconTarget = IconTarget(path: item, folder: folder != nil || !store.index.files.contains(item)) }
         Button("Rename…") { model.fileAction = .rename(item) }
         Button("Move to…") { model.fileAction = .move(item) }
+        if let folder {
+            Button("Replace in Folder…") { model.vaultReplace = ReplaceTarget(folder: folder) }
+        }
         Divider()
         Button("Move to Trash…", role: .destructive) { model.fileAction = .delete(item) }
     }

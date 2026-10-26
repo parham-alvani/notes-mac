@@ -140,6 +140,8 @@ final class WindowModel {
     var conflicts = false
     /// "Rename Tag…": the tag whose sheet is open.
     var tagRename: TagTarget?
+    /// ⇧⌘H, "Replace in Vault…": the folder it opens on.
+    var vaultReplace: ReplaceTarget?
     /// "Set Icon…": the note or folder the icon picker is open on.
     var iconTarget: IconTarget?
     /// ⌃⌘T: the text the system's translation panel shows.
@@ -430,6 +432,12 @@ struct ReaderFind: Equatable {
 struct TagTarget: Identifiable, Equatable {
     var tag: String
     var id: String { tag }
+}
+
+/// Where "Replace in Vault" looks first: a folder, or "" for the whole vault.
+struct ReplaceTarget: Identifiable, Equatable {
+    var folder: String
+    var id: String { folder }
 }
 
 /// A file command, and the file or folder it acts on.

@@ -5,7 +5,8 @@ import Foundation
 /// Tags match without regard to case, as Obsidian counts them. Code, code
 /// blocks and links are left as they are.
 public enum TagRename {
-    nonisolated(unsafe) private static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
+    /// A fence line, also for `VaultReplace`'s "Skip code".
+    nonisolated(unsafe) static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
     nonisolated(unsafe) private static let name = /[\p{L}\p{N}_\/-]+/
     nonisolated(unsafe) private static let bodyTag = /(?:^|\s)#([\p{L}\p{N}_\/-]+)/
     nonisolated(unsafe) private static let property = /^([A-Za-z_][\w-]*)\s*:(.*)$/

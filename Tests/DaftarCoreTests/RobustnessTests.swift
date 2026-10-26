@@ -236,6 +236,18 @@ import Testing
                 #expect(Self.keeps(text.components(separatedBy: "\n"), in: added.components(separatedBy: "\n")))
                 #expect(added.components(separatedBy: "\n").count { $0.hasPrefix("captured ✱") } == 1)
             }
+            for (find, regex) in [("a", false), ("#", false), (#"\[\[([^\]]*)\]\]"#, true), ("^", true), (#"\s*"#, true), ("(", true)] {
+                let options = VaultReplace.Options(regularExpression: regex, skipCode: find.count % 2 == 0)
+                guard let found = try? VaultReplace.matches(in: text, find: find, replace: "$1", options: options) else {
+                    // An invalid pattern is reported, never a crash.
+                    #expect(find == "(")
+                    continue
+                }
+                #expect(VaultReplace.apply([], to: text) == text)
+                let same = found.map { match in var match = match; match.replacement = match.found; return match }
+                #expect(VaultReplace.apply(same, to: text) == text)
+                _ = VaultReplace.apply(found, to: text)
+            }
         }
     }
 

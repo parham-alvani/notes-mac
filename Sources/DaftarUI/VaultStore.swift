@@ -575,6 +575,55 @@ final class VaultStore {
         return written.count
     }
 
+    // MARK: Replace in the vault
+
+    /// The notes "Replace in Vault" reads: the `.md` files in [folder], or
+    /// in the whole vault for "", without Obsidian's excluded files.
+    func replaceScope(_ folder: String) -> [String] {
+        index.files
+            .filter { Vault.isNote($0) && !excluded.contains($0) && (folder.isEmpty || $0.hasPrefix(folder + "/")) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// The matches of [pattern] in each note of [folder], read from disk:
+    /// the notes with a match, in path order.
+    func replaceMatches(_ pattern: VaultReplace.Pattern, in folder: String) async -> [NoteMatches] {
+        guard let root else { return [] }
+        let paths = replaceScope(folder)
+        return await Task.detached {
+            paths.compactMap { path -> NoteMatches? in
+                guard let file = Self.file(path, in: root), let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+                let matches = VaultReplace.matches(in: text, pattern: pattern)
+                return matches.isEmpty ? nil : NoteMatches(path: path, matches: matches)
+            }
+        }.value
+    }
+
+    /// Replaces the [chosen] matches of each note. Each note is read again
+    /// and refused when its matches are not the [shown] ones; the rest are
+    /// written with `write`, so the next sync commits them.
+    func replace(_ pattern: VaultReplace.Pattern, shown: [NoteMatches], chosen: Set<MatchKey>) -> ReplaceSummary {
+        var summary = ReplaceSummary()
+        for note in shown {
+            let ids = Set(note.matches.map(\.id).filter { chosen.contains(MatchKey(path: note.path, id: $0)) })
+            guard !ids.isEmpty else { continue }
+            guard let text = text(of: note.path) else {
+                summary.refused.append(note.path)
+                continue
+            }
+            do {
+                let result = try VaultReplace.replace(in: text, pattern: pattern, shown: note.matches, chosen: ids)
+                guard result != text else { continue }
+                try write(result, to: note.path)
+                summary.notes += 1
+                summary.replacements += ids.count
+            } catch {
+                summary.refused.append(note.path)
+            }
+        }
+        return summary
+    }
+
     // MARK: History
 
     /// The commits that changed [path], newest first; none outside a repository.
@@ -829,4 +878,25 @@ enum StoreError: LocalizedError {
         case .outside(let path): "“\(path)” is outside the vault"
         }
     }
+}
+
+/// One note's matches for "Replace in Vault".
+struct NoteMatches: Sendable, Identifiable, Equatable {
+    var path: String
+    var matches: [VaultReplace.Match]
+    var id: String { path }
+}
+
+/// A match of a note, for the checkboxes of "Replace in Vault".
+struct MatchKey: Hashable {
+    var path: String
+    var id: Int
+}
+
+/// What "Replace in Vault" did.
+struct ReplaceSummary: Equatable {
+    var notes = 0
+    var replacements = 0
+    /// The notes that changed after the preview, or could not be read or written.
+    var refused: [String] = []
 }

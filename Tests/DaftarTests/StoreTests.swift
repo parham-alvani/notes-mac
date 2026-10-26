@@ -57,6 +57,32 @@ import Testing
         #expect(store.renameTag("work", to: "2026") == 0)
     }
 
+    @Test func replaceInVaultWritesTheCheckedMatches() async throws {
+        try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appending(path: "Archive"), withIntermediateDirectories: true)
+        try #"{"userIgnoreFilters":["Archive/"]}"#.write(to: root.appending(path: ".obsidian/app.json"), atomically: true, encoding: .utf8)
+        try "Call Alice. `Alice` stays. Alice again.".write(to: root.appending(path: "Home.md"), atomically: true, encoding: .utf8)
+        try "Alice".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
+        try "Alice".write(to: root.appending(path: "Archive/Old.md"), atomically: true, encoding: .utf8)
+        try "Alice".write(to: root.appending(path: "Notes/data.txt"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let pattern = try #require(try VaultReplace.Pattern(find: "alice", replace: "Bob", options: .init()))
+        let found = await store.replaceMatches(pattern, in: "")
+        #expect(found.map(\.path) == ["Home.md", "Notes/Plan.md"])
+        #expect(await store.replaceMatches(pattern, in: "Notes").map(\.path) == ["Notes/Plan.md"])
+        let home = try #require(found.first)
+        // The second Alice of Home is unchecked; Plan changes after the preview.
+        var chosen = Set(found.flatMap { note in note.matches.map { MatchKey(path: note.path, id: $0.id) } })
+        chosen.remove(MatchKey(path: "Home.md", id: home.matches[1].id))
+        try "Alice and Alice".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
+        let summary = store.replace(pattern, shown: found, chosen: chosen)
+        #expect(summary == ReplaceSummary(notes: 1, replacements: 1, refused: ["Notes/Plan.md"]))
+        #expect(try text("Home.md") == "Call Bob. `Alice` stays. Alice again.")
+        #expect(try text("Notes/Plan.md") == "Alice and Alice")
+        #expect(try text("Archive/Old.md") == "Alice")
+        #expect(store.replace(pattern, shown: found, chosen: []) == ReplaceSummary())
+    }
+
     @Test func thePeriodicNoteIsMadeFromItsTemplate() throws {
         try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appending(path: "Templates"), withIntermediateDirectories: true)

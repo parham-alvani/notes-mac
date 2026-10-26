@@ -54,6 +54,9 @@ public struct DaftarApp: App {
                 Button("Find Previous") { window?.find(.previousMatch) }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
                     .disabled(window?.path == nil || window?.showsPage == true)
+                Button("Replace in Vault…") { window?.vaultReplace = ReplaceTarget(folder: "") }
+                    .keyboardShortcut("h", modifiers: [.command, .shift])
+                    .disabled(window == nil || store.root == nil)
             }
             CommandGroup(after: .newItem) {
                 Button("Open Vault…") { chooseVault(store) }
