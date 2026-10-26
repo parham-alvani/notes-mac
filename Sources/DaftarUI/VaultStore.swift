@@ -17,6 +17,10 @@ final class VaultStore {
     private(set) var excluded = ExcludedFiles()
     /// Obsidian's bookmarks, the same file both apps read and write.
     private(set) var bookmarks = Bookmarks()
+    /// The Daily notes plugin's series, which may be of weeks or months.
+    private(set) var periodic = PeriodicNotes(DailyNotes())
+    /// The Templates plugin's folder and formats.
+    private(set) var templates = Templates()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0
@@ -75,6 +79,8 @@ final class VaultStore {
         iconic = Iconic.load(url)
         excluded = ExcludedFiles.load(url)
         bookmarks = Bookmarks.load(url)
+        periodic = PeriodicNotes(DailyNotes.read(root: url))
+        templates = Templates.read(root: url)
         places.load(root: url, directory: settings.stateDirectory)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
@@ -107,6 +113,8 @@ final class VaultStore {
         root = url.standardizedFileURL
         excluded = ExcludedFiles.load(url)
         bookmarks = Bookmarks.load(url)
+        periodic = PeriodicNotes(DailyNotes.read(root: url))
+        templates = Templates.read(root: url)
         places.load(root: url, directory: settings.stateDirectory)
         index = Vault.index(url, search: search)
         revision += 1
@@ -196,8 +204,30 @@ final class VaultStore {
         // A note that moved or went is not written again at its old path.
         guard let file = url(of: path), index.files.contains(path) else { throw StoreError.gone(path) }
         try Data(text.utf8).write(to: file, options: .atomic)
+        places.markRead(path)
         changed([path])
         requestSync()
+    }
+
+    /// An edit of the app's own, read from the file and written back. The
+    /// app's own change does not make the note "updated since you read".
+    private func ownEdit(_ path: String, in root: URL, _ change: (String) throws -> String) throws {
+        try VaultEdits.apply(path, in: root, change)
+        places.markRead(path)
+    }
+
+    /// The notes read before that changed on disk since, by a pull or
+    /// another app: newest first.
+    var updatedSinceRead: [String] {
+        index.notes.values
+            .filter { note in places.lastRead(note.path).map { note.modified.timeIntervalSince($0) > 2 } ?? false }
+            .sorted { $0.modified > $1.modified }
+            .map(\.path)
+    }
+
+    func isUpdatedSinceRead(_ path: String) -> Bool {
+        guard let read = places.lastRead(path), let note = index.notes[path] else { return false }
+        return note.modified.timeIntervalSince(read) > 2
     }
 
     /// Ticks or opens the task on [line] of [path]. The file is read again
@@ -206,7 +236,7 @@ final class VaultStore {
     func toggleTask(path: String, line: Int, status: Character) {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return }
         do {
-            try VaultEdits.apply(path, in: root) { text in
+            try ownEdit(path, in: root) { text in
                 try VaultEdits.toggleTask(in: text, line: line, status: status, today: .today())
             }
             changed([path])
@@ -252,7 +282,7 @@ final class VaultStore {
         let title = Vault.title(of: target)
         let name = index.resolve(title, from: source) == target ? title : String(target.dropLast(3))
         do {
-            try VaultEdits.apply(source, in: root) { try UnlinkedMentions.link(mention, to: name, in: $0) }
+            try ownEdit(source, in: root) { try UnlinkedMentions.link(mention, to: name, in: $0) }
             changed([source])
             requestSync()
         } catch VaultEdits.Failure.textMoved {
@@ -324,6 +354,30 @@ final class VaultStore {
         changed([path])
         requestSync()
         return path
+    }
+
+    /// The template notes of the vault, for New Note.
+    var templateNotes: [String] { templates.templates(in: index.files) }
+
+    /// [template]'s text filled for a note named [name], made now.
+    func filled(template: String, name: String) -> String {
+        guard let text = text(of: template) else { return "" }
+        return templates.fill(text, title: name, day: .today(), clock: .now())
+    }
+
+    /// The periodic note of the period [day] falls in, made from the Daily
+    /// notes plugin's template when it is not there yet; its vault path.
+    func periodicNote(for day: Day = .today()) throws -> String {
+        let path = periodic.path(for: day)
+        if index.files.contains(path) { return path }
+        let parts = path.split(separator: "/").map(String.init)
+        let name = String(parts.last!.dropLast(3))
+        var body = ""
+        let template = periodic.config.template
+        if !template.isEmpty, let source = text(of: Vault.isNote(template) ? template : template + ".md") {
+            body = templates.fill(source, title: name, day: day, clock: .now())
+        }
+        return try createNote(named: name, in: parts.dropLast().joined(separator: "/"), text: body)
     }
 
     /// The note a link to nothing names, made empty: `[[Folder/Name]]` in
@@ -419,7 +473,7 @@ final class VaultStore {
     func moveTask(_ task: VaultTask, to drop: TaskBoard.Drop) -> Bool {
         guard let root, url(of: task.path) != nil, index.files.contains(task.path) else { return false }
         do {
-            try VaultEdits.apply(task.path, in: root) { text in
+            try ownEdit(task.path, in: root) { text in
                 try VaultEdits.moveTask(in: text, line: task.task.line, task: task.task, to: drop, today: .today())
             }
             changed([task.path])
@@ -437,7 +491,7 @@ final class VaultStore {
     func editTask(path: String, line: Int, before: TaskFields, fields: TaskFields) -> Bool {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
         do {
-            try VaultEdits.apply(path, in: root) { text in
+            try ownEdit(path, in: root) { text in
                 try VaultEdits.editTask(in: text, line: line, before: before, fields: fields)
             }
             changed([path])

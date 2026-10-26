@@ -103,6 +103,19 @@ public struct DaftarApp: App {
                     .keyboardShortcut("1")
                 Button("Board") { window?.showsBoard = true }
                     .keyboardShortcut("2")
+                Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
+                    .keyboardShortcut("3")
+                    .disabled(window == nil || store.root == nil)
+                Button("Previous \(store.periodic.period.noun)") {
+                    if let window, let path = window.periodicNeighbour(-1, store: store) { window.open(path, store: store) }
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(window?.periodicNeighbour(-1, store: store) == nil)
+                Button("Next \(store.periodic.period.noun)") {
+                    if let window, let path = window.periodicNeighbour(1, store: store) { window.open(path, store: store) }
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(window?.periodicNeighbour(1, store: store) == nil)
                 Divider()
                 Button("Sync Now") { Task { await store.sync() } }
                     .keyboardShortcut("s", modifiers: [.command, .shift])

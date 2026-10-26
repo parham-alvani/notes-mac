@@ -38,6 +38,7 @@ struct FilesList: View {
     /// The folder a dragged file is over.
     @ViewState private var dropTarget: String?
     @ViewState private var tagsOpen = false
+    @ViewState private var updatedOpen = true
 
     var body: some View {
         let groups = store.taskGroups()
@@ -87,6 +88,37 @@ struct FilesList: View {
                             Button("Remove Bookmark") { store.toggleBookmark(entry.path) }
                         }
                     }
+                }
+            }
+            let updated = store.updatedSinceRead
+            if !updated.isEmpty {
+                Section(isExpanded: $updatedOpen) {
+                    ForEach(updated.prefix(12), id: \.self) { path in
+                        Label {
+                            HStack {
+                                Text(Vault.title(of: path)).lineLimit(1)
+                                Spacer()
+                                if let modified = store.index.notes[path]?.modified {
+                                    Text(modified, format: .relative(presentation: .named, unitsStyle: .narrow))
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                        } icon: {
+                            Image(systemName: "sparkles").foregroundStyle(Palette.aqua)
+                                .frame(width: IconicImage.slot, height: IconicImage.slot)
+                        }
+                        .tag(SidebarItem.bookmark(path))
+                        .help("Changed on \(store.index.notes[path]?.modified.formatted(date: .abbreviated, time: .shortened) ?? "disk") since you last read it")
+                        .contextMenu {
+                            Button("Mark as Read") { store.places.markRead(path) }
+                        }
+                    }
+                    if updated.count > 1 {
+                        Button("Mark All as Read") { for path in updated { store.places.markRead(path) } }
+                            .buttonStyle(.borderless).font(.caption).foregroundStyle(Palette.aqua)
+                    }
+                } header: {
+                    Text("Updated since you read · \(updated.count)")
                 }
             }
             Section(store.name) {
@@ -180,7 +212,13 @@ struct FileRow: View {
     var body: some View {
         let icon = store.iconic.icon(for: node.path, folder: node.isFolder)
         Label {
-            Text(node.name).foregroundStyle(Vault.opensInApp(node.path) || node.isFolder ? .primary : .secondary)
+            HStack(spacing: 4) {
+                Text(node.name).foregroundStyle(Vault.opensInApp(node.path) || node.isFolder ? .primary : .secondary)
+                if !node.isFolder, store.isUpdatedSinceRead(node.path) {
+                    Circle().fill(Palette.aqua).frame(width: 6, height: 6)
+                        .help("Changed since you last read it")
+                }
+            }
         } icon: {
             if node.isFolder {
                 IconicImage(

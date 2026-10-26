@@ -13,6 +13,8 @@ struct FileActionSheet: View {
     @ViewState private var name = ""
     @ViewState private var folderQuery = ""
     @ViewState private var folder: String?
+    /// The template a new note starts from, nil for an empty note.
+    @ViewState private var template: String?
     @ViewState private var error: String?
     @ViewState private var working = false
     @FocusState private var focused: Bool
@@ -160,6 +162,17 @@ struct FileActionSheet: View {
                 .focused($focused)
                 .onSubmit { Task { await commit() } }
                 .onChange(of: name) { error = nil }
+            if case .newNote = action, !store.templateNotes.isEmpty {
+                Picker("Template", selection: $template) {
+                    Text("None").tag(String?.none)
+                    Divider()
+                    ForEach(store.templateNotes, id: \.self) { path in
+                        Text(Vault.title(of: path)).tag(String?.some(path))
+                    }
+                }
+                .pickerStyle(.menu)
+                .help("The note starts as a copy of the template, with {{title}}, {{date}} and {{time}} filled in")
+            }
         }
     }
 
@@ -261,7 +274,8 @@ struct FileActionSheet: View {
         do {
             switch action {
             case .newNote(let folder):
-                let path = try store.createNote(named: name, in: folder)
+                let text = template.map { store.filled(template: $0, name: name.trimmingCharacters(in: .whitespaces)) } ?? ""
+                let path = try store.createNote(named: name, in: folder, text: text)
                 model.open(path, store: store)
                 model.editing = true
             case .newFolder(let parent):

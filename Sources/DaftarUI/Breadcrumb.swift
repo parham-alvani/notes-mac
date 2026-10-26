@@ -13,23 +13,62 @@ struct Breadcrumb: View {
     var body: some View {
         let parts = path.split(separator: "/").map(String.init)
         let folders = (0..<max(parts.count - 1, 0)).map { parts[...$0].joined(separator: "/") }
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                folderCrumb("", name: store.name, symbol: "books.vertical.fill", color: Palette.blue)
-                ForEach(folders, id: \.self) { folder in
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    folderCrumb("", name: store.name, symbol: "books.vertical.fill", color: Palette.blue)
+                    ForEach(folders, id: \.self) { folder in
+                        separator
+                        folderCrumb(folder, name: String(folder.split(separator: "/").last ?? ""), symbol: nil, color: Palette.accent)
+                    }
                     separator
-                    folderCrumb(folder, name: String(folder.split(separator: "/").last ?? ""), symbol: nil, color: Palette.accent)
+                    noteCrumb
                 }
-                separator
-                noteCrumb
+                .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 12)
+            if store.periodic.period(of: path) != nil { periodicControls.padding(.trailing, 10) }
         }
         .frame(height: 34)
         .overlay(alignment: .bottom) {
             LinearGradient(colors: [Palette.accent.opacity(0.5), Palette.pink.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
                 .frame(height: 1)
         }
+    }
+
+    /// On a periodic note: the nearest earlier and later notes of the
+    /// series, and a menu of the current one and the same time in earlier years.
+    private var periodicControls: some View {
+        let periodic = store.periodic
+        let earlier = periodic.nearest(store.index.files, from: path, step: -1)
+        let later = periodic.nearest(store.index.files, from: path, step: 1)
+        let years = periodic.yearsAgo(store.index.files, from: path)
+        return HStack(spacing: 2) {
+            Button { if let earlier { model.open(earlier, store: store) } } label: { Image(systemName: "chevron.left") }
+                .disabled(earlier == nil)
+                .help(earlier.map { "Previous: \(Vault.title(of: $0)) (⌥⌘←)" } ?? "No earlier note")
+            Menu {
+                Button(periodic.period.current) { model.openPeriodicNote(store: store) }
+                if !years.isEmpty {
+                    Section("Earlier years") {
+                        ForEach(years, id: \.path) { year in
+                            Button("\(year.years == 1 ? "A year ago" : "\(year.years) years ago"): \(Vault.title(of: year.path))") {
+                                model.open(year.path, store: store)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label(periodic.period.noun, systemImage: "calendar").font(.callout)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            Button { if let later { model.open(later, store: store) } } label: { Image(systemName: "chevron.right") }
+                .disabled(later == nil)
+                .help(later.map { "Next: \(Vault.title(of: $0)) (⌥⌘→)" } ?? "No later note")
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Palette.aqua)
     }
 
     private var separator: some View {

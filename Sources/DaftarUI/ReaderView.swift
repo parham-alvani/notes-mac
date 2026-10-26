@@ -134,6 +134,7 @@ struct ReaderView: NSViewRepresentable {
                 "textSize": store.settings.textSize,
                 "fontText": Fonts.css.text,
                 "fontCode": Fonts.css.code,
+                "folds": store.places.folds(request.path),
             ]
             if !keepScroll {
                 if let heading = request.heading { note["heading"] = heading }
@@ -225,6 +226,8 @@ struct ReaderView: NSViewRepresentable {
                 }
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
+            case "folds":
+                if let path = shown?.path, let folds = body["folds"] as? [String] { parent.store.places.setFolds(path, folds) }
             case "cursor":
                 if let line = body["line"] as? Int { parent.onCursor?(line) }
             case "edit":

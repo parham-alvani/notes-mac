@@ -1,15 +1,20 @@
 import CryptoKit
 import DaftarCore
 import Foundation
+import Observation
 
-/// The reading places of one vault (`ReadingPlaces`), shared by every
+/// What the app remembers of the notes of one vault (`ReadingPlaces`): the
+/// reading places, folds and read times, shared by every
 /// window and written to a file a second after the last change, and when
 /// the app quits. Without a [directory] they live only as long as the app.
-@MainActor
+@MainActor @Observable
 final class PlaceBook {
-    private var places = ReadingPlaces()
-    private var file: URL?
-    private var save: Task<Void, Never>?
+    /// Grows when a note is read, so the marks of updated notes follow;
+    /// the cursor's moves are not watched.
+    private(set) var reads = 0
+    @ObservationIgnored private var places = ReadingPlaces()
+    @ObservationIgnored private var file: URL?
+    @ObservationIgnored private var save: Task<Void, Never>?
 
     init() {}
 
@@ -20,6 +25,7 @@ final class PlaceBook {
         let name = SHA256.hash(data: Data(root.standardizedFileURL.path.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
         file = directory.appending(path: "places-\(name).json")
         places = file.flatMap { try? Data(contentsOf: $0) }.map(ReadingPlaces.init(data:)) ?? ReadingPlaces()
+        reads += 1
     }
 
     subscript(path: String) -> Int? {
@@ -29,6 +35,25 @@ final class PlaceBook {
             places.set(path, line: newValue)
             later()
         }
+    }
+
+    func folds(_ path: String) -> [String] { places.folds(path) }
+
+    func setFolds(_ path: String, _ folds: [String]) {
+        guard places.folds(path) != folds else { return }
+        places.setFolds(path, folds)
+        later()
+    }
+
+    func lastRead(_ path: String) -> Date? {
+        _ = reads
+        return places.lastRead(path)
+    }
+
+    func markRead(_ path: String, at date: Date = Date()) {
+        places.markRead(path, at: date)
+        reads += 1
+        later()
     }
 
     func follow(_ change: VaultChange) {

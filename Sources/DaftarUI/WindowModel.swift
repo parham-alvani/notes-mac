@@ -20,7 +20,14 @@ final class WindowModel {
     }
     /// A page, not a note, is on screen.
     var showsPage: Bool { page != nil }
-    var request: ReaderRequest?
+    var request: ReaderRequest? {
+        // The note left, and the note shown, are both read as they are now.
+        didSet {
+            guard oldValue?.path != request?.path else { return }
+            if let old = oldValue?.path { places.markRead(old) }
+            if let path = request?.path { places.markRead(path) }
+        }
+    }
     /// The note is open in the editor rather than the reader.
     var editing = false {
         // Back to reading: the reader opens where the editor's cursor was.
@@ -197,6 +204,21 @@ final class WindowModel {
         recent.removeAll { $0 == path }
         recent.insert(path, at: 0)
         if recent.count > 30 { recent.removeLast() }
+    }
+
+    /// The periodic note of [day]'s period, made when it is not there yet.
+    func openPeriodicNote(for day: Day = .today(), store: VaultStore) {
+        do {
+            open(try store.periodicNote(for: day), store: store)
+        } catch {
+            store.notice = (error as? VaultMoves.Failure)?.description ?? error.localizedDescription
+        }
+    }
+
+    /// The periodic note nearest to the open one in the direction of [step], when there is one.
+    func periodicNeighbour(_ step: Int, store: VaultStore) -> String? {
+        guard !showsPage, let path else { return nil }
+        return store.periodic.nearest(store.index.files, from: path, step: step)
     }
 
     func goBack() {

@@ -424,8 +424,103 @@ function taskChips(item, today) {
   }
 }
 
+/**
+ * Sections fold shut from their heading, as in Obsidian's reading view: a
+ * chevron before the heading, or `z` on the reading cursor's section. A fold
+ * is named `level:text`, so an edit above it does not open it, and the app
+ * keeps the folds of each note.
+ */
+const folds = {
+  open: new Set(),
+  shut: new Set(),
+
+  key(heading) {
+    return `${heading.tagName.slice(1)}:${heading.dataset.heading}`;
+  },
+
+  headings() {
+    return [...document.querySelectorAll("#note > [data-heading]")];
+  },
+
+  /** Hides what each folded heading holds: everything after it up to a heading as big or bigger. */
+  apply() {
+    let shutLevel = Infinity;
+    for (const child of document.getElementById("note").children) {
+      const level = /^H[1-6]$/.test(child.tagName) && child.dataset.heading !== undefined ? Number(child.tagName[1]) : null;
+      if (level !== null && level <= shutLevel) shutLevel = Infinity;
+      const away = shutLevel !== Infinity;
+      child.classList.toggle("folded-away", away);
+      if (level !== null) {
+        const shut = this.shut.has(this.key(child));
+        child.classList.toggle("is-folded", shut);
+        if (shut && !away) shutLevel = level;
+      }
+    }
+    reading.redraw();
+    progress();
+  },
+
+  toggle(heading, save = true) {
+    const key = this.key(heading);
+    if (this.shut.has(key)) this.shut.delete(key);
+    else this.shut.add(key);
+    this.apply();
+    if (save) post({ kind: "folds", folds: [...this.shut] });
+  },
+
+  /** All shut, or all open. */
+  all(shut) {
+    this.shut = new Set(shut ? this.headings().filter((h) => this.holds(h)).map((h) => this.key(h)) : []);
+    this.apply();
+    post({ kind: "folds", folds: [...this.shut] });
+  },
+
+  /** A heading with something under it before the next heading as big. */
+  holds(heading) {
+    const level = Number(heading.tagName[1]);
+    const next = heading.nextElementSibling;
+    return next !== null && !(next.dataset.heading !== undefined && Number(next.tagName[1]) <= level);
+  },
+
+  /** Opens every fold that hides [el]. */
+  reveal(el) {
+    let changed = false;
+    while (el.closest?.(".folded-away")) {
+      const shut = this.headings().filter((h) => h.classList.contains("is-folded") && h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const last = shut.at(-1);
+      if (!last) break;
+      this.shut.delete(this.key(last));
+      this.apply();
+      changed = true;
+    }
+    if (changed) post({ kind: "folds", folds: [...this.shut] });
+  },
+
+  /** The heading of the section [block] is in. */
+  sectionOf(block) {
+    let top = block;
+    while (top && top.parentElement?.id !== "note") top = top.parentElement;
+    for (let el = top; el; el = el.previousElementSibling) {
+      if (el.dataset?.heading !== undefined && /^H[1-6]$/.test(el.tagName)) return el;
+    }
+    return null;
+  },
+};
+
 /** What the page adds after rendering: tag colours, task chips and code block headers. */
 function decorate(root) {
+  if (root.id === "note") {
+    root.querySelectorAll(":scope > [data-heading]").forEach((heading) => {
+      if (heading.querySelector(".fold-toggle") || !folds.holds(heading)) return;
+      const button = Object.assign(document.createElement("button"), { className: "fold-toggle", title: "Fold or unfold this section (z)" });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        folds.toggle(heading);
+      });
+      heading.prepend(button);
+    });
+  }
   // A link to each heading, to copy: `[[Note#Heading]]`.
   if (root.id === "note") {
     root.querySelectorAll(":scope > [data-heading]").forEach((heading) => {
@@ -434,7 +529,7 @@ function decorate(root) {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const text = [...heading.childNodes].filter((node) => node !== button).map((node) => node.textContent).join("").trim();
+        const text = [...heading.childNodes].filter((node) => node.tagName !== "BUTTON").map((node) => node.textContent).join("").trim();
         post({ kind: "copy", text: `[[${current.title}#${text}]]` });
         button.textContent = "✓";
         setTimeout(() => (button.textContent = "#"), 1200);
@@ -645,8 +740,12 @@ window.daftar = {
     else window.scrollTo(0, 0);
     // The reading cursor: on the line the editor was at, on the same block
     // when the note is shown again, or at the top in a note just opened.
-    reading.restore(note.line ?? (keep !== null ? reading.line : null));
+    folds.shut = new Set(note.folds ?? []);
     decorate(main);
+    folds.apply();
+    // A link to a heading inside a folded section opens the section.
+    if (keep === null && note.heading) this.scrollTo(note.heading);
+    reading.restore(note.line ?? (keep !== null ? reading.line : null));
     progress();
     await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
     decorate(main);
@@ -662,6 +761,7 @@ window.daftar = {
     let target;
     if (anchor.startsWith("^")) target = main.querySelector(`[id="${CSS.escape(anchor)}"]`);
     else target = heading(main, anchor);
+    if (target) folds.reveal(target);
     target?.scrollIntoView({ block: "start" });
   },
 
@@ -669,6 +769,7 @@ window.daftar = {
   scrollToLine(line) {
     const blocks = [...document.querySelectorAll("#note [data-line]")];
     const target = blocks.filter((b) => Number(b.dataset.line) <= line).pop();
+    if (target) folds.reveal(target);
     target?.scrollIntoView({ block: "start" });
   },
 
@@ -760,7 +861,7 @@ const reading = {
   /** The blocks in order: the innermost with a source line, not an embed's. */
   blocks() {
     return [...document.querySelectorAll("#note [data-line]")].filter(
-      (el) => el.tagName !== "INPUT" && !el.parentElement.closest(".embed-body, .preview") && (el.tagName === "LI" || !el.querySelector("[data-line]:not(input)")),
+      (el) => el.tagName !== "INPUT" && !el.parentElement.closest(".embed-body, .preview") && !el.closest(".folded-away") && (el.tagName === "LI" || !el.querySelector("[data-line]:not(input)")),
     );
   },
 
@@ -861,6 +962,12 @@ document.addEventListener("keydown", (event) => {
   else if (event.key === "G" || event.key === "End") reading.end(true);
   else if (event.key === " ") reading.page(event.shiftKey ? -1 : 1);
   else if (event.key === "e" && reading.line != null) post({ kind: "edit", line: reading.line });
+  else if (event.key === "z" && reading.block) {
+    const heading = /^H[1-6]$/.test(reading.block.tagName) ? reading.block : folds.sectionOf(reading.block);
+    if (!heading || !folds.holds(heading)) return;
+    folds.toggle(heading);
+    reading.place(heading, true);
+  } else if (event.key === "Z") folds.all(folds.shut.size === 0);
   else if (event.key === "Enter" && reading.block) {
     // The block's first link, as a click on it.
     const link = reading.block.querySelector("a.internal-link, a[href]:not(.footnote-backref):not(.heading-link)");

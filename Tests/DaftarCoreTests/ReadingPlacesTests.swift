@@ -41,4 +41,26 @@ import Testing
         #expect(places["Keep.md"] == 1)
         #expect(ReadingPlaces(data: places.data) == places)
     }
+
+    @Test func foldsAndReadTimesComeBack() {
+        var places = ReadingPlaces()
+        places.setFolds("Plan.md", ["2:Done", "3:Old ideas"])
+        places.markRead("Plan.md", at: Date(timeIntervalSince1970: 1_800_000_000.7))
+        places.set("Plan.md", line: 4)
+        let back = ReadingPlaces(data: places.data)
+        #expect(back == places)
+        #expect(back.folds("Plan.md") == ["2:Done", "3:Old ideas"])
+        #expect(back.lastRead("Plan.md") == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(back["Plan.md"] == 4)
+        places.setFolds("Plan.md", [])
+        #expect(places.folds("Plan.md").isEmpty)
+        places.moved(["Plan.md": "Roadmap.md"])
+        #expect(places.lastRead("Roadmap.md") != nil)
+    }
+
+    @Test func theFirstFormatIsStillRead() {
+        let old = ReadingPlaces(data: Data(#"{"places":[{"A.md":3},{"B.md":9}]}"#.utf8))
+        #expect(old["A.md"] == 3)
+        #expect(old["B.md"] == 9)
+    }
 }

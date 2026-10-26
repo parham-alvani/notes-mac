@@ -32,6 +32,24 @@ import Testing
         #expect(!store.editTask(path: "Notes/Plan.md", line: 1, before: before, fields: after))
     }
 
+    @Test func thePeriodicNoteIsMadeFromItsTemplate() throws {
+        try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appending(path: "Templates"), withIntermediateDirectories: true)
+        try #"{"format":"YYYY-[W]ww","folder":"Journal","template":"Templates/Week"}"#.write(to: root.appending(path: ".obsidian/daily-notes.json"), atomically: true, encoding: .utf8)
+        try "# {{title}}\nFrom {{date:YYYY-MM-DD}}\n".write(to: root.appending(path: "Templates/Week.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        #expect(store.periodic.period == .week)
+        #expect(store.templateNotes == ["Templates/Week.md"])
+        let path = try store.periodicNote(for: Day(year: 2026, month: 9, day: 24))
+        #expect(path == "Journal/2026-W39.md")
+        #expect(try text(path) == "# 2026-W39\nFrom 2026-09-24\n")
+        // Once there, it is opened and not written again.
+        try "kept".write(to: root.appending(path: path), atomically: true, encoding: .utf8)
+        #expect(try store.periodicNote(for: Day(year: 2026, month: 9, day: 26)) == path)
+        #expect(try text(path) == "kept")
+        #expect(store.filled(template: "Templates/Week.md", name: "Plan").hasPrefix("# Plan\nFrom "))
+    }
+
     @Test func bookmarksFollowARename() async throws {
         store.toggleBookmark("Notes/Plan.md")
         #expect(store.bookmarks.contains("Notes/Plan.md"))
