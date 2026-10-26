@@ -4,6 +4,7 @@
 
 import { render, renderInline, isClosed } from "./render.js";
 import { renderView } from "./bases.js";
+import { renderCanvas, bounds, fit } from "./canvas.js";
 
 const app = window.webkit?.messageHandlers;
 
@@ -755,6 +756,12 @@ window.daftar = {
     root.setProperty("--font-features", note.fontText?.startsWith("-apple-system") === false ? "normal" : '"ss01" 1, "ss07" 1, "cv07" 1');
     if (note.fontCode) root.setProperty("--font-mono", note.fontCode);
     const main = document.getElementById("note");
+    main.classList.toggle("is-canvas", Boolean(note.canvas));
+    if (note.canvas) {
+      await showCanvas(main, note);
+      return;
+    }
+    board.el = null;
     main.innerHTML =
       `<h1 class="inline-title" dir="auto">${escape(note.title)}</h1>` +
       renderProperties(note.properties) +
@@ -848,6 +855,157 @@ window.daftar = {
     window.find?.(text, false, false, true);
   },
 };
+
+/**
+ * A canvas on screen: its board, and the pan and zoom of its world. The
+ * view of each canvas is kept, so a canvas drawn again after a change on
+ * disk stays where it was.
+ */
+const board = { el: null, world: null, path: "", scale: 1, x: 0, y: 0, nodes: [], drag: null, moved: false, pinch: 1 };
+const boardViews = new Map();
+
+function applyBoard() {
+  if (!board.world) return;
+  board.world.style.transform = `translate(${board.x}px, ${board.y}px) scale(${board.scale})`;
+  board.el.style.setProperty("--canvas-scale", board.scale);
+  boardViews.set(board.path, { scale: board.scale, x: board.x, y: board.y });
+}
+
+/** Zooms by [factor] keeping the point under ([cx], [cy]) where it is. */
+function zoomBoard(factor, cx, cy) {
+  const scale = Math.min(4, Math.max(0.05, board.scale * factor));
+  const rect = board.el.getBoundingClientRect();
+  const px = (cx ?? rect.left + rect.width / 2) - rect.left, py = (cy ?? rect.top + rect.height / 2) - rect.top;
+  board.x = px - ((px - board.x) * scale) / board.scale;
+  board.y = py - ((py - board.y) * scale) / board.scale;
+  board.scale = scale;
+  applyBoard();
+}
+
+function fitBoard() {
+  Object.assign(board, fit(bounds(board.nodes), board.el.clientWidth, board.el.clientHeight));
+  applyBoard();
+}
+
+/** A `.canvas` file: read-only, panned with a scroll or a drag, zoomed with a pinch, ⌘-scroll or + and −. */
+async function showCanvas(main, note) {
+  const title = note.title.replace(/\.canvas$/i, "");
+  main.innerHTML =
+    `<div class="canvas-board">${renderCanvas(note.canvas, { path: note.path, links: note.links })}` +
+    `<div class="canvas-bar"><span class="canvas-title" dir="auto">${escape(title)}</span>` +
+    `<button class="canvas-zoom-out" title="Zoom out (−)">−</button><button class="canvas-zoom-in" title="Zoom in (+)">+</button><button class="canvas-fit" title="Show the whole canvas (0)">Fit</button></div></div>`;
+  Object.assign(board, { el: main.querySelector(".canvas-board"), world: main.querySelector(".canvas-world"), path: note.path, nodes: note.canvas.nodes ?? [] });
+  board.el.querySelector(".canvas-zoom-in").addEventListener("click", () => zoomBoard(1.25));
+  board.el.querySelector(".canvas-zoom-out").addEventListener("click", () => zoomBoard(0.8));
+  board.el.querySelector(".canvas-fit").addEventListener("click", fitBoard);
+  const kept = note.keepScroll ? boardViews.get(note.path) : null;
+  if (kept) {
+    Object.assign(board, kept);
+    applyBoard();
+  } else fitBoard();
+  // The board is read-only: a task on it is shown, not ticked.
+  const lock = () => main.querySelectorAll("input[type=checkbox]").forEach((box) => (box.disabled = true));
+  lock();
+  decorate(main);
+  await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
+  lock();
+  decorate(main);
+}
+
+const onBoard = (event) => board.el?.isConnected && board.el.contains(event.target);
+
+/** A card's body that can still scroll that way takes the scroll; the board takes the rest. */
+function scrollsInside(target, dx, dy) {
+  for (let el = target; el && el !== board.el; el = el.parentElement) {
+    if (!el.classList?.contains("canvas-node-body")) continue;
+    if (dy < 0 && el.scrollTop > 0) return true;
+    if (dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) return true;
+    if (dx < 0 && el.scrollLeft > 0) return true;
+    if (dx > 0 && el.scrollLeft + el.clientWidth < el.scrollWidth - 1) return true;
+    return false;
+  }
+  return false;
+}
+
+document.addEventListener(
+  "wheel",
+  (event) => {
+    if (!onBoard(event)) return;
+    // A trackpad pinch comes as a wheel with Control; ⌘ and a mouse wheel zoom too.
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      zoomBoard(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002)), event.clientX, event.clientY);
+      return;
+    }
+    if (scrollsInside(event.target, event.deltaX, event.deltaY)) return;
+    event.preventDefault();
+    board.x -= event.deltaX;
+    board.y -= event.deltaY;
+    applyBoard();
+  },
+  { passive: false },
+);
+
+// Safari's own pinch.
+document.addEventListener("gesturestart", (event) => {
+  if (!onBoard(event)) return;
+  event.preventDefault();
+  board.pinch = 1;
+});
+document.addEventListener("gesturechange", (event) => {
+  if (!onBoard(event)) return;
+  event.preventDefault();
+  zoomBoard(event.scale / board.pinch, event.clientX, event.clientY);
+  board.pinch = event.scale;
+});
+
+// A drag on the background, on a group, or with the middle button pans.
+document.addEventListener("pointerdown", (event) => {
+  if (!onBoard(event) || event.target.closest(".canvas-bar")) return;
+  const onCard = event.target.closest(".canvas-node");
+  if (onCard && event.button !== 1) return;
+  board.drag = { x: event.clientX, y: event.clientY, bx: board.x, by: board.y, id: event.pointerId };
+  board.moved = false;
+  board.el.setPointerCapture(event.pointerId);
+  board.el.classList.add("is-panning");
+});
+document.addEventListener("pointermove", (event) => {
+  if (!board.drag || event.pointerId !== board.drag.id) return;
+  const dx = event.clientX - board.drag.x, dy = event.clientY - board.drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) board.moved = true;
+  board.x = board.drag.bx + dx;
+  board.y = board.drag.by + dy;
+  applyBoard();
+});
+const endDrag = () => {
+  board.drag = null;
+  board.el?.classList.remove("is-panning");
+};
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+
+// A click on a file card, away from its links, opens the file.
+document.addEventListener("click", (event) => {
+  if (!onBoard(event)) return;
+  const card = event.target.closest(".canvas-node[data-open]");
+  if (!card || event.target.closest("a, button, input, img, video, audio, iframe, summary")) return;
+  if (board.moved || window.getSelection()?.toString()) return;
+  post({ kind: "open", path: card.dataset.open, target: "", anchor: "", newTab: event.metaKey });
+});
+
+/** The board's keys: + and − zoom, 0 fits, the arrows pan. True when taken. */
+function boardKey(event) {
+  const step = 60;
+  const keys = {
+    "+": () => zoomBoard(1.25), "=": () => zoomBoard(1.25), "-": () => zoomBoard(0.8), "0": fitBoard,
+    ArrowLeft: () => { board.x += step; applyBoard(); }, ArrowRight: () => { board.x -= step; applyBoard(); },
+    ArrowUp: () => { board.y += step; applyBoard(); }, ArrowDown: () => { board.y -= step; applyBoard(); },
+  };
+  if (!keys[event.key]) return false;
+  keys[event.key]();
+  event.preventDefault();
+  return true;
+}
 
 // A right click on a task opens the app's edit form for it.
 document.addEventListener("contextmenu", (event) => {
@@ -1024,6 +1182,11 @@ const reading = {
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
   if (event.target.closest?.("input, textarea, [contenteditable], .find-bar") || document.querySelector(".zoom")) return;
+  // A canvas has no reading cursor: its keys pan and zoom.
+  if (board.el?.isConnected) {
+    boardKey(event);
+    return;
+  }
   if (event.key === "Escape" && document.querySelector(".is-speaking")) {
     post({ kind: "stopSpeaking" });
     event.preventDefault();

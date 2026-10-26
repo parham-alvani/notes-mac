@@ -761,3 +761,74 @@ li.task-list-item.is-checked .query-date { text-decoration: none; opacity: 0.75;
 /* An address or a phone number found in the text: a link, but quieter than one the note wrote. */
 a.detected { color: inherit; text-decoration: underline dotted color-mix(in srgb, var(--link-color, var(--accent)) 70%, transparent); text-underline-offset: 3px; cursor: pointer; }
 a.detected:hover { color: var(--link-color, var(--accent)); }
+
+/* A canvas: a board that fills the window, its world panned and zoomed by a
+   transform. Cards are panels with a border in their colour; groups are
+   frames under them; edges are curves in the SVG between the two. */
+#note.is-canvas { max-width: none; padding: 0; }
+.canvas-board {
+  position: fixed; inset: 0; overflow: hidden; cursor: grab;
+  background-color: var(--background);
+  background-image: radial-gradient(circle, var(--rule-color) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+  touch-action: none;
+}
+.canvas-board.is-panning { cursor: grabbing; }
+.canvas-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.canvas-node, .canvas-group, .canvas-edge-label { position: absolute; box-sizing: border-box; }
+.canvas-node {
+  --node-color: var(--rule-color);
+  display: flex; flex-direction: column; cursor: auto;
+  background: var(--background); border: 2px solid var(--node-color); border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+.canvas-node.is-tinted { background: color-mix(in oklch, var(--node-color) 8%, var(--background)); }
+.canvas-node[data-open] { cursor: pointer; }
+.canvas-node-body { flex: 1; min-height: 0; overflow: auto; padding: 0.6em 0.9em; cursor: auto; }
+.canvas-node-body > :first-child, .canvas-node-body .embed-body > :first-child { margin-top: 0; }
+.canvas-node-body > :last-child, .canvas-node-body .embed-body > :last-child { margin-bottom: 0; }
+.canvas-node-body.is-image { padding: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#note .canvas-node-body.is-image img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: none; border-radius: 6px; margin: 0; }
+.canvas-node-body .embed.canvas-embed { border: none; background: none; padding: 0; margin: 0; }
+.canvas-file-name {
+  position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; max-width: 100%;
+  font-size: 0.8em; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.canvas-file-name.is-missing, .canvas-missing { color: var(--red); }
+.canvas-link-card {
+  display: flex; flex-direction: column; gap: 0.2em; text-decoration: none !important;
+  padding: 0.5em 0.7em; border-radius: 6px; background: var(--panel);
+}
+.canvas-link-host { font-weight: 600; color: var(--link-external-color); }
+.canvas-link-url { font-size: 0.8em; color: var(--text-muted); overflow-wrap: anywhere; }
+.canvas-group {
+  --node-color: var(--rule-color);
+  border: 2px solid var(--node-color); border-radius: 10px;
+  background: color-mix(in oklch, var(--node-color) 6%, transparent);
+}
+.canvas-group-label {
+  position: absolute; bottom: 100%; left: 0; margin-bottom: 6px; padding: 0.15em 0.7em;
+  font-size: 1.3em; font-weight: 600; white-space: nowrap; border-radius: 6px;
+  color: var(--background); background: color-mix(in oklch, var(--node-color) 85%, var(--text));
+}
+.canvas-group:not(.is-tinted) .canvas-group-label { color: var(--text); background: var(--panel); }
+.canvas-edges { position: absolute; overflow: visible; pointer-events: none; }
+.canvas-edge { --edge-color: var(--text-muted); }
+.canvas-edge path { fill: none; stroke: var(--edge-color); stroke-width: 2.5; }
+.canvas-edge polygon { fill: var(--edge-color); }
+.canvas-edge-label {
+  --edge-color: var(--text-muted);
+  transform: translate(-50%, -50%); padding: 0.1em 0.5em; font-size: 0.85em; white-space: nowrap;
+  color: var(--text); background: var(--background); border: 1px solid var(--edge-color); border-radius: 6px;
+}
+.canvas-bar {
+  position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 4px; cursor: auto;
+  padding: 4px 6px; border-radius: 8px; background: color-mix(in oklch, var(--panel) 90%, transparent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+.canvas-title { font-weight: 600; margin: 0 0.6em 0 0.3em; color: var(--accent); }
+.canvas-bar button {
+  font: inherit; min-width: 2em; color: var(--text); background: var(--background);
+  border: 1px solid var(--table-hairline); border-radius: 6px; padding: 0.1em 0.5em; cursor: pointer;
+}
+.canvas-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
