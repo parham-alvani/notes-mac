@@ -177,8 +177,8 @@ struct NotePanes: View {
     }
 }
 
-/// A pane on screen: the note in the editor or the reader, or a word that
-/// none is open. In a split window, the focused pane has an accent line
+/// A pane on screen: the note in the editor or the reader, or the home
+/// page when none is open. In a split window, the focused pane has an accent line
 /// along its top, and each pane a button to close it.
 struct NotePaneView: View {
     var model: WindowModel
@@ -205,7 +205,7 @@ struct NotePaneView: View {
 
     /// "Left pane, focused" in a split window; the note's name otherwise.
     private var paneName: String {
-        guard model.isSplit else { return pane.path.map(Vault.title(of:)) ?? "No note open" }
+        guard model.isSplit else { return pane.path.map(Vault.title(of:)) ?? "Home" }
         let side = model.panes.first === pane ? "Left pane" : "Right pane"
         return model.focused === pane ? side + ", focused" : side
     }
@@ -258,11 +258,7 @@ struct NotePaneView: View {
                 if let path = pane.path { Breadcrumb(path: path, model: model, onClose: onClose) }
             }
         } else {
-            ContentUnavailableView {
-                Label("No note open", systemImage: "doc.text")
-            } description: {
-                Text("Choose a note in the sidebar, or press ⌘P to find one by name.")
-            }
+            HomeView(model: model, pane: pane, compact: model.isSplit)
             .overlay(alignment: .topTrailing) {
                 if let onClose { PaneCloseButton(action: onClose).padding(8) }
             }

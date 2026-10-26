@@ -236,6 +236,13 @@ public struct ConfigFile: Sendable, Equatable {
         # the end of the note when it is missing; empty is the end of the note.
         heading = ""
 
+        [home]
+        # The picture behind the home page, which a window or a pane with no
+        # note shows: an absolute path, a ~ path or a path in the vault, of a
+        # PNG, JPEG, HEIC or WebP file. Empty is no picture. The rest of the
+        # page follows Obsidian's Beautitab plugin settings in the vault.
+        image = ""
+
         [wakatime]
         # Send the time spent in each note to WakaTime, with wakatime-cli and
         # the key in ~/.wakatime.cfg, as Obsidian's WakaTime plugin does.

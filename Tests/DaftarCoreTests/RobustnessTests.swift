@@ -219,6 +219,9 @@ import Testing
             _ = Templates(json: data)
             _ = ReadingPlaces(data: data)
             _ = ConfigFile(text: text)
+            let home = Beautitab(json: data)
+            #expect(!home.showQuote || !home.quotes.isEmpty)
+            _ = Home.pictureURL(text, vault: URL(filePath: "/vault"))
         }
     }
 
