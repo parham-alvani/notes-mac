@@ -234,6 +234,7 @@ struct SettingsView: View {
             GitSettings().tabItem { Label("Git", systemImage: "arrow.triangle.2.circlepath") }
             TerminalSettings().tabItem { Label("Terminal", systemImage: "apple.terminal") }
             CaptureSettings().tabItem { Label("Capture", systemImage: "square.and.pencil") }
+            HomeSettings().tabItem { Label("Home", systemImage: "photo") }
         }
         .frame(width: 520)
         .tint(Palette.accent)

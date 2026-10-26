@@ -46,6 +46,8 @@ final class AppSettings {
     /// "daily", or a note's vault path.
     var captureTarget: String { didSet { write("capture.target", .string(captureTarget)) } }
     var captureHeading: String { didSet { write("capture.heading", .string(captureHeading)) } }
+    /// The home page's picture, as the file has it: absolute, `~` or in the vault; empty is none.
+    var homeImage: String { didSet { write("home.image", .string(homeImage)) } }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
@@ -97,6 +99,7 @@ final class AppSettings {
         captureHotkey = "ctrl+opt+n"
         captureTarget = "daily"
         captureHeading = ""
+        homeImage = ""
         load()
         watch()
     }
@@ -138,6 +141,7 @@ final class AppSettings {
         captureHotkey = file.string("capture.hotkey") ?? "ctrl+opt+n"
         captureTarget = file.string("capture.target") ?? "daily"
         captureHeading = file.string("capture.heading") ?? ""
+        homeImage = file.string("home.image") ?? ""
     }
 
     private func write(_ path: String, _ value: ConfigFile.Value) {

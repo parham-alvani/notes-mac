@@ -30,6 +30,13 @@ public struct ReadingPlaces: Sendable, Equatable {
 
     public func lastRead(_ path: String) -> Date? { entries[path]?.read }
 
+    /// The notes read last, newest first, up to [limit].
+    public func recentlyRead(_ limit: Int) -> [String] {
+        let read = order.enumerated().compactMap { offset, path in entries[path]?.read.map { (path: path, date: $0, offset: offset) } }
+        // The order breaks a tie: one second can hold many reads.
+        return read.sorted { ($0.date, $0.offset) > ($1.date, $1.offset) }.prefix(limit).map(\.path)
+    }
+
     public mutating func set(_ path: String, line: Int) {
         update(path) { $0.line = line }
     }

@@ -21,6 +21,8 @@ final class VaultStore {
     private(set) var periodic = PeriodicNotes(DailyNotes())
     /// The Templates plugin's folder and formats.
     private(set) var templates = Templates()
+    /// The Beautitab plugin's settings, for the home page.
+    private(set) var beautitab = Beautitab()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0
@@ -89,6 +91,7 @@ final class VaultStore {
         bookmarks = Bookmarks.load(url)
         periodic = PeriodicNotes(DailyNotes.read(root: url))
         templates = Templates.read(root: url)
+        beautitab = Beautitab.read(root: url)
         places.load(root: url, directory: settings.stateDirectory)
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
@@ -126,10 +129,19 @@ final class VaultStore {
         bookmarks = Bookmarks.load(url)
         periodic = PeriodicNotes(DailyNotes.read(root: url))
         templates = Templates.read(root: url)
+        beautitab = Beautitab.read(root: url)
         places.load(root: url, directory: settings.stateDirectory)
         index = Vault.index(url, search: search)
         isRepository = FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
         revision += 1
+    }
+
+    /// Reads the Beautitab settings again: the home page asks each time it
+    /// shows, so an edit in Obsidian shows without a restart.
+    func refreshBeautitab() {
+        guard let root else { return }
+        let read = Beautitab.read(root: root)
+        if read != beautitab { beautitab = read }
     }
 
     /// For tests: what the file watcher reports, without waiting for it.

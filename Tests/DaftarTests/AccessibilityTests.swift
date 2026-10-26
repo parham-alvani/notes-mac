@@ -131,6 +131,29 @@ import WebKit
         #expect(found.contains { $0.name == "Folder Work" })
     }
 
+    @Test func theHomePageNamesItsControlsAndHidesThePicture() async throws {
+        try FileManager.default.createDirectory(at: root.appending(path: ".obsidian/plugins/beautitab"), withIntermediateDirectories: true)
+        try #"{"greetingText": "Hello, Tester.", "showBookmarks": true}"#
+            .write(to: root.appending(path: ".obsidian/plugins/beautitab/data.json"), atomically: true, encoding: .utf8)
+        store.toggleBookmark("Notes.md")
+        let picture = root.appending(path: "home.png")
+        try HomeViewTests.picture(at: picture, red: 0.2, green: 0.3, blue: 0.5, width: 64, height: 40)
+        store.settings.homeImage = picture.path
+        let model = WindowModel()
+        model.open("Work/Plan.md", store: store)
+        model.focused.request = nil
+        let found = try await elements(HomeView(model: model, pane: model.focused))
+        expectNamedButtons(found)
+        let names = found.map(\.name)
+        // The time, the date and the greeting are one text.
+        #expect(found.contains { ($0.name + $0.value).contains("Hello, Tester.") })
+        #expect(names.contains("Find a note"))
+        #expect(names.contains("Plan, in Work"))
+        #expect(names.contains("Notes"))
+        // The picture and the icons are decoration.
+        #expect(!found.contains { $0.role == NSAccessibility.Role.image.rawValue }, "\(found.filter { $0.role == NSAccessibility.Role.image.rawValue })")
+    }
+
     @Test func theTaskSheetNamesItsFieldsAndSaysTheChoice() async throws {
         let found = try await elements(TaskEditSheet(task: TaskRef(path: "Work/Plan.md", line: 3)))
         expectNamedButtons(found)

@@ -50,6 +50,12 @@ final class PlaceBook {
         return places.lastRead(path)
     }
 
+    /// The notes read last, newest first.
+    func recentlyRead(_ limit: Int) -> [String] {
+        _ = reads
+        return places.recentlyRead(limit)
+    }
+
     func markRead(_ path: String, at date: Date = Date()) {
         places.markRead(path, at: date)
         reads += 1
