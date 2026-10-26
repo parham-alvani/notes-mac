@@ -72,28 +72,57 @@ public final class SearchIndex: @unchecked Sendable {
     }
 
     /// Notes that hold every word of [query], best first. Each word matches as
-    /// a prefix, and a quoted phrase matches as written.
+    /// a prefix, and a quoted phrase matches as written. The words side by
+    /// side, as typed, come first; then the words near each other; then the
+    /// notes that hold them anywhere. Within each, the title counts most.
     public func search(_ query: String, limit: Int = 100) -> [Hit] {
-        guard let match = Self.matchExpression(query) else { return [] }
+        let tiers = Self.matchTiers(query)
+        guard !tiers.isEmpty else { return [] }
         return lock.withLock {
-            var statement: OpaquePointer?
-            let sql = """
-                SELECT path, snippet(note_fts, 2, char(1), char(2), '…', 16)
-                FROM note_fts WHERE note_fts MATCH ?
-                ORDER BY bm25(note_fts, 0, 8, 1) LIMIT ?
-                """
-            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
-            defer { sqlite3_finalize(statement) }
-            sqlite3_bind_text(statement, 1, match, -1, Self.transient)
-            sqlite3_bind_int(statement, 2, Int32(limit))
             var hits: [Hit] = []
-            while sqlite3_step(statement) == SQLITE_ROW {
-                let path = String(cString: sqlite3_column_text(statement, 0))
-                let snippet = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
-                hits.append(Hit(path: path, snippet: snippet))
+            var seen = Set<String>()
+            for match in tiers where hits.count < limit {
+                for hit in run(match, limit: limit) where seen.insert(hit.path).inserted {
+                    hits.append(hit)
+                    if hits.count == limit { break }
+                }
             }
             return hits
         }
+    }
+
+    private func run(_ match: String, limit: Int) -> [Hit] {
+        var statement: OpaquePointer?
+        let sql = """
+            SELECT path, snippet(note_fts, 2, char(1), char(2), '…', 16)
+            FROM note_fts WHERE note_fts MATCH ?
+            ORDER BY bm25(note_fts, 0, 8, 1) LIMIT ?
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, match, -1, Self.transient)
+        sqlite3_bind_int(statement, 2, Int32(limit))
+        var hits: [Hit] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let path = String(cString: sqlite3_column_text(statement, 0))
+            let snippet = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+            hits.append(Hit(path: path, snippet: snippet))
+        }
+        return hits
+    }
+
+    /// The FTS5 expressions [search] runs, best first: with two or more
+    /// unquoted words, the words as one phrase (the last one a prefix, as it
+    /// may be half typed) and the words within ten of each other, before
+    /// [matchExpression]'s every word anywhere.
+    static func matchTiers(_ query: String) -> [String] {
+        guard let every = matchExpression(query) else { return [] }
+        let words = query.contains("\"") ? [] : query.split(whereSeparator: \.isWhitespace).map { $0.replacingOccurrences(of: "\"", with: "") }
+        guard words.count > 1 else { return [every] }
+        let quoted = words.map { "\"\($0)\"" }
+        let phrase = quoted.dropLast().joined(separator: " + ") + " + " + quoted.last! + "*"
+        let near = "NEAR(" + quoted.dropLast().joined(separator: " ") + " " + quoted.last! + "*, 10)"
+        return [phrase, near, every]
     }
 
     /// The person's words as an FTS5 expression. Every word is quoted, so

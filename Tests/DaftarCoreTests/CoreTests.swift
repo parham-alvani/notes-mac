@@ -251,6 +251,24 @@ import Testing
         #expect(SearchIndex.matchExpression("a AND -b:c") == "\"a\"* AND \"AND\"* AND \"-b:c\"*")
         #expect(SearchIndex.matchExpression("  ") == nil)
     }
+
+    /// The words side by side come first, then near each other, then
+    /// anywhere: "House II" finds the note that names it before one about a
+    /// house that mentions World War II.
+    @Test func thePhraseFirst() {
+        let index = SearchIndex()
+        index.put(path: "war.md", title: "History", body: "A house burned down in the old town, and the long story of that night is told by the people who lived there through World War II.")
+        index.put(path: "near.md", title: "Flats", body: "The house we call II is by the sea.")
+        index.put(path: "flat.md", title: "Identity", body: "Address of House II: the second flat.")
+        index.put(path: "other.md", title: "Other", body: "Nothing here.")
+        #expect(index.search("House II").map(\.path) == ["flat.md", "near.md", "war.md"])
+        // Half typed: the last word is a prefix in the phrase too.
+        #expect(index.search("house i").first?.path == "flat.md")
+        // Quotes keep their meaning and run alone.
+        #expect(SearchIndex.matchTiers("\"House II\"") == ["\"House II\""])
+        #expect(SearchIndex.matchTiers("house").count == 1)
+        #expect(index.search("house ii", limit: 2).count == 2)
+    }
 }
 
 @Suite struct VaultTests {

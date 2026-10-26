@@ -28,6 +28,7 @@ struct SidebarView: View {
             }
         }
         .searchable(text: $model.query, placement: .sidebar, prompt: "Search \(store.name)")
+        .onChange(of: model.searchRequests) { SearchField.focus() }
     }
 }
 
@@ -927,4 +928,21 @@ func openInObsidian(_ path: String, store: VaultStore) {
     components.host = "open"
     components.queryItems = [URLQueryItem(name: "path", value: file.path)]
     if let url = components.url { NSWorkspace.shared.open(url) }
+}
+
+/// The sidebar's search field. `searchFocused` does not reach a field in the
+/// sidebar on macOS, so Search in Vault finds the `NSSearchField` in the key
+/// window and makes it the first responder.
+@MainActor enum SearchField {
+    static func focus() {
+        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.tabbingIdentifier == "daftar.main" }
+        guard let window, let root = window.contentView?.superview else { return }
+        if let field = find(in: root) { window.makeFirstResponder(field) }
+    }
+
+    private static func find(in view: NSView) -> NSSearchField? {
+        if let field = view as? NSSearchField { return field }
+        for child in view.subviews { if let field = find(in: child) { return field } }
+        return nil
+    }
 }

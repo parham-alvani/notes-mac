@@ -57,6 +57,9 @@ final class WindowModel {
     }
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
+    /// Grows with each Search in Vault command, which puts the cursor in
+    /// the sidebar's search field.
+    var searchRequests = 0
     var quickOpen = false {
         didSet {
             if quickOpen { quickOpenRequests += 1 } else { stopHoldingKeys() }

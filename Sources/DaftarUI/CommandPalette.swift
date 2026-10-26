@@ -60,6 +60,9 @@ enum PaletteCommands {
             PaletteCommand(id: "smaller", title: "Smaller Text", group: "View", symbol: "textformat.size.smaller", color: Palette.pink, shortcut: "⌘−") {
                 store.settings.textSize = max(store.settings.textSize - 1, 10)
             },
+            PaletteCommand(id: "vault-search", title: "Search in Vault", group: "Edit", symbol: "magnifyingglass", color: Palette.accent, shortcut: "⇧⌘F") {
+                model.searchRequests += 1
+            },
             PaletteCommand(id: "vault-replace", title: "Find and Replace in the Vault", group: "Edit", symbol: "text.magnifyingglass", color: Palette.accent, shortcut: "⇧⌘H") {
                 model.vaultReplace = ReplaceTarget(folder: "")
             },

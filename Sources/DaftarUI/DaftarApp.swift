@@ -48,6 +48,9 @@ public struct DaftarApp: App {
                 Button("Find…") { window?.find(.showFindInterface) }
                     .keyboardShortcut("f")
                     .disabled(window?.path == nil || window?.showsPage == true)
+                Button("Search in Vault") { window?.searchRequests += 1 }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .disabled(window == nil || store.root == nil)
                 Button("Find Next") { window?.find(.nextMatch) }
                     .keyboardShortcut("g")
                     .disabled(window?.path == nil || window?.showsPage == true)
