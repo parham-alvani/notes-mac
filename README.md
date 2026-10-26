@@ -56,6 +56,7 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Terminal:** ⌃` opens your login shell in the vault's folder, under the note, in the same colors.
 - **Icons:** the folders and notes show the icons and colors of the Iconic plugin. A `logo.svg` (or `logo.png`, `.webp`, `.jpg`) in a folder is that folder's icon, for example a company's logo on its folder; the file itself is not listed. Daftar on Android shows the same logos.
 - **Breadcrumb:** a bar above the note shows the vault, its folders and the note. A folder opens a menu of what is in it, and the note's crumb has the file commands.
+- **Large vaults:** a vault of 20,000 notes opens in about two seconds on an M4 Pro, a search, a task query or a key in quick open takes less than a tenth of a second, and a saved note is in the index in about as long. `just bench` makes such a vault and shows the times.
 
 ## Configuration
 

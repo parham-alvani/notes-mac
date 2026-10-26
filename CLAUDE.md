@@ -16,6 +16,7 @@ just app    # build/Daftar.app, ad-hoc signed
 just run    # build and open it
 just web    # rebuild the reader bundle only
 just icon   # Support/Daftar.icns from art/icon.png
+just bench  # the timings of a made-up 20,000-note vault, release build
 ```
 
 ## Layout
@@ -72,6 +73,31 @@ Keep logic in `DaftarCore`: its tests run in a second and need no window. `Tests
 - **The dark palette is screen-only** (`@media screen and (prefers-color-scheme: dark)` in `reader.css`), so a PDF export or a print is always in Daylight.
 - **A `@MainActor` suite's `.enabled(if:)` deadlocks the whole test run before it starts.** Put the condition in a global constant.
 - **The terminal is SwiftTerm, pinned exactly.** It runs the login shell in the vault's folder and lives in the window's model, so hiding the pane keeps the shell.
+
+## Performance
+
+`just bench` (`BenchmarkTests`, on only with `DAFTAR_BENCH=1`) writes a vault from a fixed seed: 20,000 notes in nested folders, 53,000 tasks, front matter, links (broken, with an alias, with a heading), ` ```tasks ` queries, 70,000-character notes, Persian text, images and bases. It prints a table of the paths a person waits on. The budget on an M4 Pro, with the release build:
+
+| Path | Budget |
+|---|---|
+| Open the vault (index and full-text search) | under 2.5 s |
+| A saved note (watcher batch of 1) | under 150 ms |
+| A pull of 500 changed files | under 300 ms |
+| Full-text search | under 50 ms |
+| Quick open, each key | under 100 ms |
+| A ` ```tasks ` query over every task, or the Today page | under 100 ms |
+| The whole-vault graph and its layout | under 1.5 s |
+| Rename a note that 2,000 notes link to | under 1.5 s |
+| Rename a tag in 6,000 notes | under 2 s |
+
+A change that makes a row slower than its budget is a bug. To find a slow path, run it in a loop and `sample <pid>` the test process (Instruments needs Xcode). Rules the timings taught:
+
+- **A regular expression runs only on a line that has its marks.** Swift's `Regex` is slow: test for the ASCII marks it needs first (`hasMark("[[")`, `mayHoldTag`), on the UTF-8 bytes, not with Foundation's `contains`. The test must be a condition the pattern cannot match without, so the result never changes.
+- **No regex literal and no `Calendar(identifier:)` inside a function that runs per line or per task;** make it a `static let`.
+- **A sort compares values worked out before it**, not in its comparator: titles, query groups, and positions rather than large structs.
+- **`derive()` makes the resolver and the tree again only when the files changed.** A saved note changes neither.
+- **The search table deletes by rowid.** Its `path` column is not indexed; a delete by path reads the whole table.
+- **Work on many independent files or nodes is shared out with `concurrentPerform`**, each in its own slot of an `UnsafeMutableBufferPointer`, with the same order of operations, so the result is the same to the last bit. Deinitialize the buffer before it is deallocated, or what it holds leaks.
 
 ## Testing the app
 
