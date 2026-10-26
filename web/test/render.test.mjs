@@ -18,7 +18,7 @@ test("a heading link keeps its anchor", () => {
 
 test("an image embed loads from the vault and takes a width", () => {
   const html = render("![[logo.png|300]]", { links });
-  assert.match(html, /<img src="vault:\/\/\/uploads\/logo.png" alt="logo.png" width="300">/);
+  assert.match(html, /<img src="vault:\/\/\/uploads\/logo.png" alt="logo" width="300">/);
 });
 
 test("a note embed is a placeholder the page fills", () => {
@@ -29,9 +29,9 @@ test("a task knows the file line it is on, front matter counted", () => {
   const text = "---\ntags: [a]\n---\n# Title\n\n- [ ] first\n- [x] second\n";
   assert.equal(frontMatterLines(text), 3);
   const html = render(text);
-  assert.match(html, /data-line="5" data-status=" ">first/);
-  assert.match(html, /data-line="6" data-status="x" checked>second/);
-  assert.match(render("- [/] half"), /data-status="\/">half/);
+  assert.match(html, /data-line="5" data-status=" " aria-label="first">first/);
+  assert.match(html, /data-line="6" data-status="x" checked aria-label="second">second/);
+  assert.match(render("- [/] half"), /data-status="\/" aria-label="half, in progress">half/);
 });
 
 test("a callout has a title and a body, and a fold marker makes it a details", () => {
@@ -133,7 +133,7 @@ const baseView = (kind, layout = {}, image) => ({
 });
 
 test("a table view draws a table, and an unknown view type falls back to it", () => {
-  assert.match(renderView(baseView("table")), /<table class="base-table">.*<th dir="auto">stage<\/th>/s);
+  assert.match(renderView(baseView("table")), /<table class="base-table">.*<th scope="col" dir="auto">stage<\/th>/s);
   const kanban = renderView(baseView("kanban"));
   assert.match(kanban, /<table class="base-table">/);
   assert.match(kanban, /shown as a table, not kanban/);

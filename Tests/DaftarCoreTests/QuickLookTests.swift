@@ -68,7 +68,7 @@ let quickLookScript: String? = try? String(
         let page = try QuickLookPreview.page(of: root.appending(path: "Notes/Note.md"), renderer: renderer, styles: "body {}")
         #expect(page.html.hasPrefix("<!doctype html>"))
         #expect(page.html.contains("<h1 class=\"inline-title\" dir=\"auto\">Note</h1>"))
-        #expect(page.html.contains("<div class=\"callout\" data-callout=\"warning\" dir=\"auto\">"))
+        #expect(page.html.contains("<div class=\"callout\" data-callout=\"warning\" dir=\"auto\" role=\"note\">"))
         #expect(page.html.contains("<mark>marked</mark>"))
         #expect(page.html.contains("--tag-color"))
         #expect(page.html.contains("class=\"internal-link\" href=\"#\" data-path=\"Other.md\""))

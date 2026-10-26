@@ -5,6 +5,7 @@
 import { render, renderInline, isClosed, hue, languageColor } from "./render.js";
 import { renderView } from "./bases.js";
 import { renderCanvas, bounds, fit } from "./canvas.js";
+import { codeHead, findBar as findBarHtml, foldState, taskChip, baseTabs, canvasBar, zoomLabel } from "./controls.js";
 
 const app = window.webkit?.messageHandlers;
 
@@ -185,16 +186,24 @@ function renderBase(holder, result, key, wanted) {
   if (chosen < 0 || chosen >= views.length) chosen = 0;
   const problems = (result.problems ?? []).map((line) => `<li>${escape(line)}</li>`).join("");
   const warning = problems ? `<div class="callout query-warning" data-callout="warning"><div class="callout-title">Not understood</div><ul>${problems}</ul></div>` : "";
-  const tabs = views.length > 1
-    ? `<div class="base-tabs" role="tablist">${views.map((view, at) => `<button class="base-tab${at === chosen ? " is-active" : ""}" data-at="${at}" dir="auto">${escape(view.name)}</button>`).join("")}</div>`
-    : "";
+  const tabs = views.length > 1 ? baseTabs(views, chosen) : "";
   holder.innerHTML = warning + tabs + `<div class="base-view">${views[chosen] ? renderView(views[chosen]) : ""}</div>`;
-  holder.querySelectorAll(".base-tab").forEach((tab) =>
-    tab.addEventListener("click", () => {
-      chosenViews.set(key, Number(tab.dataset.at));
-      renderBase(holder, result, key, wanted);
-    }),
-  );
+  const choose = (at) => {
+    chosenViews.set(key, at);
+    renderBase(holder, result, key, wanted);
+    holder.querySelector(".base-tab.is-active")?.focus();
+  };
+  holder.querySelectorAll(".base-tab").forEach((tab) => {
+    tab.addEventListener("click", () => choose(Number(tab.dataset.at)));
+    // A tab list's keys: the arrows go to the next and the previous view.
+    tab.addEventListener("keydown", (event) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      event.stopPropagation();
+      choose((Number(tab.dataset.at) + step + views.length) % views.length);
+    });
+  });
 }
 
 /** Each `![[x.base]]` and ` ```base ` block, run by the app. */
@@ -329,6 +338,12 @@ window.addEventListener("scroll", () => {
 function zoom(node) {
   const overlay = document.createElement("div");
   overlay.className = "zoom";
+  // A dialog that takes the focus and gives it back when it closes.
+  const back = document.activeElement;
+  Object.assign(overlay, { tabIndex: -1 });
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", zoomLabel(node.getAttribute("alt"), node.tagName !== "IMG"));
   const copy = node.tagName === "IMG" ? Object.assign(document.createElement("img"), { src: node.src, alt: node.alt }) : node.cloneNode(true);
   copy.removeAttribute("width");
   copy.removeAttribute("height");
@@ -337,6 +352,7 @@ function zoom(node) {
   const close = () => {
     overlay.remove();
     document.removeEventListener("keydown", onKey, true);
+    back?.focus?.({ preventScroll: true });
   };
   const onKey = (event) => {
     if (event.key === "Escape") {
@@ -347,12 +363,22 @@ function zoom(node) {
   overlay.addEventListener("click", close);
   document.addEventListener("keydown", onKey, true);
   document.body.appendChild(overlay);
+  overlay.focus();
 }
+
+/** Says [text] with VoiceOver through the page's live region. */
+function announce(text) {
+  const region = document.getElementById("announce");
+  if (!region) return;
+  region.textContent = "";
+  setTimeout(() => (region.textContent = text), 50);
+}
+
+/** "smooth", or "auto" with Reduce Motion. */
+const motion = () => (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
 
 /** The Tasks plugin's signifiers, each drawn as a chip in its colour. */
 const TASK_META = /(📅|⏳|🛫|✅|❌|➕)\uFE0F?\s*(\d{4}-\d{2}-\d{2})|(🔁)\uFE0F?\s*([^📅⏳🛫✅❌➕🔺⏫🔼🔽⏬#]+?)(?=\s*(?:[📅⏳🛫✅❌➕🔺⏫🔼🔽⏬#]|$))|(🔺|⏫|🔼|🔽|⏬)\uFE0F?/gu;
-const META_KIND = { "📅": "is-due", "⏳": "is-scheduled", "🛫": "is-start", "✅": "is-done", "❌": "is-cancelled", "➕": "is-created" };
-const PRIORITY = { "🔺": ["highest", "⇈"], "⏫": ["high", "⇈"], "🔼": ["medium", "↑"], "🔽": ["low", "↓"], "⏬": ["lowest", "⇊"] };
 
 function taskChips(item, today) {
   const closed = isClosed(item.dataset.task ?? " ");
@@ -364,17 +390,9 @@ function taskChips(item, today) {
   const nodes = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.data.search(TASK_META) >= 0) nodes.push(node);
   for (const node of nodes) {
-    const html = escape(node.data).replace(TASK_META, (match, emoji, day, repeat, rule, priority) => {
-      if (priority) {
-        const [name, arrow] = PRIORITY[priority];
-        return `<span class="task-priority is-${name}" title="${name} priority">${arrow}</span>`;
-      }
-      if (repeat) return `<span class="query-date is-repeat">🔁 ${rule.trim()}</span>`;
-      let kind = META_KIND[emoji];
-      if (kind === "is-due" && !closed && day < today) kind = "is-late";
-      if (kind === "is-due" && closed) kind = "is-past";
-      return `<span class="query-date ${kind}">${emoji} ${day}</span>`;
-    });
+    const html = escape(node.data).replace(TASK_META, (match, emoji, day, repeat, rule, priority) =>
+      taskChip({ emoji, day, rule: repeat ? rule : undefined, priority, closed, today }),
+    );
     const span = document.createElement("span");
     span.innerHTML = html;
     node.replaceWith(...span.childNodes);
@@ -410,6 +428,12 @@ const folds = {
       if (level !== null) {
         const shut = this.shut.has(this.key(child));
         child.classList.toggle("is-folded", shut);
+        const toggle = child.querySelector(":scope > .fold-toggle");
+        if (toggle) {
+          const state = foldState(child.dataset.heading, shut);
+          toggle.setAttribute("aria-label", state.label);
+          toggle.setAttribute("aria-expanded", state.expanded);
+        }
         if (shut && !away) shutLevel = level;
       }
     }
@@ -512,7 +536,10 @@ function decorate(root) {
   if (root.id === "note") {
     root.querySelectorAll(":scope > [data-heading]").forEach((heading) => {
       if (heading.querySelector(".fold-toggle") || !folds.holds(heading)) return;
-      const button = Object.assign(document.createElement("button"), { className: "fold-toggle", title: "Fold or unfold this section (z)" });
+      const button = Object.assign(document.createElement("button"), { type: "button", className: "fold-toggle", title: "Fold or unfold this section (z)" });
+      const state = foldState(heading.dataset.heading, heading.classList.contains("is-folded"));
+      button.setAttribute("aria-label", state.label);
+      button.setAttribute("aria-expanded", state.expanded);
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -525,12 +552,14 @@ function decorate(root) {
   if (root.id === "note") {
     root.querySelectorAll(":scope > [data-heading]").forEach((heading) => {
       if (heading.querySelector(".heading-link")) return;
-      const button = Object.assign(document.createElement("button"), { className: "heading-link", title: "Copy a link to this heading", textContent: "#" });
+      const button = Object.assign(document.createElement("button"), { type: "button", className: "heading-link", title: "Copy a link to this heading", textContent: "#" });
+      button.setAttribute("aria-label", "Copy a link to this heading");
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         const text = [...heading.childNodes].filter((node) => node.tagName !== "BUTTON").map((node) => node.textContent).join("").trim();
         post({ kind: "copy", text: `[[${current.title}#${text}]]` });
+        announce("Link copied");
         button.textContent = "✓";
         setTimeout(() => (button.textContent = "#"), 1200);
       });
@@ -543,6 +572,17 @@ function decorate(root) {
     item.dataset.chips = "1";
     taskChips(item, today);
   });
+  // An in-progress task is a half box: neither checked nor not.
+  root.querySelectorAll('input.task-list-item-checkbox[data-status="/"]').forEach((box) => (box.indeterminate = true));
+  // A picture opens large with a click, or with Return or Space on it.
+  root.querySelectorAll("img, pre.mermaid svg").forEach((picture) => {
+    if (picture.closest(".zoom, .preview, .base-card-cover") || picture.hasAttribute("tabindex")) return;
+    picture.setAttribute("tabindex", "0");
+    if (picture.tagName !== "IMG") {
+      picture.setAttribute("role", "img");
+      picture.setAttribute("aria-label", "Diagram");
+    }
+  });
   root.querySelectorAll("a.tag").forEach((tag) => tag.style.setProperty("--tag-color", `var(${hue(tag.dataset.tag ?? tag.textContent)})`));
   root.querySelectorAll("pre:not(.mermaid) > code").forEach((code) => {
     const pre = code.parentElement;
@@ -553,10 +593,11 @@ function decorate(root) {
     block.style.setProperty("--lang-color", `var(${languageColor(lang)})`);
     const head = document.createElement("div");
     head.className = "code-head";
-    head.innerHTML = `<span class="code-lang">${escape(lang || "code")}</span><button class="code-copy" title="Copy"><span class="icon"></span><span class="label">Copy</span></button>`;
+    head.innerHTML = codeHead(lang);
     head.querySelector("button").addEventListener("click", (event) => {
       event.stopPropagation();
       post({ kind: "copy", text: code.textContent });
+      announce("Copied");
       const button = event.currentTarget;
       button.classList.add("is-done");
       button.querySelector(".label").textContent = "Copied";
@@ -590,7 +631,9 @@ function progress() {
   const bar = document.getElementById("progress");
   if (!bar) return;
   const height = document.documentElement.scrollHeight - window.innerHeight;
-  bar.style.transform = `scaleX(${height > 0 ? Math.min(1, window.scrollY / height) : 0})`;
+  const part = height > 0 ? Math.min(1, window.scrollY / height) : 0;
+  bar.style.transform = `scaleX(${part})`;
+  bar.setAttribute("aria-valuenow", String(Math.round(part * 100)));
 }
 window.addEventListener("scroll", progress, { passive: true });
 window.addEventListener("resize", progress);
@@ -606,11 +649,8 @@ function findBar() {
   if (finder.bar) return finder.bar;
   const bar = document.createElement("div");
   bar.className = "find-bar";
-  bar.innerHTML =
-    `<span class="find-icon"></span><input type="search" placeholder="Find in note" spellcheck="false">` +
-    `<span class="find-count"></span>` +
-    `<button class="find-previous" title="Previous (⇧⌘G)"></button><button class="find-next" title="Next (⌘G)"></button>` +
-    `<button class="find-close" title="Close (Esc)"></button>`;
+  bar.setAttribute("role", "search");
+  bar.innerHTML = findBarHtml();
   document.body.appendChild(bar);
   finder.bar = bar;
   finder.input = bar.querySelector("input");
@@ -680,7 +720,7 @@ function step(direction) {
   const range = finder.ranges[finder.at];
   CSS.highlights?.set("find-current", new Highlight(range));
   const box = range.getBoundingClientRect();
-  if (box.top < 80 || box.bottom > window.innerHeight - 40) window.scrollBy({ top: box.top - window.innerHeight / 3, behavior: "smooth" });
+  if (box.top < 80 || box.bottom > window.innerHeight - 40) window.scrollBy({ top: box.top - window.innerHeight / 3, behavior: motion() });
   showCount();
 }
 
@@ -872,9 +912,8 @@ function fitBoard() {
 async function showCanvas(main, note) {
   const title = note.title.replace(/\.canvas$/i, "");
   main.innerHTML =
-    `<div class="canvas-board">${renderCanvas(note.canvas, { path: note.path, links: note.links })}` +
-    `<div class="canvas-bar"><span class="canvas-title" dir="auto">${escape(title)}</span>` +
-    `<button class="canvas-zoom-out" title="Zoom out (−)">−</button><button class="canvas-zoom-in" title="Zoom in (+)">+</button><button class="canvas-fit" title="Show the whole canvas (0)">Fit</button></div></div>`;
+    `<div class="canvas-board" role="region" aria-label="Canvas ${escape(title)}" aria-describedby="canvas-summary">${renderCanvas(note.canvas, { path: note.path, links: note.links })}` +
+    `${canvasBar(title)}</div>`;
   Object.assign(board, { el: main.querySelector(".canvas-board"), world: main.querySelector(".canvas-world"), path: note.path, nodes: note.canvas.nodes ?? [] });
   board.el.querySelector(".canvas-zoom-in").addEventListener("click", () => zoomBoard(1.25));
   board.el.querySelector(".canvas-zoom-out").addEventListener("click", () => zoomBoard(0.8));
@@ -972,6 +1011,19 @@ document.addEventListener("click", (event) => {
   if (!card || event.target.closest("a, button, input, img, video, audio, iframe, summary")) return;
   if (board.moved || window.getSelection()?.toString()) return;
   post({ kind: "open", path: card.dataset.open, target: "", anchor: "", newTab: event.metaKey });
+});
+
+// A card reached with Tab comes into view; the board pans, it does not scroll.
+document.addEventListener("focusin", (event) => {
+  if (!onBoard(event)) return;
+  const card = event.target.closest(".canvas-node");
+  if (!card) return;
+  const box = card.getBoundingClientRect(), view = board.el.getBoundingClientRect();
+  const inside = box.left >= view.left && box.right <= view.right && box.top >= view.top && box.bottom <= view.bottom;
+  if (inside) return;
+  board.x += view.left + view.width / 2 - (box.left + box.width / 2);
+  board.y += view.top + view.height / 2 - (box.top + box.height / 2);
+  applyBoard();
 });
 
 /** The board's keys: + and − zoom, 0 fits, the arrows pan. True when taken. */
@@ -1096,8 +1148,8 @@ const reading = {
       const above = top - 80 < window.scrollY;
       const below = top + height + 60 > window.scrollY + window.innerHeight;
       // A block taller than the window starts at the top.
-      if (above || (below && height > window.innerHeight - 140)) window.scrollTo({ top: top - 80, behavior: "smooth" });
-      else if (below) window.scrollTo({ top: top + height + 60 - window.innerHeight, behavior: "smooth" });
+      if (above || (below && height > window.innerHeight - 140)) window.scrollTo({ top: top - 80, behavior: motion() });
+      else if (below) window.scrollTo({ top: top + height + 60 - window.innerHeight, behavior: motion() });
     }
     post({ kind: "cursor", line: this.line });
   },
@@ -1150,7 +1202,7 @@ const reading = {
 
   /** Space: a page on, and the cursor on the first block of that page. */
   page(step) {
-    window.scrollBy({ top: step * (window.innerHeight - 100), behavior: "smooth" });
+    window.scrollBy({ top: step * (window.innerHeight - 100), behavior: motion() });
     clearTimeout(this.paging);
     this.paging = setTimeout(() => {
       const blocks = this.blocks();
@@ -1163,6 +1215,22 @@ const reading = {
 document.addEventListener("keydown", (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
   if (event.target.closest?.("input, textarea, [contenteditable], .find-bar") || document.querySelector(".zoom")) return;
+  // Return or Space on a picture opens it large; on a file card, opens the file.
+  if (event.key === "Enter" || event.key === " ") {
+    const target = event.target;
+    if (target.matches?.("#note img[tabindex], #note svg[tabindex]")) {
+      event.preventDefault();
+      zoom(target);
+      return;
+    }
+    if (target.matches?.(".canvas-node[data-open]")) {
+      event.preventDefault();
+      post({ kind: "open", path: target.dataset.open, target: "", anchor: "", newTab: false });
+      return;
+    }
+  }
+  // A focused control takes its own Return and Space, not the reading cursor's.
+  if ((event.key === "Enter" || event.key === " ") && event.target.closest?.("button, a[href], summary, [role=tab]")) return;
   // A canvas has no reading cursor: its keys pan and zoom.
   if (board.el?.isConnected) {
     boardKey(event);

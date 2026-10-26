@@ -3,6 +3,7 @@ import DaftarCore
 import Foundation
 import SwiftUI
 import Testing
+import WebKit
 
 @testable import DaftarUI
 
@@ -159,5 +160,35 @@ import Testing
         expectNamedButtons(icons)
         #expect(icons.contains { $0.name == "No colour" })
         #expect(icons.contains { $0.role == NSAccessibility.Role.textField.rawValue && $0.name == "Find an icon" })
+    }
+
+    /// The reader page in a real web view: the controls the page adds after
+    /// rendering (fold chevrons, copy buttons, find bar) have names, a task
+    /// in progress is a mixed box, a callout is a note.
+    @Test func theReaderPageNamesItsControls() async throws {
+        try "# Page\n\n## Part\n\nText.\n\n```swift\nlet a = 1\n```\n\n- [/] Half done\n\n> [!tip] Mind\n> Body\n".write(to: root.appending(path: "Page.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        var web: WKWebView?
+        let reader = ReaderView(request: ReaderRequest(path: "Page.md"), store: store, onOpen: { _, _, _ in }, onTag: { _ in }, onView: { web = $0 })
+        let window = NSWindow(contentRect: CGRect(x: -4000, y: -4000, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: reader.environment(store))
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+        var found: String?
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(150))
+            guard let web else { continue }
+            let script = """
+                (() => { const q = (s, a) => document.querySelector(s)?.getAttribute(a) ?? "";
+                  if (!document.querySelector('.code-copy')) return null;
+                  window.daftar.findCommand('open');
+                  return [q('.fold-toggle', 'aria-label'), q('.fold-toggle', 'aria-expanded'), q('.code-copy', 'aria-label'),
+                    String(document.querySelector('input.task-list-item-checkbox')?.indeterminate), q('input.task-list-item-checkbox', 'aria-label'),
+                    q('.callout', 'role'), q('#progress', 'role'), q('.find-close', 'aria-label'), q('.find-bar input', 'aria-label')].join('|'); })()
+                """
+            if let result = try? await web.evaluateJavaScript(script) as? String { found = result; break }
+        }
+        #expect(found == "Fold “Page”|true|Copy code|true|Half done, in progress|note|progressbar|Close find|Find in note")
     }
 }

@@ -3,7 +3,7 @@
 // parses the file (`Canvas`), resolves its files and links, and sends it
 // here. Kept apart from the page runtime so node can test it.
 
-import { escapeHtml as escape, render, vaultUrl } from "./render.js";
+import { escapeHtml as escape, plainText, render, vaultUrl } from "./render.js";
 
 /** Obsidian's six presets, in the palette's colours; `Canvas.color` names them. */
 const PRESETS = { red: "var(--red)", orange: "var(--orange)", yellow: "var(--yellow)", green: "var(--spring-green)", cyan: "var(--aqua)", purple: "var(--purple)" };
@@ -111,12 +111,56 @@ function linkCard(node) {
   return `<div class="canvas-node-body"><a class="canvas-link-card" href="${escape(url)}"><span class="canvas-link-host">${escape(host)}</span><span class="canvas-link-url">${escape(url)}</span></a></div>`;
 }
 
-function nodeHtml(node, links, path) {
+/**
+ * The cards in the order a person reads the board: in rows from the top,
+ * each row from the left. A card whose top is within half a card of the
+ * row's first card is in that row.
+ */
+export function readingOrder(nodes) {
+  const cards = nodes.filter((n) => n.type !== "group").sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows = [];
+  for (const card of cards) {
+    const row = rows.at(-1);
+    if (row && card.y < row[0].y + row[0].height / 2) row.push(card);
+    else rows.push([card]);
+  }
+  return rows.flatMap((row) => row.sort((a, b) => a.x - b.x));
+}
+
+/** A card's name for a screen reader: its file, its link, or its text's first line. */
+export function cardName(node) {
+  if (node.type === "file") return node.path ? fileName(node.path) : `${node.file ?? "File"}, not in the vault`;
+  if (node.type === "link") return node.url ?? "Link";
+  const first = (node.text ?? "").split("\n").map((line) => plainText(line.replace(/^[#>\-*+\s]+(?:\[.\]\s*)?/, ""))).find(Boolean) ?? "";
+  return first.length > 80 ? first.slice(0, 79) + "…" : first || "Empty card";
+}
+
+/**
+ * The board in words, for `aria-describedby`: how many cards, the groups,
+ * and each arrow as "From → To: label". The cards themselves follow in
+ * reading order, each a stop for Tab.
+ */
+export function canvasSummary(canvas) {
+  const nodes = canvas.nodes ?? [];
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const cards = nodes.filter((n) => n.type !== "group").length;
+  const groups = nodes.filter((n) => n.type === "group" && n.label).map((n) => n.label);
+  const arrows = (canvas.edges ?? [])
+    .filter((edge) => byId.has(edge.fromNode) && byId.has(edge.toNode))
+    .map((edge) => `${cardName(byId.get(edge.fromNode))} → ${cardName(byId.get(edge.toNode))}${edge.label ? `: ${edge.label}` : ""}`);
+  const parts = [`${cards} ${cards === 1 ? "card" : "cards"}`];
+  if (groups.length) parts.push(`Groups: ${groups.join(", ")}`);
+  if (arrows.length) parts.push(`Arrows: ${arrows.join("; ")}`);
+  return parts.join(". ") + ".";
+}
+
+function nodeHtml(node, links, path, order = 0) {
   const style = place(node) + tint(node.color);
   const tinted = canvasColor(node.color) ? " is-tinted" : "";
   if (node.type === "group") {
     const label = node.label ? `<div class="canvas-group-label" dir="auto">${escape(node.label)}</div>` : "";
-    return `<div class="canvas-group${tinted}" style="${style}">${label}</div>`;
+    // A group's name is in the board's summary.
+    return `<div class="canvas-group${tinted}" style="${style}" aria-hidden="true">${label}</div>`;
   }
   let inner = "";
   if (node.type === "text") inner = `<div class="canvas-node-body">${render(node.text ?? "", { path, links })}</div>`;
@@ -124,7 +168,9 @@ function nodeHtml(node, links, path) {
   else if (node.type === "link") inner = linkCard(node);
   else return "";
   const open = node.type === "file" && node.path ? ` data-open="${escape(node.path)}"` : "";
-  return `<div class="canvas-node canvas-${node.type}${tinted}" data-id="${escape(node.id)}"${open} style="${style}">${inner}</div>`;
+  // Each card is a stop for Tab, in reading order; its place in the file
+  // keeps which card is drawn over which.
+  return `<div class="canvas-node canvas-${node.type}${tinted}" data-id="${escape(node.id)}"${open} style="${style}; z-index: ${order}" tabindex="0" role="article" aria-label="${escape(cardName(node))}">${inner}</div>`;
 }
 
 /**
@@ -145,14 +191,16 @@ export function renderCanvas(canvas, { path = "", links = {} } = {}) {
     const shape = edgeGeometry(from, to, edge);
     const color = canvasColor(edge.color);
     const style = color ? ` style="--edge-color: ${color}"` : "";
-    paths.push(`<g class="canvas-edge"${style}><path d="${shape.d}"/>${shape.arrows.map((points) => `<polygon points="${points}"/>`).join("")}</g>`);
-    if (edge.label) labels.push(`<div class="canvas-edge-label" dir="auto" style="left: ${shape.label.x}px; top: ${shape.label.y}px${color ? `; --edge-color: ${color}` : ""}">${escape(edge.label)}</div>`);
+    paths.push(`<g class="canvas-edge"${style} aria-hidden="true"><path d="${shape.d}"/>${shape.arrows.map((points) => `<polygon points="${points}"/>`).join("")}</g>`);
+    if (edge.label) labels.push(`<div class="canvas-edge-label" dir="auto" aria-hidden="true" style="z-index: ${nodes.length + 1}; left: ${shape.label.x}px; top: ${shape.label.y}px${color ? `; --edge-color: ${color}` : ""}">${escape(edge.label)}</div>`);
   }
   const groups = nodes.filter((n) => n.type === "group").map((n) => nodeHtml(n, links, path)).join("");
-  const cards = nodes.filter((n) => n.type !== "group").map((n) => nodeHtml(n, links, path)).join("");
-  const svg = `<svg class="canvas-edges" style="left: ${box.x - pad}px; top: ${box.y - pad}px; width: ${box.width + 2 * pad}px; height: ${box.height + 2 * pad}px" viewBox="${view}">${paths.join("")}</svg>`;
+  const stacking = new Map(nodes.map((node, at) => [node, at + 1]));
+  const cards = readingOrder(nodes).map((n) => nodeHtml(n, links, path, stacking.get(n))).join("");
+  const svg = `<svg class="canvas-edges" aria-hidden="true" style="left: ${box.x - pad}px; top: ${box.y - pad}px; width: ${box.width + 2 * pad}px; height: ${box.height + 2 * pad}px" viewBox="${view}">${paths.join("")}</svg>`;
   const empty = nodes.length === 0 ? `<div class="canvas-empty">The canvas is empty.</div>` : "";
-  return `<div class="canvas-world">${groups}${svg}${cards}${labels.join("")}</div>${empty}`;
+  const summary = `<div id="canvas-summary" class="sr-only">${escape(canvasSummary(canvas))}</div>`;
+  return `<div class="canvas-world">${groups}${svg}${cards}${labels.join("")}</div>${empty}${summary}`;
 }
 
 /** The zoom and offset that show the whole [box] in a [width] × [height] window. */

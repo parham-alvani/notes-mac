@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderCanvas, canvasColor, edgeGeometry, bounds, fit } from "../src/canvas.js";
+import { renderCanvas, canvasColor, edgeGeometry, bounds, fit, readingOrder, cardName } from "../src/canvas.js";
 
 const node = (id, type, x, y, extra = {}) => ({ id, type, x, y, width: 200, height: 100, ...extra });
 
@@ -41,19 +41,31 @@ test("the board draws each kind of card, groups under them, and labels on top", 
     },
     { path: "Board.canvas", links: { Inbox: "Notes/Inbox.md" } },
   );
-  assert.match(html, /class="canvas-node canvas-text is-tinted" data-id="t" style="left: 0px; top: 0px; width: 200px; height: 100px; --node-color: var\(--red\)"/);
+  assert.match(html, /class="canvas-node canvas-text is-tinted" data-id="t" style="left: 0px; top: 0px; width: 200px; height: 100px; --node-color: var\(--red\); z-index: 1" tabindex="0" role="article" aria-label="Hi Inbox"/);
   assert.match(html, /<strong>Hi<\/strong> <a class="internal-link"[^>]*data-path="Notes\/Inbox.md"/);
   assert.match(html, /data-open="Notes\/Inbox.md"/);
   assert.match(html, /class="embed canvas-embed" data-path="Notes\/Inbox.md" data-anchor="Part"/);
   assert.match(html, /<img src="vault:\/\/\/uploads\/a%20b.png"/);
   assert.match(html, /Not in the vault/);
   assert.match(html, /<a class="canvas-link-card" href="https:\/\/example.com\/x"><span class="canvas-link-host">example.com<\/span>/);
-  assert.match(html, /class="canvas-group is-tinted"[^>]*--node-color: #ff0000"><div class="canvas-group-label" dir="auto">Week<\/div>/);
-  assert.match(html, /<g class="canvas-edge" style="--edge-color: var\(--aqua\)"><path d="M /);
+  assert.match(html, /class="canvas-group is-tinted"[^>]*--node-color: #ff0000" aria-hidden="true"><div class="canvas-group-label" dir="auto">Week<\/div>/);
+  assert.match(html, /<g class="canvas-edge" style="--edge-color: var\(--aqua\)" aria-hidden="true"><path d="M /);
   assert.match(html, /class="canvas-edge-label"[^>]*>next<\/div>/);
   // The group comes first, the edges' label last; an edge to a missing card is not drawn.
   assert.ok(html.indexOf("canvas-group") < html.indexOf("canvas-edges") && html.indexOf("canvas-edges") < html.indexOf('data-id="t"'));
   assert.equal(html.match(/<g class="canvas-edge"/g).length, 1);
+  // The board in words: the cards, the group, the arrow.
+  assert.match(html, /<div id="canvas-summary" class="sr-only">5 cards\. Groups: Week\. Arrows: Hi Inbox → Inbox: next\.<\/div>/);
+});
+
+test("the cards are Tab stops in reading order, drawn over each other as in the file", () => {
+  const nodes = [node("c", "text", 0, 300, { text: "Third" }), node("b", "text", 400, 10, { text: "Second" }), node("a", "text", 0, 0, { text: "# First" })];
+  assert.deepEqual(readingOrder(nodes).map((n) => n.id), ["a", "b", "c"]);
+  const html = renderCanvas({ nodes });
+  const order = [...html.matchAll(/data-id="(\w)"[^>]*z-index: (\d)"[^>]*tabindex="0" role="article" aria-label="([^"]*)"/g)].map((m) => [m[1], m[2], m[3]]);
+  assert.deepEqual(order, [["a", "3", "First"], ["b", "2", "Second"], ["c", "1", "Third"]]);
+  assert.equal(cardName({ type: "file", file: "Gone.md" }), "Gone.md, not in the vault");
+  assert.equal(cardName({ type: "text", text: "- [ ] **Buy** [[Milk|milk]]" }), "Buy milk");
 });
 
 test("a link card shows only a web address as a link", () => {

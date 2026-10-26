@@ -4,8 +4,9 @@
 
 import { escapeHtml as escape, vaultUrl } from "./render.js";
 
-export function renderCell(cell) {
-  if (cell.check !== undefined) return `<input type="checkbox" disabled${cell.check ? " checked" : ""}>`;
+/** A cell's value; a checkbox is named after its column, [name]. */
+export function renderCell(cell, name = "") {
+  if (cell.check !== undefined) return `<input type="checkbox" disabled${cell.check ? " checked" : ""}${name ? ` aria-label="${escape(name)}"` : ""}>`;
   return cell.parts
     .map((part) =>
       part.path
@@ -31,12 +32,12 @@ function groupHead(group, tag) {
 }
 
 function renderTable(view) {
-  const head = view.columns.map((name) => `<th dir="auto">${escape(name)}</th>`).join("");
+  const head = view.columns.map((name) => `<th scope="col" dir="auto">${escape(name)}</th>`).join("");
   const body = view.groups
     .map((group) => {
       const title = group.name == null ? "" : `<tr class="base-group"><th colspan="${view.columns.length}" dir="auto">${escape(group.name)} <span class="base-group-count">${group.rows.length}</span></th></tr>`;
       const rows = group.rows
-        .map((row) => `<tr>${row.cells.map((cell) => `<td dir="auto"${cell.numeric ? ' class="numeric"' : ""}>${renderCell(cell)}</td>`).join("")}</tr>`)
+        .map((row) => `<tr>${row.cells.map((cell, at) => `<td dir="auto"${cell.numeric ? ' class="numeric"' : ""}>${renderCell(cell, view.columns[at])}</td>`).join("")}</tr>`)
         .join("");
       return title + rows;
     })
@@ -63,9 +64,10 @@ function renderCards(view) {
   const size = Number(layout.cardSize) > 0 ? Number(layout.cardSize) : 200;
   const card = (row) => {
     const lines = row.cells
-      .map((cell, at) => (isSelf(cell, row) || empty(cell) ? "" : `<div class="base-card-line"><span class="base-card-label" dir="auto">${escape(view.columns[at] ?? "")}</span><span class="base-card-value${cell.numeric ? " numeric" : ""}" dir="auto">${renderCell(cell)}</span></div>`))
+      .map((cell, at) => (isSelf(cell, row) || empty(cell) ? "" : `<div class="base-card-line"><span class="base-card-label" dir="auto">${escape(view.columns[at] ?? "")}</span><span class="base-card-value${cell.numeric ? " numeric" : ""}" dir="auto">${renderCell(cell, view.columns[at])}</span></div>`))
       .join("");
-    return `<div class="base-card">${cover(row.image, layout)}<div class="base-card-body"><div class="base-card-title" dir="auto">${titleLink(row)}</div>${lines}</div></div>`;
+    // A card is a group named by its note, so VoiceOver says whose values these are.
+    return `<div class="base-card" role="group" aria-label="${escape(title(row.path))}">${cover(row.image, layout)}<div class="base-card-body"><div class="base-card-title" dir="auto">${titleLink(row)}</div>${lines}</div></div>`;
   };
   return view.groups
     .map((group) => `${groupHead(group, "div")}<div class="base-cards" style="grid-template-columns: repeat(auto-fill, minmax(${size}px, 1fr))">${group.rows.map(card).join("")}</div>`)

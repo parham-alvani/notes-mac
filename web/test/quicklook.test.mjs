@@ -21,7 +21,7 @@ test("a code block is drawn under its language, a diagram is not", () => {
 
 test("Persian paragraphs and callouts take their own direction", () => {
   const html = preview({ text: "> [!tip] سلام\n> متن\n\nدنیا" });
-  assert.match(html, /<div class="callout" data-callout="tip" dir="auto">/);
+  assert.match(html, /<div class="callout" data-callout="tip" dir="auto" role="note">/);
   assert.match(html, /<p dir="auto"[^>]*>دنیا<\/p>/);
 });
 
