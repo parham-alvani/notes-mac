@@ -126,6 +126,10 @@ final class WindowModel {
     var graph = false
     /// ⌥⌘A: Apple Intelligence on the open note.
     var assistant = false
+    /// The open note's history in the vault's repository.
+    var history = false
+    /// "Rename Tag…": the tag whose sheet is open.
+    var tagRename: TagTarget?
     /// "Set Icon…": the note or folder the icon picker is open on.
     var iconTarget: IconTarget?
     /// ⌃⌘T: the text the system's translation panel shows.
@@ -241,6 +245,17 @@ final class WindowModel {
     }
 
     /// The periodic note of [day]'s period, made when it is not there yet.
+    /// The open note's tasks sorted as the vault's Task Sorter plugin does:
+    /// in the editor as a step to undo, else in the file.
+    func sortTasks(store: VaultStore) {
+        guard let path, !showsPage else { return }
+        if editing {
+            NSApp.sendAction(#selector(NoteTextView.sortTasks(_:)), to: nil, from: nil)
+        } else if !store.sortTasks(path) {
+            store.notice = "The tasks are in order already."
+        }
+    }
+
     func openPeriodicNote(for day: Day = .today(), store: VaultStore) {
         do {
             open(try store.periodicNote(for: day), store: store)
@@ -367,6 +382,12 @@ struct ReaderFind: Equatable {
     enum Action: String { case none, open, next, previous }
     var action: Action
     var count: Int
+}
+
+/// A tag to rename, everywhere in the vault.
+struct TagTarget: Identifiable, Equatable {
+    var tag: String
+    var id: String { tag }
 }
 
 /// A file command, and the file or folder it acts on.

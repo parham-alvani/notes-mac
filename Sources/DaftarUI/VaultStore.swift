@@ -117,6 +117,7 @@ final class VaultStore {
         templates = Templates.read(root: url)
         places.load(root: url, directory: settings.stateDirectory)
         index = Vault.index(url, search: search)
+        isRepository = FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
         revision += 1
     }
 
@@ -502,6 +503,79 @@ final class VaultStore {
             changed([path])
             return false
         }
+    }
+
+    // MARK: Whole notes
+
+    /// The tasks of [path] sorted as the vault's Task Sorter plugin does:
+    /// done and cancelled first in each section. False when none moved.
+    @discardableResult
+    func sortTasks(_ path: String) -> Bool {
+        guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
+        var sorted = false
+        do {
+            try ownEdit(path, in: root) { text in
+                guard let result = TaskSorter.sort(text) else { return text }
+                sorted = true
+                return result
+            }
+        } catch {
+            notice = "The tasks could not be sorted: \(error.localizedDescription)"
+            return false
+        }
+        if sorted {
+            changed([path])
+            requestSync()
+        }
+        return sorted
+    }
+
+    /// The notes that have the tag [tag] or one under it.
+    func notes(tagged tag: String) -> [String] {
+        let folded = Slugs.fold(tag.hasPrefix("#") ? String(tag.dropFirst()) : tag)
+        return index.notes.values
+            .filter { $0.parsed.tags.contains { Slugs.fold($0) == folded || Slugs.fold($0).hasPrefix(folded + "/") } }
+            .map(\.path).sorted()
+    }
+
+    /// Renames the tag [old], and those under it, in every note that has it.
+    /// The number of notes written.
+    @discardableResult
+    func renameTag(_ old: String, to new: String) -> Int {
+        guard let root, TagRename.isValid(old), TagRename.isValid(new) else { return 0 }
+        var written: Set<String> = []
+        for path in notes(tagged: old) where url(of: path) != nil {
+            do {
+                var changedNote = false
+                try ownEdit(path, in: root) { text in
+                    let result = TagRename.rename(text, from: old, to: new)
+                    changedNote = result != text
+                    return result
+                }
+                if changedNote { written.insert(path) }
+            } catch {
+                notice = "\(Vault.title(of: path)) could not be written: \(error.localizedDescription)"
+            }
+        }
+        if !written.isEmpty {
+            changed(written)
+            requestSync()
+        }
+        return written.count
+    }
+
+    // MARK: History
+
+    /// The commits that changed [path], newest first; none outside a repository.
+    func history(of path: String) async -> [Git.Revision] {
+        guard let root, isRepository else { return [] }
+        return (try? await Git(root: root).history(of: path)) ?? []
+    }
+
+    /// [revision]'s text of its note.
+    func text(of revision: Git.Revision) async -> String? {
+        guard let root else { return nil }
+        return try? await Git(root: root).content(of: revision.path, at: revision.hash)
     }
 
     // MARK: Git

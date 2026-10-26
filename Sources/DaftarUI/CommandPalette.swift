@@ -89,6 +89,11 @@ enum PaletteCommands {
                 },
             ]
         }
+        if store.isRepository, note != nil {
+            out.append(PaletteCommand(id: "history", title: "Show the Note's History", group: "Git", symbol: "clock.arrow.circlepath", color: Palette.aqua, shortcut: "⌥⌘Y") {
+                model.history = true
+            })
+        }
         if model.canGoBack {
             out.append(PaletteCommand(id: "back", title: "Go Back", group: "Go", symbol: "chevron.left", color: Palette.muted, shortcut: "⌘[") { model.goBack() })
         }
@@ -113,6 +118,9 @@ enum PaletteCommands {
                 PaletteCommand(id: "extract", title: "Extract Selection to New Note", group: "Note", symbol: "rectangle.portrait.and.arrow.right", color: Palette.pink, shortcut: "⌥⌘X") {
                     if !model.editing { model.editing = true }
                     DispatchQueue.main.async { NSApp.sendAction(#selector(NoteTextView.extractSelection(_:)), to: nil, from: nil) }
+                },
+                PaletteCommand(id: "sort-tasks", title: "Sort Tasks (Done First)", group: "Note", symbol: "arrow.up.arrow.down", color: Palette.green) {
+                    model.sortTasks(store: store)
                 },
                 PaletteCommand(id: "rename", title: "Rename", group: "Note", symbol: "character.cursor.ibeam", color: Palette.blue, shortcut: "⌘R") {
                     model.fileAction = .rename(note)

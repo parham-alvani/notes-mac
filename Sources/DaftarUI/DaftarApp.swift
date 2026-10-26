@@ -493,6 +493,11 @@ struct FileCommands: Commands {
             .disabled(window?.editing != true || window?.showsPage == true)
             Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
                 .disabled(window?.path == nil || window?.showsPage == true)
+            Button("Show History…") { window?.history = true }
+                .keyboardShortcut("y", modifiers: [.command, .option])
+                .disabled(window?.path == nil || window?.showsPage == true || !store.isRepository)
+            Button("Sort Tasks") { window?.sortTasks(store: store) }
+                .disabled(window?.path == nil || window?.showsPage == true)
             Divider()
             Button("Export as PDF…") { window?.exportPDF() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

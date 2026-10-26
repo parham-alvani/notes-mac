@@ -105,6 +105,28 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
     }
 
+    /// Sorts the tasks as the vault's Task Sorter plugin does, as one step
+    /// to undo. Neovim owns its buffer, so there the file is sorted and
+    /// Neovim reads it again.
+    func sortTasks() {
+        guard let view, let path else { return }
+        if session != nil {
+            saveNow()
+            if !store.sortTasks(path) { store.notice = "The tasks are in order already." }
+            return
+        }
+        guard let sorted = TaskSorter.sort(view.string) else {
+            store.notice = "The tasks are in order already."
+            return
+        }
+        let whole = NSRange(location: 0, length: (view.string as NSString).length)
+        guard view.shouldChangeText(in: whole, replacementString: sorted) else { return }
+        let cursor = view.selectedRange().location
+        view.textStorage?.replaceCharacters(in: whole, with: sorted)
+        view.didChangeText()
+        view.setSelectedRange(NSRange(location: min(cursor, (sorted as NSString).length), length: 0))
+    }
+
     init(store: VaultStore) {
         self.store = store
         super.init()
@@ -1217,6 +1239,8 @@ final class NoteTextView: NSTextView {
     }
 
     @objc func extractSelection(_ sender: Any?) { controller?.extract() }
+
+    @objc func sortTasks(_ sender: Any?) { controller?.sortTasks() }
 
     // MARK: Pairs
 

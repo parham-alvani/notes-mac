@@ -44,6 +44,9 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 - **Export as PDF:** ⇧⌘E prints the note to an A4 PDF, in the light colours and with every section open, for someone who does not read markdown.
 - **Addresses and phone numbers** written as plain text are links: an address opens Maps, a number the app that makes calls. The inspector lists the places a note names.
 - **WakaTime:** a setting sends the time spent reading and writing each note to WakaTime with `wakatime-cli`, as Obsidian's WakaTime plugin does. It is off at first.
+- **History:** ⌥⌘Y shows each commit that changed the note, newest first, across renames, with the lines it added and removed or the whole note as it was then. Restore This Version gives the note an older text again; the next sync commits it, so the newer text stays in the history.
+- **Sort tasks:** File › Sort Tasks puts the done and cancelled tasks first and the open ones last in each section, with the lines under each task, as the vault's Task Sorter plugin does. In the editor it is one step to undo.
+- **Rename a tag:** a right click on a tag in the sidebar renames it in every note, in the text and in the `tags` property, and the tags under it too: `#work/alpha` follows `#work`. Code and links keep their text.
 - **Hide the menu bar:** a setting hides the menu bar while Daftar is in front.
 - **Today:** the meetings of the day from the week notes in `Calendar/` (which Daftar on the phone writes), the free time, and the tasks that are overdue, due, in progress and coming. A click on a checkbox completes a task, also a repeating one, as the Tasks plugin does.
 - **Notifications:** an alert before each meeting, with a Join button, and a morning digest of the tasks that are due.

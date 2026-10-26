@@ -32,6 +32,31 @@ import Testing
         #expect(!store.editTask(path: "Notes/Plan.md", line: 1, before: before, fields: after))
     }
 
+    @Test func tasksAreSortedInTheFile() throws {
+        try "# Plan\n- [ ] Open\n- [x] Done\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        #expect(store.sortTasks("Notes/Plan.md"))
+        #expect(try text("Notes/Plan.md") == "# Plan\n- [x] Done\n- [ ] Open\n")
+        #expect(!store.sortTasks("Notes/Plan.md"))
+        #expect(!store.sortTasks("Notes/Missing.md"))
+    }
+
+    @Test func aTagIsRenamedInEveryNote() throws {
+        try "---\ntags: [work/alpha]\n---\n# Plan\n- [ ] Call #Work\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
+        try "#work and `#work`".write(to: root.appending(path: "Home.md"), atomically: true, encoding: .utf8)
+        try "#workshop".write(to: root.appending(path: "Other.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        #expect(store.notes(tagged: "#work") == ["Home.md", "Notes/Plan.md"])
+        #expect(store.renameTag("work", to: "job") == 2)
+        #expect(try text("Notes/Plan.md") == "---\ntags: [job/alpha]\n---\n# Plan\n- [ ] Call #job\n")
+        #expect(try text("Home.md") == "#job and `#work`")
+        #expect(try text("Other.md") == "#workshop")
+        // The app's own edit is not news to the person who made it.
+        store.openSynchronously(root)
+        #expect(!store.isUpdatedSinceRead("Home.md"))
+        #expect(store.renameTag("work", to: "2026") == 0)
+    }
+
     @Test func thePeriodicNoteIsMadeFromItsTemplate() throws {
         try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appending(path: "Templates"), withIntermediateDirectories: true)

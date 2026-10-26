@@ -149,6 +149,13 @@ struct FilesList: View {
                                 .background(color.opacity(0.15), in: Capsule())
                         }
                         .tag(SidebarItem.tag(node.tag))
+                        .contextMenu {
+                            Button("Rename Tag…") { model.tagRename = TagTarget(tag: node.tag) }
+                            Button("Copy Tag") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString("#" + node.tag, forType: .string)
+                            }
+                        }
                     }
                 } header: {
                     Text("Tags · \(store.index.tags.count)")

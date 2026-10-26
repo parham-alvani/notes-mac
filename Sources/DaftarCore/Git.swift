@@ -31,7 +31,7 @@ public struct Git: Sendable {
     /// Runs git and returns what it printed. Never asks on a terminal: a sync
     /// that needs a password fails and says so instead of waiting for ever.
     @discardableResult
-    public func run(_ arguments: [String]) async throws -> String {
+    public func run(_ arguments: [String], trimmed: Bool = true) async throws -> String {
         let process = Process()
         process.executableURL = executable
         process.arguments = ["-C", root.path] + arguments
@@ -66,7 +66,7 @@ public struct Git: Sendable {
                 // that git started and that stays, such as an SSH master
                 // connection, can keep the pipe open, so not for ever.
                 if ended.wait(timeout: .now() + 2) == .timedOut { pipe.fileHandleForReading.readabilityHandler = nil }
-                let text = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = trimmed ? output.text.trimmingCharacters(in: .whitespacesAndNewlines) : output.text
                 if process.terminationStatus == 0 {
                     continuation.resume(returning: text)
                 } else {
@@ -138,6 +138,42 @@ public struct Git: Sendable {
             changed = true
         }
         return changed || before != after
+    }
+
+    /// A commit that changed a note.
+    public struct Revision: Sendable, Equatable, Identifiable {
+        public var hash: String
+        public var date: Date
+        public var author: String
+        public var subject: String
+        /// The note's path in this commit, which a rename changes.
+        public var path: String
+        public var id: String { hash }
+    }
+
+    /// The commits that changed [path], newest first, across renames.
+    public func history(of path: String, limit: Int = 300) async throws -> [Revision] {
+        Git.revisions(try await run([
+            "-c", "core.quotePath=false", "log", "--follow", "-n", String(limit),
+            "--format=%x1e%H%x1f%aI%x1f%an%x1f%s", "--name-only", "--", path,
+        ]))
+    }
+
+    /// What `git log --format=%x1e%H%x1f%aI%x1f%an%x1f%s --name-only` printed.
+    public static func revisions(_ output: String) -> [Revision] {
+        let dates = ISO8601DateFormatter()
+        return output.split(separator: "\u{1e}").compactMap { record in
+            let lines = record.split(separator: "\n", omittingEmptySubsequences: true)
+            guard let head = lines.first else { return nil }
+            let fields = head.split(separator: "\u{1f}", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 4, let date = dates.date(from: fields[1]) else { return nil }
+            return Revision(hash: fields[0], date: date, author: fields[2], subject: fields[3], path: lines.dropFirst().last.map(String.init) ?? "")
+        }
+    }
+
+    /// The text of [path] as commit [hash] has it, to the last byte.
+    public func content(of path: String, at hash: String) async throws -> String {
+        try await run(["show", "\(hash):\(path)"], trimmed: false)
     }
 
     /// The obsidian-git message this vault's history is written with:
