@@ -190,7 +190,8 @@ public enum MessagePack {
 
         mutating func array(_ count: Int) throws -> MessagePackValue {
             var items: [MessagePackValue] = []
-            items.reserveCapacity(count)
+            // A broken length must not ask for gigabytes: each item takes a byte at least.
+            items.reserveCapacity(min(count, bytes.count - at))
             for _ in 0..<count { items.append(try value()) }
             return .array(items)
         }
