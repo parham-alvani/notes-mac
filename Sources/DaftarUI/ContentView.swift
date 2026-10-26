@@ -59,6 +59,7 @@ struct ContentView: View {
             HistorySheet(model: model)
         }
         .sheet(item: $model.tagRename) { TagRenameSheet(target: $0) }
+        .sheet(item: $model.vaultReplace) { VaultReplaceSheet(target: $0) }
         .translationPresentation(isPresented: Binding { model.translation != nil } set: { if !$0 { model.translation = nil } }, text: model.translation ?? "")
         .sheet(item: $model.taskEdit) { task in
             TaskEditSheet(task: task)

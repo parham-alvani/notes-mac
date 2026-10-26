@@ -211,6 +211,18 @@ import Testing
             let renamed = TagRename.rename(text, from: "tag", to: "label")
             #expect(renamed.components(separatedBy: "\n").count == text.components(separatedBy: "\n").count)
             #expect(TagRename.rename(text, from: "absent-tag", to: "other") == text)
+            for (find, regex) in [("a", false), ("#", false), (#"\[\[([^\]]*)\]\]"#, true), ("^", true), (#"\s*"#, true), ("(", true)] {
+                let options = VaultReplace.Options(regularExpression: regex, skipCode: find.count % 2 == 0)
+                guard let found = try? VaultReplace.matches(in: text, find: find, replace: "$1", options: options) else {
+                    // An invalid pattern is reported, never a crash.
+                    #expect(find == "(")
+                    continue
+                }
+                #expect(VaultReplace.apply([], to: text) == text)
+                let same = found.map { match in var match = match; match.replacement = match.found; return match }
+                #expect(VaultReplace.apply(same, to: text) == text)
+                _ = VaultReplace.apply(found, to: text)
+            }
         }
     }
 

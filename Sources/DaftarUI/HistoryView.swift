@@ -225,16 +225,29 @@ private struct DiffLines: View {
     }
 
     private func row(_ line: LineDiff.Line) -> some View {
-        let color: Color? = switch line.kind {
+        DiffRow(kind: line.kind, old: line.old, new: line.new, text: Text(line.text.isEmpty ? " " : line.text))
+    }
+}
+
+/// One line of a diff: its numbers, `+` or `−`, and the text in green or
+/// red. "Replace in Vault" shows its before and after with it too.
+struct DiffRow: View {
+    var kind: LineDiff.Kind
+    var old: Int?
+    var new: Int?
+    var text: Text
+
+    var body: some View {
+        let color: Color? = switch kind {
         case .added: Palette.green
         case .removed: Palette.red
         case .same: nil
         }
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(line.old.map(String.init) ?? "").frame(width: 34, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(line.new.map(String.init) ?? "").frame(width: 34, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(line.kind == .added ? "+" : line.kind == .removed ? "−" : "").foregroundStyle(color ?? .secondary).frame(width: 12)
-            Text(line.text.isEmpty ? " " : line.text).foregroundStyle(color ?? .primary).textSelection(.enabled)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(old.map(String.init) ?? "").frame(width: 34, alignment: .trailing).foregroundStyle(.tertiary)
+            Text(new.map(String.init) ?? "").frame(width: 34, alignment: .trailing).foregroundStyle(.tertiary)
+            Text(kind == .added ? "+" : kind == .removed ? "−" : "").foregroundStyle(color ?? .secondary).frame(width: 12)
+            text.foregroundStyle(color ?? .primary).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(Font(Fonts.code(size: 12)))
