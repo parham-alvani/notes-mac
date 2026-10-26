@@ -162,6 +162,7 @@ public struct DaftarApp: App {
                     Image(systemName: "book.closed")
                 }
             }
+            .accessibilityLabel("Daftar")
             .onAppear { QuickCaptureController.shared.store = store }
         }
         .menuBarExtraStyle(.window)
@@ -447,6 +448,7 @@ struct MenuBarView: View {
         let groups = store.taskGroups(today: today, days: 0)
         VStack(alignment: .leading, spacing: 10) {
             Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide))).font(.headline)
+                .accessibilityAddTraits(.isHeader)
             if upcoming.isEmpty {
                 Text("No more meetings today.").foregroundStyle(.secondary)
             }

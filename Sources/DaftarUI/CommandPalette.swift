@@ -208,10 +208,13 @@ struct CommandPaletteView: View {
             HStack(spacing: 10) {
                 Image(systemName: "command").font(.title2.weight(.semibold))
                     .foregroundStyle(LinearGradient(colors: [Palette.accent, Palette.pink], startPoint: .top, endPoint: .bottom))
+                    .accessibilityHidden(true)
                 TextField("Run a command", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title2)
                     .focused($focused)
+                    .accessibilityLabel("Command Palette")
+                    .accessibilityHint(results.isEmpty ? "No command matches" : Spoken.count(results.count, "command") + ". Up and Down Arrow choose, Return runs.")
                     .onSubmit { run(results) }
                     .onKeyPress(.downArrow) { selected = min(selected + 1, max(results.count - 1, 0)); return .handled }
                     .onKeyPress(.upArrow) { selected = max(selected - 1, 0); return .handled }
@@ -225,6 +228,13 @@ struct CommandPaletteView: View {
                         ForEach(Array(results.enumerated()), id: \.element.command.id) { index, result in
                             row(result.command, positions: result.positions, chosen: index == selected)
                                 .onTapGesture { selected = index; run(results) }
+                                .accessibilityRow(
+                                    result.command.shortcut.isEmpty ? result.command.title : "\(result.command.title), \(result.command.shortcut)",
+                                    selected: index == selected
+                                ) {
+                                    selected = index
+                                    run(results)
+                                }
                                 .id(index)
                         }
                     }

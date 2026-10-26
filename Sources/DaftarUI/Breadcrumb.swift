@@ -31,14 +31,17 @@ struct Breadcrumb: View {
             }
             if let words, words >= 50 {
                 Text("\(words.formatted()) words · \(max(1, Int((Double(words) / 220).rounded()))) min")
-                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1).fixedSize()
+                    .font(.caption).faint().lineLimit(1).fixedSize()
                     .padding(.trailing, 10)
                     .help("The words of the note, and how long it takes to read at 220 words a minute")
+                    .accessibilityLabel("\(words.formatted()) words, \(max(1, Int((Double(words) / 220).rounded()))) minutes to read")
             }
             if store.periodic.period(of: path) != nil { periodicControls.padding(.trailing, 10) }
             if let onClose { PaneCloseButton(action: onClose).padding(.trailing, 8) }
         }
         .frame(height: 34)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Path of the note")
         .task(id: "\(path)\u{0}\(store.revision)") {
             words = Vault.isNote(path) ? store.text(of: path).map { EditorController.words(in: $0 as NSString, range: NSRange(location: 0, length: ($0 as NSString).length)) } : nil
         }
@@ -58,6 +61,7 @@ struct Breadcrumb: View {
         return HStack(spacing: 2) {
             Button { if let earlier { model.open(earlier, store: store) } } label: { Image(systemName: "chevron.left") }
                 .disabled(earlier == nil)
+                .accessibilityLabel(earlier.map { "Previous \(periodic.period.noun): \(Vault.title(of: $0))" } ?? "No earlier note")
                 .help(earlier.map { "Previous: \(Vault.title(of: $0)) (⌥⌘←)" } ?? "No earlier note")
             Menu {
                 Button(periodic.period.current) { model.openPeriodicNote(store: store) }
@@ -78,6 +82,7 @@ struct Breadcrumb: View {
             .fixedSize()
             Button { if let later { model.open(later, store: store) } } label: { Image(systemName: "chevron.right") }
                 .disabled(later == nil)
+                .accessibilityLabel(later.map { "Next \(periodic.period.noun): \(Vault.title(of: $0))" } ?? "No later note")
                 .help(later.map { "Next: \(Vault.title(of: $0)) (⌥⌘→)" } ?? "No later note")
         }
         .buttonStyle(.borderless)
@@ -85,7 +90,8 @@ struct Breadcrumb: View {
     }
 
     private var separator: some View {
-        Image(systemName: "chevron.compact.right").font(.system(size: 11, weight: .bold)).foregroundStyle(.tertiary)
+        Image(systemName: "chevron.compact.right").font(.system(size: 11, weight: .bold)).faint()
+            .accessibilityHidden(true)
     }
 
     /// A folder: its icon and name, and a menu of what it holds.
@@ -121,6 +127,8 @@ struct Breadcrumb: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(folder.isEmpty ? "What is at the top of \(store.name)" : "What is in \(name)")
+        .accessibilityLabel(folder.isEmpty ? "Vault \(name)" : "Folder \(name)")
+        .accessibilityHint("Shows what is in it")
     }
 
     /// One row of a folder's menu: a note opens, a folder is a submenu.
@@ -181,6 +189,9 @@ struct Breadcrumb: View {
             .glassEffect(.regular.tint(Palette.accent.opacity(0.25)).interactive(), in: .capsule)
             .contentShape(Rectangle())
         }
+        .accessibilityLabel(Vault.isNote(path) ? Vault.title(of: path) : String(path.split(separator: "/").last ?? ""))
+        .accessibilityValue(store.bookmarks.contains(path) ? "Bookmarked" : "")
+        .accessibilityHint("The commands on this note")
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)

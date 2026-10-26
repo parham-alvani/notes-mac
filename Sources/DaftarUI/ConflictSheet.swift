@@ -179,7 +179,7 @@ struct ConflictSheet: View {
                 choiceButtons(chosen: chosen) { choices[path, default: [:]][number] = $0 }
             }
             if !before.isEmpty {
-                Text(before).font(Font(Fonts.code(size: 12))).foregroundStyle(.tertiary).lineLimit(2)
+                Text(before).font(Font(Fonts.code(size: 12))).faint().lineLimit(2)
             }
             HStack(alignment: .top, spacing: 10) {
                 side("On the remote", text: conflict.remote, color: Palette.blue, kept: chosen == .remote || chosen == .both)

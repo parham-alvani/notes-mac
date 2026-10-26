@@ -51,7 +51,8 @@ struct FilesList: View {
                         .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
                 .badge(groups.today.count + groups.overdue.count)
-                    .tag(SidebarItem.today)
+                .accessibilityValue(Spoken.count(groups.today.count, "task") + " due, \(groups.overdue.count) overdue")
+                .tag(SidebarItem.today)
                 Label {
                     Text("Board")
                 } icon: {
@@ -59,6 +60,7 @@ struct FilesList: View {
                         .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
                 .badge(groups.inProgress.count)
+                .accessibilityValue(Spoken.count(groups.inProgress.count, "task") + " in progress")
                 .tag(SidebarItem.board)
             }
             let bookmarks = store.bookmarks.entries.filter { $0.folder || store.index.files.contains($0.path) }
@@ -82,6 +84,8 @@ struct FilesList: View {
                                     .frame(width: IconicImage.slot, height: IconicImage.slot)
                             }
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(entry.folder ? "Bookmarked folder" : "Bookmark")
                         // A bookmarked folder opens its folder note.
                         .tag(SidebarItem.bookmark(entry.folder ? entry.path + "/" + (entry.path.split(separator: "/").last.map(String.init) ?? "") + ".md" : entry.path))
                         .contextMenu {
@@ -107,6 +111,8 @@ struct FilesList: View {
                             Image(systemName: "sparkles").foregroundStyle(Palette.aqua)
                                 .frame(width: IconicImage.slot, height: IconicImage.slot)
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityHint("Changed since you last read it")
                         .tag(SidebarItem.bookmark(path))
                         .help("Changed on \(store.index.notes[path]?.modified.formatted(date: .abbreviated, time: .shortened) ?? "disk") since you last read it")
                         .contextMenu {
@@ -148,6 +154,10 @@ struct FilesList: View {
                                 .padding(.horizontal, 6).padding(.vertical, 1)
                                 .background(color.opacity(0.15), in: Capsule())
                         }
+                        // The colour is the tag's own; the words are what it says.
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("#" + node.tag)
+                        .accessibilityValue(Spoken.count(node.count, "note"))
                         .tag(SidebarItem.tag(node.tag))
                         .contextMenu {
                             Button("Rename Tag…") { model.tagRename = TagTarget(tag: node.tag) }
@@ -224,6 +234,7 @@ struct FileRow: View {
                 if !node.isFolder, store.isUpdatedSinceRead(node.path) {
                     Circle().fill(Palette.aqua).frame(width: 6, height: 6)
                         .help("Changed since you last read it")
+                        .accessibilityHidden(true)
                 }
             }
         } icon: {
@@ -239,6 +250,17 @@ struct FileRow: View {
         }
         .padding(.vertical, dropTarget ? 2 : 0)
         .background(dropTarget ? Palette.accent.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(node.name)
+        .accessibilityValue(kind)
+    }
+
+    /// What the icon says: a folder, a note, or the kind of file, and the
+    /// aqua dot of a note changed since it was read.
+    private var kind: String {
+        if node.isFolder { return node.folderNote != nil ? "Folder with a folder note" : "Folder" }
+        let what = Vault.isNote(node.path) ? "Note" : Vault.opensInApp(node.path) ? "File" : "File, opens in another app"
+        return store.isUpdatedSinceRead(node.path) ? what + ", changed since you last read it" : what
     }
 
     private var attachmentSymbol: String {
@@ -319,13 +341,15 @@ struct SearchResults: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(Vault.title(of: path)).font(.headline).lineLimit(1)
                                     Text(path.split(separator: "/").dropLast().joined(separator: " › "))
-                                        .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                                        .font(.caption).faint().lineLimit(1)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(Vault.title(of: path))
+                        .accessibilityValue(path.split(separator: "/").dropLast().joined(separator: ", "))
                         .contextMenu { FileMenu(path: path, model: model) }
                     }
                 }
@@ -342,13 +366,15 @@ struct SearchResults: View {
                                 Text(highlighted(hit.snippet)).font(.callout).foregroundStyle(.secondary).lineLimit(3)
                             }
                             Text(hit.path.split(separator: "/").dropLast().joined(separator: " › "))
-                                .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                                .font(.caption).faint().lineLimit(1)
                         }
                         .padding(.vertical, 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Vault.title(of: hit.path))
+                    .accessibilityValue(hit.snippet.replacingOccurrences(of: "\u{1}", with: "").replacingOccurrences(of: "\u{2}", with: ""))
                     .contextMenu { FileMenu(path: hit.path, model: model) }
                 }
             }
@@ -475,6 +501,8 @@ struct InspectorView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel(Spoken.heading(level: heading.level, text: heading.text))
+                            .accessibilityAddTraits(model.section == heading.line && !model.editing ? .isSelected : [])
                         }
                     }
                 }
@@ -490,6 +518,7 @@ struct InspectorView: View {
                             LinkRow(path: link.source, symbol: "arrow.turn.down.right", color: Palette.aqua)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityHint("Links to this note")
                     }
                 } header: {
                     SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua)
@@ -519,11 +548,14 @@ struct InspectorView: View {
                                     LinkRow(path: found, symbol: link.embed ? "photo" : "arrow.up.right", color: link.embed ? Palette.pink : Palette.accent)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityHint(link.embed ? "Embedded in this note" : "Linked from this note")
                             } else {
                                 Label(link.target, systemImage: "link.badge.plus")
                                     .foregroundStyle(Palette.red.opacity(0.85))
                                     .lineLimit(1)
                                     .help("Not in the vault yet")
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityValue("Not in the vault yet")
                             }
                         }
                     } header: {
@@ -607,6 +639,8 @@ struct SectionTitle: View {
                     .background(color.opacity(0.15), in: Capsule())
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -634,6 +668,7 @@ struct MentionRow: View {
             Button("Link", action: link)
                 .buttonStyle(.bordered).controlSize(.small)
                 .help("Make “\(mention.text)” a link to this note")
+                .accessibilityLabel("Link “\(mention.text)” in \(Vault.title(of: source))")
         }
     }
 
@@ -656,16 +691,18 @@ struct LinkRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: symbol).font(.caption.weight(.bold)).foregroundStyle(color)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(Vault.isNote(path) ? Vault.title(of: path) : String(path.split(separator: "/").last ?? "")).lineLimit(1)
                 let folder = path.split(separator: "/").dropLast().joined(separator: " › ")
                 if !folder.isEmpty {
-                    Text(folder).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                    Text(folder).font(.caption).faint().lineLimit(1)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -686,6 +723,7 @@ struct QuickOpenView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").font(.title2.weight(.semibold)).foregroundStyle(Palette.accent)
+                    .accessibilityHidden(true)
                     // Escape closes the panel wherever the focus is, not only
                     // while the field has it; a panel left open would make
                     // the next ⌘P do nothing.
@@ -699,6 +737,9 @@ struct QuickOpenView: View {
                     .textFieldStyle(.plain)
                     .font(.title2)
                     .focused($focused)
+                    .accessibilityLabel("Quick Open")
+                    .accessibilityValue(model.switcherQuery)
+                    .accessibilityHint(results.isEmpty ? emptyText : Spoken.count(results.count, "result") + ". Up and Down Arrow choose, Return opens.")
                     .onSubmit { choose(results) }
                     .onKeyPress(.downArrow) { selected = min(selected + 1, max(results.count - 1, 0)); return .handled }
                     .onKeyPress(.upArrow) { selected = max(selected - 1, 0); return .handled }
@@ -748,6 +789,10 @@ struct QuickOpenView: View {
                                     in: RoundedRectangle(cornerRadius: 8))
                                 .contentShape(Rectangle())
                                 .onTapGesture { selected = index; choose(results) }
+                                .accessibilityRow(folder.isEmpty ? title : "\(title), \(folder)", selected: chosen) {
+                                    selected = index
+                                    choose(results)
+                                }
                                 .id(index)
                             }
                         }

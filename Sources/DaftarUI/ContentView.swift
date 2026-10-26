@@ -185,6 +185,11 @@ struct ContentView: View {
                     store.notice = nil
                 }
                 .onTapGesture { store.notice = nil }
+                // Said when it shows: VoiceOver does not see a banner come.
+                .onAppear { announce(notice) }
+                .onChange(of: notice) { _, text in announce(text) }
+                .accessibilityAddTraits(.isStaticText)
+                .accessibilityAction(named: "Dismiss") { store.notice = nil }
         }
     }
 
@@ -254,6 +259,7 @@ struct TabbedWindow: NSViewRepresentable {
 /// Git in the toolbar: the branch and how it stands, and a menu to sync.
 struct SyncButton: View {
     @Environment(VaultStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Menu {
@@ -273,14 +279,25 @@ struct SyncButton: View {
         } label: {
             Label(title, systemImage: symbol)
                 // The arrows turn while the sync runs, and the icon changes in place.
-                .symbolEffect(.rotate, options: .repeat(.continuous), isActive: store.syncing)
+                .symbolEffect(.rotate, options: .repeat(.continuous), isActive: store.syncing && !reduceMotion)
                 .contentTransition(.symbolEffect(.replace))
                 .foregroundStyle(store.syncError != nil ? Palette.red : (store.gitStatus?.changed ?? 0) > 0 ? Palette.accent : .primary)
         } primaryAction: {
             Task { await store.sync() }
         }
         .disabled(store.syncing)
+        // The icon's colour and shape are the state: in words for VoiceOver.
+        .accessibilityLabel("Sync")
+        .accessibilityValue(spokenState)
         .help(store.syncError.map { "The last sync failed: \($0)" } ?? "Commit, pull and push. Hold for more.")
+    }
+
+    private var spokenState: String {
+        if store.syncing { return "Syncing" }
+        if store.rebasing { return "Stopped on a conflict" }
+        if let error = store.syncError { return "The last sync failed: \(error)" }
+        guard let status = store.gitStatus else { return "" }
+        return "On \(status.branch), " + describe(status)
     }
 
     private var symbol: String {
@@ -311,7 +328,7 @@ struct WelcomeView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 128, height: 128)
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 128, height: 128).accessibilityHidden(true)
             Text("Daftar").font(.largeTitle.bold())
             Text("Open the folder of an Obsidian vault. The app reads it where it is, and changes only what you change.")
                 .multilineTextAlignment(.center).frame(maxWidth: 360).foregroundStyle(.secondary)

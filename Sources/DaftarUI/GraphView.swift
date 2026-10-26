@@ -49,6 +49,7 @@ struct GraphView: View {
                 .frame(width: 30, height: 30)
                 .background(LinearGradient(colors: [Palette.purple, Palette.blue], startPoint: .topLeading, endPoint: .bottomTrailing),
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(wholeVault ? "Graph of \(store.name)" : "Graph of \(model.path.map(Vault.title(of:)) ?? "the note")").font(.headline)
                 Text("\(graph.nodes.count) notes · \(graph.edges.count) links").font(.caption).foregroundStyle(.secondary)
@@ -63,10 +64,11 @@ struct GraphView: View {
             }
             .pickerStyle(.segmented).fixedSize()
             .disabled(model.path == nil)
-            Button { withAnimation { zoom = 1; settledZoom = 1; pan = .zero; settledPan = .zero } } label: {
+            Button { withMotion { zoom = 1; settledZoom = 1; pan = .zero; settledPan = .zero } } label: {
                 Image(systemName: "scope")
             }
             .help("Fit the graph to the window")
+            .accessibilityLabel("Fit to Window")
             Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
         }
         .padding(12)
@@ -78,12 +80,13 @@ struct GraphView: View {
             HStack(spacing: 10) {
                 ForEach(Array(groups), id: \.0) { group, count in
                     HStack(spacing: 5) {
-                        Circle().fill(color(of: group)).frame(width: 9, height: 9)
+                        Circle().fill(color(of: group)).frame(width: 9, height: 9).accessibilityHidden(true)
                         Text(group.isEmpty ? "Vault root" : group).font(.caption)
                         Text("\(count)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(color(of: group).opacity(0.12), in: Capsule())
+                    .accessibilityElement(children: .combine)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
@@ -169,6 +172,19 @@ struct GraphView: View {
             model.open(graph.nodes[i].path, store: store)
             dismiss()
         }
+        // A picture to the eye; to VoiceOver, the notes as a list, the
+        // centre first, then by how near and how linked each one is.
+        .accessibilityLabel(wholeVault ? "Graph of \(store.name)" : "Graph of \(model.path.map(Vault.title(of:)) ?? "the note")")
+        .accessibilityChildren {
+            ForEach(Self.spokenOrder(graph.nodes).prefix(400), id: \.self) { i in
+                let node = graph.nodes[i]
+                Button(node.title) {
+                    model.open(node.path, store: store)
+                    dismiss()
+                }
+                .accessibilityValue(Self.spokenValue(node))
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if let hovered, graph.nodes.indices.contains(hovered) {
                 let node = graph.nodes[hovered]
@@ -181,6 +197,23 @@ struct GraphView: View {
                 .padding(12)
             }
         }
+    }
+
+    /// The nodes' indices, nearest the centre first, then the most linked.
+    static func spokenOrder(_ nodes: [NoteGraph.Node]) -> [Int] {
+        nodes.indices.sorted { a, b in
+            let x = nodes[a], y = nodes[b]
+            let dx = x.distance ?? Int.max, dy = y.distance ?? Int.max
+            if dx != dy { return dx < dy }
+            if x.degree != y.degree { return x.degree > y.degree }
+            return x.title < y.title
+        }
+    }
+
+    static func spokenValue(_ node: NoteGraph.Node) -> String {
+        let links: String = Spoken.count(node.degree, "link")
+        let away: String = (node.distance ?? 0) > 0 ? ", " + Spoken.count(node.distance ?? 0, "step") + " away" : ""
+        return links + away + ", " + node.path
     }
 
     private func nearest(to location: CGPoint, _ layout: GraphLayout, _ t: (scale: CGFloat, dx: CGFloat, dy: CGFloat)) -> Int? {

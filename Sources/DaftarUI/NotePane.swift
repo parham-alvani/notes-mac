@@ -198,6 +198,16 @@ struct NotePaneView: View {
             .background(PaneClicks { [weak model, weak pane] in
                 if let model, let pane { model.focus(pane) }
             })
+            // The accent line is the focus for the eye; VoiceOver hears it.
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(paneName)
+    }
+
+    /// "Left pane, focused" in a split window; the note's name otherwise.
+    private var paneName: String {
+        guard model.isSplit else { return pane.path.map(Vault.title(of:)) ?? "No note open" }
+        let side = model.panes.first === pane ? "Left pane" : "Right pane"
+        return model.focused === pane ? side + ", focused" : side
     }
 
     private var onClose: (() -> Void)? {
@@ -269,6 +279,7 @@ struct PaneCloseButton: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help("Close this pane (⌘\\)")
+            .accessibilityLabel("Close Pane")
     }
 }
 

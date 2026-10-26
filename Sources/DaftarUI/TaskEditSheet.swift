@@ -199,7 +199,7 @@ struct PostponeMenu: View {
         if task.task.isOpen, task.task.due ?? task.task.scheduled ?? task.task.start != nil {
             Menu("Postpone") {
                 ForEach(TaskLine.Postpone.allCases, id: \.self) { amount in
-                    Button("By \(amount.title)") { withAnimation(.snappy) { _ = store.moveTask(task, to: .postpone(amount)) } }
+                    Button("By \(amount.title)") { withMotion(.snappy) { _ = store.moveTask(task, to: .postpone(amount)) } }
                 }
             }
         }

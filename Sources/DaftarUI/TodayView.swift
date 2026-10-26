@@ -93,6 +93,7 @@ struct Card<Content: View>: View {
                     .frame(width: 26, height: 26)
                     .background(LinearGradient(colors: [color, color.opacity(0.7)], startPoint: .top, endPoint: .bottom),
                         in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .accessibilityHidden(true)
                 Text(title).font(.headline).foregroundStyle(color)
                 if let count {
                     Text("\(count)")
@@ -102,6 +103,8 @@ struct Card<Content: View>: View {
                         .background(color.opacity(0.16), in: Capsule())
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
             content
         }
         .padding(16)
@@ -126,6 +129,7 @@ struct Chip: View {
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(color.opacity(0.14), in: Capsule())
             .overlay(Capsule().strokeBorder(color.opacity(0.3)))
+            .accessibilityElement(children: .combine)
     }
 }
 
@@ -142,11 +146,13 @@ struct MeetingRow: View {
                 .fill(live ? Palette.accent : past ? Palette.muted.opacity(0.5) : Palette.blue)
                 .frame(width: 4, height: 18)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 4 }
+                .accessibilityHidden(true)
             Text(time)
                 .font(.callout.monospacedDigit().weight(live ? .semibold : .regular))
                 .foregroundStyle(live ? Palette.accent : past ? .secondary : Palette.blue)
                 .lineLimit(1)
                 .frame(width: 140, alignment: .leading)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(meeting.title).fontWeight(live ? .semibold : .regular)
@@ -167,6 +173,10 @@ struct MeetingRow: View {
                         .font(.caption).foregroundStyle(Palette.red)
                 }
             }
+            // The bar's colour and the dimming say now, next or done: in words here.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(time), \(meeting.title)")
+            .accessibilityValue(state(live: live, past: past))
             Spacer()
             if let join = meeting.join, !past {
                 Button { NSWorkspace.shared.open(join) } label: { Label("Join", systemImage: "video.fill") }
@@ -176,6 +186,12 @@ struct MeetingRow: View {
             }
         }
         .opacity(past ? 0.6 : 1)
+    }
+
+    private func state(live: Bool, past: Bool) -> String {
+        var parts = [live ? "now" : past ? "finished" : "", meeting.tentative ? "maybe" : ""]
+        if let overlaps = meeting.overlaps { parts.append("overlaps \(overlaps)") }
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     private var time: String {
@@ -202,6 +218,11 @@ struct TaskRow: View {
             }
             .buttonStyle(.plain)
             .help("Complete")
+            // A checkbox drawn as a square: VoiceOver hears a toggle with its task.
+            .accessibilityLabel(Self.plain(task.task.text))
+            .accessibilityValue(Spoken.status(task.task.status))
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityHint("Completes the task")
             Button(action: open) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Self.plain(task.task.text))
@@ -226,6 +247,8 @@ struct TaskRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Spoken.task(task.task, note: Vault.title(of: task.path), today: .today()))
+            .accessibilityHint("Opens the note at the task")
         }
     }
 
@@ -236,7 +259,5 @@ struct TaskRow: View {
     ]
 
     /// `[[Target|label]]` as its label, for a one-line list.
-    static func plain(_ text: String) -> String {
-        text.replacing(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/) { String($0.2 ?? $0.1) }
-    }
+    static func plain(_ text: String) -> String { Spoken.plain(text) }
 }

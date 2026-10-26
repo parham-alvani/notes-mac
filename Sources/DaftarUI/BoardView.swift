@@ -76,6 +76,7 @@ struct BoardView: View {
                     .frame(width: 30, height: 30)
                     .background(LinearGradient(colors: [Palette.purple, Palette.accent], startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Board").font(.headline)
                     Text("\(count) open \(count == 1 ? "task" : "tasks")").font(.caption).foregroundStyle(.secondary)
@@ -104,8 +105,9 @@ struct BoardView: View {
                         .help("Show every done and cancelled task, not only the last two weeks'")
                 }
                 HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
                     TextField("Filter", text: $query).textFieldStyle(.plain).frame(width: 150)
+                        .accessibilityLabel("Filter tasks")
                 }
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .glassEffect(.regular, in: .capsule)
@@ -124,13 +126,16 @@ struct BoardView: View {
         let lit = target == column.id
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Circle().fill(color).frame(width: 9, height: 9)
+                Circle().fill(color).frame(width: 9, height: 9).accessibilityHidden(true)
                 Text(column.title).font(.subheadline.weight(.semibold))
                 Spacer()
                 Text("\(column.tasks.count)").font(.caption.monospacedDigit().weight(.semibold))
                     .padding(.horizontal, 7).padding(.vertical, 1)
                     .background(color.opacity(0.18), in: Capsule())
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(column.title), \(Spoken.count(column.tasks.count, "task"))")
+            .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 12).padding(.vertical, 8)
             .glassEffect(.regular.tint(color.opacity(0.22)), in: .rect(cornerRadius: 12))
             ScrollView {
@@ -146,13 +151,13 @@ struct BoardView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(color.opacity(lit ? 0.16 : 0.05), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(color.opacity(lit ? 0.8 : 0), lineWidth: 2))
-        .animation(.snappy, value: lit)
+        .motionAnimation(.snappy, value: lit)
         .dropDestination(for: String.self) { ids, _ in
             guard let drop = column.drop else { return false }
             var moved = false
             for id in ids {
                 guard let task = tasks.first(where: { $0.id == id }) else { continue }
-                withAnimation(.snappy) { moved = store.moveTask(task, to: drop) || moved }
+                withMotion(.snappy) { moved = store.moveTask(task, to: drop) || moved }
             }
             return moved
         } isTargeted: { over in
@@ -204,6 +209,32 @@ struct BoardView: View {
         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Color.primary.opacity(0.06)))
         .contentShape(RoundedRectangle(cornerRadius: 11))
         .onTapGesture { model.open(task.path, line: task.task.line, store: store) }
+        // A card is reached with Tab: Return opens its note, Space ticks it.
+        .focusable(interactions: .activate)
+        .onKeyPress(.return) {
+            model.open(task.path, line: task.task.line, store: store)
+            return .handled
+        }
+        .onKeyPress(.space) {
+            store.toggleTask(path: task.path, line: task.task.line, status: task.task.status)
+            return .handled
+        }
+        // For VoiceOver the card is one element: the task in words, with
+        // what the mouse does as its actions.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Spoken.task(task.task, note: Vault.title(of: task.path), today: .today()))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens the note at the task")
+        .accessibilityAction(.default) { model.open(task.path, line: task.task.line, store: store) }
+        .accessibilityAction(named: task.task.isOpen ? "Complete" : "Open Again") {
+            store.toggleTask(path: task.path, line: task.task.line, status: task.task.status)
+        }
+        .accessibilityAction(named: "Edit Task") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+        .accessibilityActions {
+            ForEach(TaskBoard.columns([], by: grouping, today: .today()).filter { $0.drop != nil }) { column in
+                Button("Move to \(column.title)") { withMotion(.snappy) { _ = store.moveTask(task, to: column.drop!) } }
+            }
+        }
         .draggable(task.id) {
             Text(TaskRow.plain(task.task.text)).lineLimit(2).padding(10).frame(width: 260, alignment: .leading)
                 .background(Palette.panel, in: RoundedRectangle(cornerRadius: 11))
@@ -214,7 +245,7 @@ struct BoardView: View {
             PostponeMenu(task: task)
             Divider()
             ForEach(TaskBoard.columns([], by: grouping, today: .today()).filter { $0.drop != nil }) { column in
-                Button("Move to \(column.title)") { withAnimation(.snappy) { _ = store.moveTask(task, to: column.drop!) } }
+                Button("Move to \(column.title)") { withMotion(.snappy) { _ = store.moveTask(task, to: column.drop!) } }
             }
         }
         .help(task.path)

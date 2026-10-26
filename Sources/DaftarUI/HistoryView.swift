@@ -212,7 +212,7 @@ private struct DiffLines: View {
                 }
                 ForEach(hunks.indices, id: \.self) { index in
                     if index > 0 {
-                        Text("⋯").foregroundStyle(.tertiary).padding(.vertical, 4).padding(.leading, 10)
+                        Text("⋯").faint().padding(.vertical, 4).padding(.leading, 10)
                     }
                     ForEach(Array(hunks[index].enumerated()), id: \.offset) { _, line in
                         row(line)
@@ -244,8 +244,8 @@ struct DiffRow: View {
         case .same: nil
         }
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(old.map(String.init) ?? "").frame(width: 34, alignment: .trailing).foregroundStyle(.tertiary)
-            Text(new.map(String.init) ?? "").frame(width: 34, alignment: .trailing).foregroundStyle(.tertiary)
+            Text(old.map(String.init) ?? "").frame(width: 34, alignment: .trailing).faint()
+            Text(new.map(String.init) ?? "").frame(width: 34, alignment: .trailing).faint()
             Text(kind == .added ? "+" : kind == .removed ? "−" : "").foregroundStyle(color ?? .secondary).frame(width: 12)
             text.foregroundStyle(color ?? .primary).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
