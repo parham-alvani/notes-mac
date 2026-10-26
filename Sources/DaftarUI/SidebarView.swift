@@ -532,7 +532,7 @@ struct LinkRow: View {
     }
 }
 
-/// ⌘P: a note by its name, in a Spotlight-like panel.
+/// ⌘P: a file by its name or its path, in a Spotlight-like panel.
 struct QuickOpenView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
@@ -556,7 +556,7 @@ struct QuickOpenView: View {
                             .opacity(0)
                             .accessibilityHidden(true)
                     }
-                TextField("Open a note by name", text: $model.switcherQuery)
+                TextField("Open a file by name or path", text: $model.switcherQuery)
                     .textFieldStyle(.plain)
                     .font(.title2)
                     .focused($focused)
@@ -570,7 +570,7 @@ struct QuickOpenView: View {
             if results.isEmpty {
                 // One height for the panel, always: a sheet that resizes while
                 // the person types makes SwiftUI lay it out again and again.
-                Text(model.switcherQuery.trimmingCharacters(in: .whitespaces).isEmpty ? "Type a note's name." : "No note is called “\(model.switcherQuery)”.")
+                Text(model.switcherQuery.trimmingCharacters(in: .whitespaces).isEmpty ? "Type a name, or a path such as “Folder/Name”." : "No file matches “\(model.switcherQuery)”.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -578,14 +578,20 @@ struct QuickOpenView: View {
                     ScrollView {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(results.enumerated()), id: \.element) { index, path in
+                                let chosen = index == selected
+                                let title = Vault.title(of: path), folder = QuickSwitcher.folder(of: path)
+                                let marks = QuickSwitcher.highlights(model.switcherQuery, title: title, folder: folder)
                                 HStack(spacing: 10) {
-                                    Image(systemName: Base.isBase(path) ? "tablecells" : "doc.text")
-                                        .foregroundStyle(index == selected ? .white : Base.isBase(path) ? Palette.green : Palette.accent)
+                                    Image(systemName: symbol(path))
+                                        .foregroundStyle(chosen ? .white : color(path))
+                                        .frame(width: 18)
                                     VStack(alignment: .leading, spacing: 1) {
-                                        Text(Vault.title(of: path)).lineLimit(1)
-                                        Text(path.split(separator: "/").dropLast().joined(separator: " › "))
-                                            .font(.caption).lineLimit(1)
-                                            .foregroundStyle(index == selected ? .white.opacity(0.8) : .secondary)
+                                        Text(Self.marked(title, marks.title, chosen: chosen)).lineLimit(1)
+                                        if !folder.isEmpty {
+                                            Text(Self.marked(folder, marks.folder, chosen: chosen))
+                                                .font(.caption).lineLimit(1).truncationMode(.head)
+                                                .foregroundStyle(chosen ? .white.opacity(0.8) : .secondary)
+                                        }
                                     }
                                     Spacer()
                                 }
@@ -648,6 +654,37 @@ struct QuickOpenView: View {
             results = store.quickOpen(model.switcherQuery, recent: model.recent)
             selected = min(selected, max(results.count - 1, 0))
         }
+    }
+
+    private func symbol(_ path: String) -> String {
+        if Base.isBase(path) { return "tablecells" }
+        if Vault.isNote(path) { return "doc.text" }
+        switch (path as NSString).pathExtension.lowercased() {
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "tiff", "svg": return "photo"
+        case "pdf": return "doc.richtext"
+        case "mp3", "m4a", "wav", "ogg", "flac": return "waveform"
+        case "mp4", "mov", "webm", "mkv": return "film"
+        default: return "doc"
+        }
+    }
+
+    private func color(_ path: String) -> Color {
+        Base.isBase(path) ? Palette.green : Vault.isNote(path) ? Palette.accent : Palette.yellow
+    }
+
+    /// [text] with the letters at [marks] bold and in the accent colour.
+    static func marked(_ text: String, _ marks: Set<Int>, chosen: Bool) -> AttributedString {
+        guard !marks.isEmpty else { return AttributedString(text) }
+        var out = AttributedString()
+        for (offset, character) in text.enumerated() {
+            var piece = AttributedString(String(character))
+            if marks.contains(offset) {
+                piece.inlinePresentationIntent = .stronglyEmphasized
+                piece.foregroundColor = chosen ? .white : Palette.accent
+            }
+            out += piece
+        }
+        return out
     }
 
     private func choose(_ shown: [String]) {

@@ -503,20 +503,21 @@ final class VaultStore {
         return groups
     }
 
-    /// Notes and bases for the switcher, best first (`QuickSwitcher`):
-    /// every word, in any order, in the name, an alias or the folders.
-    func quickOpen(_ query: String, recent: [String], limit: Int = 50) -> [String] {
+    /// Every file for the switcher, best first (`QuickSwitcher`): every
+    /// word, in any order, in the name, an alias or the folders, and a word
+    /// with a `/` in the path.
+    func quickOpen(_ query: String, recent: [String], limit: Int = 100) -> [String] {
         let present = recent.filter { index.files.contains($0) }
         return QuickSwitcher.rank(query, in: quickOpenCandidates(), recent: present, limit: limit)
     }
 
-    /// The notes and bases the switcher can offer, folded once for each
-    /// version of the index rather than on every keystroke.
+    /// The files the switcher can offer, notes and attachments, folded once
+    /// for each version of the index rather than on every keystroke.
     @ObservationIgnored private var candidates: (revision: Int, files: Int, items: [QuickSwitcher.Candidate])?
 
     private func quickOpenCandidates() -> [QuickSwitcher.Candidate] {
         if let candidates, candidates.revision == revision, candidates.files == index.files.count { return candidates.items }
-        let paths = (Array(index.notes.keys) + index.files.filter(Base.isBase)).filter { !excluded.contains($0) }
+        let paths = index.files.filter { !excluded.contains($0) }
         let items = paths.map { path in
             QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: index.notes[path]?.parsed.aliases ?? [])
         }

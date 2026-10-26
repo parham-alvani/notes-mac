@@ -73,4 +73,33 @@ import Testing
     @Test func anEmptyQueryListsTheRecentNotes() {
         #expect(QuickSwitcher.rank("  ", in: notes, recent: ["Notes/Inbox.md"]) == ["Notes/Inbox.md"])
     }
+
+    @Test func aPathFindsItsFile() {
+        #expect(QuickSwitcher.rank("Companies/Docker/Interview", in: notes).first == "Companies/Docker/Interview.md")
+        #expect(QuickSwitcher.rank("acme/interview", in: notes).first == "Companies/Acme/Interview.md")
+        // Folders shortened as in VS Code, and a path word with a name word.
+        #expect(QuickSwitcher.rank("comp/dock int", in: notes).first == "Companies/Docker/Interview.md")
+        #expect(QuickSwitcher.rank("kube/fire", in: notes).first == "Learning/Infrastructure/Kubernetes/Firewall rules for Kubernetes.md")
+    }
+
+    @Test func aFolderListsWhatIsInIt() {
+        let docker = QuickSwitcher.rank("Companies/Docker/", in: notes)
+        #expect(Set(docker) == ["Companies/Docker/Docker.md", "Companies/Docker/Interview.md"])
+        #expect(Set(QuickSwitcher.rank("notes/", in: notes)) == ["Notes/Inbox.md", "Notes/Bookkeeping.md", "Notes/Kebab recipes.md"])
+    }
+
+    @Test func attachmentsAreFoundAfterNotes() {
+        let files = notes + [.init(path: "Companies/Docker/docker.png", title: "docker.png")]
+        #expect(QuickSwitcher.rank("docker", in: files).prefix(2) == ["Companies/Docker/Docker.md", "Companies/Docker/docker.png"])
+        #expect(QuickSwitcher.rank("docker png", in: files).first == "Companies/Docker/docker.png")
+    }
+
+    @Test func theMatchedLettersAreMarked() {
+        let marks = QuickSwitcher.highlights("dock/int", title: "Interview", folder: "Companies/Docker")
+        #expect(marks.folder == [10, 11, 12, 13, 16])
+        #expect(marks.title == [0, 1, 2])
+        let plain = QuickSwitcher.highlights("acme int", title: "Interview", folder: "Companies/Acme")
+        #expect(plain.title == [0, 1, 2])
+        #expect(plain.folder == [10, 11, 12, 13])
+    }
 }
