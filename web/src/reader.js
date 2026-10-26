@@ -3,6 +3,7 @@
 // `post`, and the app calls `daftar.show` and `daftar.scrollTo`.
 
 import { render, renderInline, isClosed } from "./render.js";
+import { renderView } from "./bases.js";
 
 const app = window.webkit?.messageHandlers;
 
@@ -175,33 +176,6 @@ async function fillQueries(root) {
 
 /** The view of a base chosen last, by the base, so a redraw keeps it. */
 const chosenViews = new Map();
-
-function renderCell(cell) {
-  if (cell.check !== undefined) return `<input type="checkbox" disabled${cell.check ? " checked" : ""}>`;
-  return cell.parts
-    .map((part) =>
-      part.path
-        ? `<a class="internal-link" href="#" data-path="${escape(part.path)}">${escape(part.text)}</a>`
-        : escape(part.text),
-    )
-    .join("");
-}
-
-function renderView(view) {
-  const head = view.columns.map((name) => `<th dir="auto">${escape(name)}</th>`).join("");
-  const body = view.groups
-    .map((group) => {
-      const title = group.name == null ? "" : `<tr class="base-group"><th colspan="${view.columns.length}" dir="auto">${escape(group.name)} <span class="base-group-count">${group.rows.length}</span></th></tr>`;
-      const rows = group.rows
-        .map((row) => `<tr>${row.cells.map((cell) => `<td dir="auto"${cell.numeric ? ' class="numeric"' : ""}>${renderCell(cell)}</td>`).join("")}</tr>`)
-        .join("");
-      return title + rows;
-    })
-    .join("");
-  const empty = view.count === 0 ? `<div class="query-empty">No files match.</div>` : "";
-  const note = view.type === "table" ? "" : ` · shown as a table, not ${escape(view.type)}`;
-  return `<div class="base-scroll"><table class="base-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${empty}<div class="query-count">${view.count} ${view.count === 1 ? "result" : "results"}${note}</div>`;
-}
 
 /** A base's views, with a tab for each, into [holder]. */
 function renderBase(holder, result, key, wanted) {

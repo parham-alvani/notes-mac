@@ -12,6 +12,12 @@ public struct Base: Sendable {
         public var sort: [(property: String, ascending: Bool)] = []
         public var groupBy: (property: String, ascending: Bool)?
         public var limit: Int?
+        /// How a `cards` or `list` view draws its rows.
+        public var layout = BaseLayout()
+
+        /// The way the page draws the view: `table`, `cards` or `list`. A
+        /// view type the app does not know, a plugin's, is a table.
+        public var kind: String { ["cards", "list"].contains(type) ? type : "table" }
     }
 
     public var filter: BaseFilter?
@@ -40,6 +46,7 @@ public struct Base: Sendable {
                 view.groupBy = (property, group["direction"]?.string?.uppercased() != "DESC")
             }
             view.limit = node["limit"]?.string.flatMap { Int($0) }
+            view.layout = BaseLayout(node)
             base.views.append(view)
         }
         if base.views.isEmpty { base.views = [View()] }
@@ -48,6 +55,52 @@ public struct Base: Sendable {
 
     /// The YAML of a ` ```base ` block is the same as a file's.
     public static func isBase(_ path: String) -> Bool { path.lowercased().hasSuffix(".base") }
+}
+
+/// The options of a `cards` or a `list` view, as Obsidian writes them in the
+/// view: `image`, `imageFit`, `imageAspectRatio` and `cardSize` for cards;
+/// `markers`, `indentProperties` and `separator` for a list. A value out of
+/// range or of the wrong kind keeps the default.
+public struct BaseLayout: Sendable, Equatable {
+    /// The property whose value is a card's cover: an image in the vault,
+    /// a web address or a `#hex` colour.
+    public var image: String?
+    /// `cover` crops the image to fill the cover; `contain` shows all of it.
+    public var imageFit = "cover"
+    /// The cover's height over its width.
+    public var imageAspectRatio = 1.0
+    /// The width of a card, in points.
+    public var cardSize = 200.0
+    /// `bullet`, `number` or `none`.
+    public var markers = "bullet"
+    /// Each property on its own line under the first, not on one line.
+    public var indentProperties = false
+    public var separator = ","
+
+    public init() {}
+
+    init(_ node: YAMLNode) {
+        image = node["image"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+        if let fit = node["imageFit"]?.string?.lowercased(), ["cover", "contain"].contains(fit) { imageFit = fit }
+        if let ratio = node["imageAspectRatio"]?.string.flatMap(Double.init), ratio.isFinite, ratio > 0 {
+            imageAspectRatio = min(max(ratio, 0.1), 10)
+        }
+        if let size = node["cardSize"]?.string.flatMap(Double.init), size.isFinite, size > 0 { cardSize = min(max(size, 50), 1000) }
+        switch node["markers"]?.string?.lowercased() {
+        case "number", "numbers": markers = "number"
+        case "none": markers = "none"
+        default: break
+        }
+        indentProperties = node["indentProperties"]?.string?.lowercased() == "true"
+        if let mark = node["separator"]?.string, !mark.isEmpty { separator = mark }
+    }
+}
+
+/// A card's cover: an image in the vault, one on the web, or a colour.
+public enum BaseImage: Sendable, Equatable {
+    case file(String)
+    case url(String)
+    case color(String)
 }
 
 /// `filters:` -- one statement, or `and`, `or` and `not` over a list of them.
@@ -89,10 +142,15 @@ public struct BaseTable: Sendable, Equatable {
     public struct Row: Sendable, Equatable {
         public var path: String
         public var cells: [BaseCell]
+        /// The card's cover, in a `cards` view with an `image`.
+        public var image: BaseImage?
     }
 
     public var name: String
     public var type: String
+    /// `table`, `cards` or `list`: how the page draws it.
+    public var kind = "table"
+    public var layout = BaseLayout()
     public var columns: [String]
     public var groups: [Group]
     public var count: Int
@@ -192,8 +250,11 @@ public final class BaseEngine {
         if let limit = view.limit, limit >= 0 { paths = Array(paths.prefix(limit)) }
         let order = view.order.isEmpty ? ["file.name"] : view.order
         let columns = order.map(column)
+        let cover = view.kind == "cards" ? view.layout.image.map(column) : nil
         let rows = paths.map { path in
-            BaseTable.Row(path: path, cells: zip(order, columns).map { id, expression in cell(id, expression, path) })
+            BaseTable.Row(
+                path: path, cells: zip(order, columns).map { id, expression in cell(id, expression, path) },
+                image: cover.flatMap { image(value(of: $0, path), from: path) })
         }
         var groups: [BaseTable.Group] = []
         if let groupBy = view.groupBy {
@@ -218,8 +279,36 @@ public final class BaseEngine {
             groups = [BaseTable.Group(name: nil, rows: rows)]
         }
         return BaseTable(
-            name: view.name, type: view.type, columns: order.map { base.displayNames[$0] ?? Self.label($0) }, groups: groups,
-            count: rows.count)
+            name: view.name, type: view.type, kind: view.kind, layout: view.layout,
+            columns: order.map { base.displayNames[$0] ?? Self.label($0) }, groups: groups, count: rows.count)
+    }
+
+    nonisolated(unsafe) private static let hexColor = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})/
+
+    static let imageTypes: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "heic", "tif", "tiff"]
+
+    /// A cover from a property's value: a link to a picture, a path or a
+    /// name the vault resolves, a web address, or a `#hex` colour. The first
+    /// of a list. A link to a note is no cover.
+    func image(_ value: BaseValue, from path: String) -> BaseImage? {
+        let picture: (String) -> BaseImage? = { file in
+            Self.imageTypes.contains((file as NSString).pathExtension.lowercased()) ? .file(file) : nil
+        }
+        switch value {
+        case .file(let file): return picture(file)
+        case .link(_, let file?, _): return picture(file)
+        case .link(let target, nil, _): return image(.string(target), from: path)
+        case .list(let items): return items.first.flatMap { image($0, from: path) }
+        case .string(let raw):
+            var text = raw.trimmingCharacters(in: .whitespaces)
+            if text.wholeMatch(of: Self.hexColor) != nil { return .color(text) }
+            let lowered = text.lowercased()
+            if lowered.hasPrefix("https://") || lowered.hasPrefix("http://") { return .url(text) }
+            if text.hasPrefix("!") { text.removeFirst() }
+            if text.hasPrefix("[["), text.hasSuffix("]]") { text = Wikilink(String(text.dropFirst(2).dropLast(2))).target }
+            return index.resolve(text, from: path).flatMap(picture)
+        default: return nil
+        }
     }
 
     public typealias View = Base.View

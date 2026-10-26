@@ -351,6 +351,26 @@ pre code { color: var(--code-text); }
 .base-table tr.base-group th { color: var(--accent); background: var(--panel); font-weight: 600; }
 .base-group-count { color: var(--text-faint); font-weight: 400; font-size: 0.85em; margin-inline-start: 0.4em; }
 .base-query .query-count, .base-query .query-empty, .base-file .query-count, .base-file .query-empty { margin-inline-start: 0; }
+/* A cards view: a grid of cards, each with its cover and its properties. */
+.base-cards { display: grid; gap: 0.8em; margin: 0 0 1em; }
+.base-card {
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--table-hairline); border-radius: 8px; background: var(--panel);
+}
+.base-card-cover { width: 100%; overflow: hidden; background: var(--code-background); }
+#note .base-card-cover img { display: block; width: 100%; height: 100%; max-width: none; border: none; border-radius: 0; margin: 0; box-shadow: none; transform: none; }
+.base-card-body { padding: 0.5em 0.7em 0.6em; font-size: 0.85em; min-width: 0; }
+.base-card-title { font-weight: 600; margin-bottom: 0.3em; overflow-wrap: anywhere; }
+.base-card-line { display: flex; flex-direction: column; margin-top: 0.25em; min-width: 0; }
+.base-card-label { color: var(--text-faint); font-size: 0.8em; }
+.base-card-value { overflow-wrap: anywhere; }
+.base-group-head { color: var(--accent); font-weight: 600; margin: 0.6em 0 0.4em; }
+/* A list view: a line per note, its properties after the name. */
+.base-list { margin: 0 0 1em; }
+.base-list.is-plain { list-style: none; padding-inline-start: 0; }
+.base-list-values { color: var(--text-muted); }
+.base-list-separator { color: var(--text-faint); }
+.base-list-label { color: var(--text-faint); font-size: 0.85em; }
 
 /* A picture clicked to see it large; a click or Escape closes it. */
 #note img, #note pre.mermaid svg { cursor: zoom-in; }

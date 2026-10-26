@@ -342,11 +342,19 @@ extension ReaderView.Coordinator {
         }.value
         let views: [[String: Any]] = tables.map { table in
             [
-                "name": table.name, "type": table.type, "columns": table.columns, "count": table.count,
+                "name": table.name, "type": table.type, "kind": table.kind, "layout": Self.json(table.layout),
+                "columns": table.columns, "count": table.count,
                 "groups": table.groups.map { group -> [String: Any] in
                     var out: [String: Any] = [
                         "rows": group.rows.map { row -> [String: Any] in
-                            ["path": row.path, "cells": row.cells.map(Self.json)]
+                            var out: [String: Any] = ["path": row.path, "cells": row.cells.map(Self.json)]
+                            switch row.image {
+                            case .file(let path): out["image"] = ["file": path]
+                            case .url(let url): out["image"] = ["url": url]
+                            case .color(let color): out["image"] = ["color": color]
+                            case nil: break
+                            }
+                            return out
                         }
                     ]
                     out["name"] = group.name
@@ -355,6 +363,13 @@ extension ReaderView.Coordinator {
             ]
         }
         return ["views": views, "problems": problems]
+    }
+
+    private static func json(_ layout: BaseLayout) -> [String: Any] {
+        [
+            "imageFit": layout.imageFit, "imageAspectRatio": layout.imageAspectRatio, "cardSize": layout.cardSize,
+            "markers": layout.markers, "indentProperties": layout.indentProperties, "separator": layout.separator,
+        ]
     }
 
     private static func json(_ cell: BaseCell) -> [String: Any] {
