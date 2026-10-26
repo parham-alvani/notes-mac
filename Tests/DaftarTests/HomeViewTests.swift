@@ -39,7 +39,9 @@ import UniformTypeIdentifiers
     }
 
     /// The home page off screen, in Daylight, and the colour of a pixel near its top left corner.
-    func corner() async throws -> NSColor {
+    /// [until] lets a test wait for the picture: it is decoded off the main
+    /// thread, and a slow machine (CI) draws the plain page first.
+    func corner(until: (NSColor) -> Bool = { _ in true }) async throws -> NSColor {
         let model = WindowModel()
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .aqua)
@@ -47,6 +49,15 @@ import UniformTypeIdentifiers
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(400))
+        var color = try pixel(of: host)
+        for _ in 0..<50 where !until(color) {
+            try await Task.sleep(for: .milliseconds(100))
+            color = try pixel(of: host)
+        }
+        return color
+    }
+
+    func pixel(of host: NSView) throws -> NSColor {
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
@@ -63,8 +74,9 @@ import UniformTypeIdentifiers
         #expect(image.size.width == 2000)
         // Decoded once: the second ask is the same image.
         #expect(await HomePictures.shared.image(file) === image)
-        let color = try await corner()
-        #expect(color.redComponent > 0.75 && color.blueComponent < 0.4, "\(color)")
+        let red: (NSColor) -> Bool = { $0.redComponent > 0.75 && $0.blueComponent < 0.4 }
+        let color = try await corner(until: red)
+        #expect(red(color), "\(color)")
     }
 
     @Test func withNoPictureThePageIsPlain() async throws {
