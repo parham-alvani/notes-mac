@@ -182,11 +182,15 @@ import WebKit
         for _ in 0..<100 where webViews(host).count < 2 { try await Task.sleep(for: .milliseconds(50)) }
         let readers = webViews(host).sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
         #expect(readers.count == 2)
-        #expect(model.panes.map { $0.readerView } .compactMap { $0 }.count == 2)
+        let pageViews: [WKWebView] = model.panes.compactMap { $0.readerView }
+        #expect(pageViews.count == 2)
         if readers.count == 2 {
-            let left = readers[0].convert(readers[0].bounds, to: host), right = readers[1].convert(readers[1].bounds, to: host)
-            #expect(left.maxX <= right.minX + 1)
-            #expect(left.width > 300 && right.width > 300)
+            let left: NSRect = readers[0].convert(readers[0].bounds, to: host)
+            let right: NSRect = readers[1].convert(readers[1].bounds, to: host)
+            let apart: Bool = left.maxX <= right.minX + 1
+            #expect(apart)
+            let wide: Bool = left.width > 300 && right.width > 300
+            #expect(wide)
         }
         try await Task.sleep(for: .milliseconds(300))
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
@@ -195,7 +199,9 @@ import WebKit
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
         let leftTop = try #require(bitmap.colorAt(x: Int(200 * scale), y: 0)?.usingColorSpace(.sRGB))
         let rightTop = try #require(bitmap.colorAt(x: Int(700 * scale), y: 0)?.usingColorSpace(.sRGB))
-        #expect(rightTop.redComponent - rightTop.blueComponent > 0.3)
-        #expect(abs(leftTop.redComponent - leftTop.blueComponent) < 0.2)
+        let rightTint: CGFloat = rightTop.redComponent - rightTop.blueComponent
+        let leftTint: CGFloat = abs(leftTop.redComponent - leftTop.blueComponent)
+        #expect(rightTint > 0.3)
+        #expect(leftTint < 0.2)
     }
 }
