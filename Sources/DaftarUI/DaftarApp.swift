@@ -86,6 +86,9 @@ public struct DaftarApp: App {
                 Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
                     .keyboardShortcut("e")
                     .disabled(window?.path == nil || window?.showsPage == true)
+                Button(window?.isSplit == true ? "Close Split" : "Split Right") { window?.toggleSplit() }
+                    .keyboardShortcut("\\")
+                    .disabled(window == nil || window?.showsPage == true)
                 Divider()
                 Button("Bigger Text") { store.settings.textSize = min(store.settings.textSize + 1, 28) }
                     .keyboardShortcut("+")

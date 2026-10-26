@@ -916,7 +916,7 @@ document.addEventListener("click", (event) => {
       window.daftar.scrollTo(link.dataset.anchor);
       return;
     }
-    post({ kind: "open", path, target: link.dataset.target ?? "", anchor: link.dataset.anchor ?? "", newTab: event.metaKey });
+    post({ kind: "open", path, target: link.dataset.target ?? "", anchor: link.dataset.anchor ?? "", newTab: event.metaKey, otherPane: event.altKey });
     return;
   }
   const href = link.getAttribute("href") ?? "";
@@ -934,7 +934,7 @@ document.addEventListener("click", (event) => {
   // `[x](Notes/a.md)`: a note in the vault, by its path.
   if (!/^[a-z][a-z0-9+.-]*:/i.test(href)) {
     const [path, anchor = ""] = href.split("#");
-    post({ kind: "open", path: "", target: decoded(path).replace(/^\.\//, ""), anchor: decoded(anchor), newTab: event.metaKey });
+    post({ kind: "open", path: "", target: decoded(path).replace(/^\.\//, ""), anchor: decoded(anchor), newTab: event.metaKey, otherPane: event.altKey });
     return;
   }
   post({ kind: "external", url: link.href });

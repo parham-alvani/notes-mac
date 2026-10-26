@@ -8,6 +8,8 @@ import SwiftUI
 struct Breadcrumb: View {
     var path: String
     @Bindable var model: WindowModel
+    /// In a split window: closes this pane.
+    var onClose: (() -> Void)?
     @Environment(VaultStore.self) private var store
     @ViewState private var words: Int?
 
@@ -34,6 +36,7 @@ struct Breadcrumb: View {
                     .help("The words of the note, and how long it takes to read at 220 words a minute")
             }
             if store.periodic.period(of: path) != nil { periodicControls.padding(.trailing, 10) }
+            if let onClose { PaneCloseButton(action: onClose).padding(.trailing, 8) }
         }
         .frame(height: 34)
         .task(id: "\(path)\u{0}\(store.revision)") {

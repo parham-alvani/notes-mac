@@ -10,7 +10,6 @@ struct ContentView: View {
     var initialPath: String?
     @Environment(VaultStore.self) private var store
     @ViewState private var model = WindowModel()
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var model = model
@@ -86,6 +85,11 @@ struct ContentView: View {
             }
         }
         .onDisappear { store.followers[ObjectIdentifier(model)] = nil }
+        // Neovim mode: one pane edits at a time.
+        .onChange(of: store.settings.vimMode, initial: true) { _, vim in
+            model.oneEditor = vim
+            if vim { model.setEditing(model.editing, in: model.focused) }
+        }
         .onChange(of: model.path) { _, path in
             if let path { WakaTime.shared.heartbeat(path, store: store) }
             // The voice reads the note it started on, and stops when this window leaves it.
@@ -115,51 +119,8 @@ struct ContentView: View {
             TodayView(model: model)
         } else if model.showsBoard {
             BoardView(model: model)
-        } else if let path = model.path, model.editing {
-            EditorView(path: path, store: store, line: model.cursorLine, onCursor: { model.cursorLine = $0 }) { text, replace in
-                model.extractReplace = replace
-                model.fileAction = .extract(folder: model.currentFolder, text: text)
-            }
-            .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model) }
-        } else if model.request != nil {
-            ReaderView(
-                request: model.request, store: store,
-                onOpen: { path, anchor, newWindow in
-                    if newWindow {
-                        openWindow(value: TabRequest(path: path))
-                    } else {
-                        model.open(path, heading: anchor, store: store)
-                    }
-                },
-                onTag: { model.searchTag($0) },
-                onEditTask: { model.taskEdit = TaskRef(path: $0, line: $1) },
-                onCreate: { target, from in
-                    do {
-                        let path = try store.createNote(forLink: target, from: from)
-                        model.open(path, store: store)
-                        model.editing = true
-                    } catch {
-                        store.notice = (error as? VaultMoves.Failure)?.description ?? error.localizedDescription
-                    }
-                },
-                findText: model.findText,
-                findCommand: model.readerFind,
-                onCursor: { model.cursorLine = $0 },
-                onEdit: { line in
-                    model.cursorLine = line
-                    model.editing = true
-                },
-                onSection: { model.section = $0 },
-                onView: { model.readerView = $0 })
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if let path = model.path { Breadcrumb(path: path, model: model) }
-            }
         } else {
-            ContentUnavailableView {
-                Label("No note open", systemImage: "doc.text")
-            } description: {
-                Text("Choose a note in the sidebar, or press ⌘P to find one by name.")
-            }
+            NotePanes(model: model)
         }
     }
 

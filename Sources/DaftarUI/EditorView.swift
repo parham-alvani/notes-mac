@@ -239,6 +239,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
     }
 
+    /// The text on disk, at once and without waiting for the file watcher,
+    /// when nothing here is unsaved: the same note in the other pane may
+    /// have saved since this view last looked.
+    func catchUp() {
+        guard session == nil, let path, let view, view.string == saved, let disk = store.text(of: path), disk != saved else { return }
+        take(disk)
+    }
+
     /// A move or a delete, made in this window or another. The editor was
     /// saved just before it, so the file holds all that was typed.
     func follow(_ change: VaultChange) {
@@ -881,6 +889,21 @@ final class NoteTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         super.mouseDown(with: event)
         if vimActive { vim?.moveCursor(to: selectedRange().location) }
+    }
+
+    /// Leaving the editor -- for the other pane, a sheet, the sidebar --
+    /// saves the note, and coming back takes what was saved since: the same
+    /// note in the other pane of a split shows each edit when it gets the focus.
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { controller?.saveNow() }
+        return resigned
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { controller?.catchUp() }
+        return became
     }
 
     private var tintedLine: NSRect?

@@ -20,33 +20,41 @@ final class WindowModel {
     }
     /// A page, not a note, is on screen.
     var showsPage: Bool { page != nil }
+    /// The note panes: one, or two side by side after Split Right. The
+    /// note, its mode and its history are each pane's own.
+    private(set) var panes: [NotePane]
+    /// The pane the commands, quick open, the history and the inspector act on.
+    private(set) var focused: NotePane
+    /// Neovim mode: only one pane edits at a time, so two Neovims never own
+    /// the same file. `ContentView` follows the setting.
+    @ObservationIgnored var oneEditor = false
+    var isSplit: Bool { panes.count > 1 }
+
+    init() {
+        let pane = NotePane()
+        panes = [pane]
+        focused = pane
+    }
+
     var request: ReaderRequest? {
-        // The note left, and the note shown, are both read as they are now.
-        didSet {
-            guard oldValue?.path != request?.path else { return }
-            if let old = oldValue?.path { places.markRead(old) }
-            if let path = request?.path { places.markRead(path) }
-        }
+        get { focused.request }
+        set { focused.request = newValue }
     }
-    /// The note is open in the editor rather than the reader.
-    var editing = false {
-        // Back to reading: the reader opens where the editor's cursor was.
-        didSet {
-            guard oldValue, !editing, let line = cursorLine, var next = request else { return }
-            next.line = line
-            next.heading = nil
-            next.generation += 1
-            request = next
-        }
+    /// The focused note is open in the editor rather than the reader.
+    var editing: Bool {
+        get { focused.editing }
+        set { setEditing(newValue, in: focused) }
     }
-    /// The source line the reading cursor or the editor's cursor is on, so
-    /// the other one opens there.
-    @ObservationIgnored var cursorLine: Int? {
-        didSet { if let path, let cursorLine { places[path] = cursorLine } }
+    /// The source line the focused pane's cursor is on.
+    var cursorLine: Int? {
+        get { focused.cursorLine }
+        set { focused.cursorLine = newValue }
     }
     /// Where each note was being read, for the next time it opens: the
     /// store's, once the window shows (`ContentView`), kept across launches.
-    @ObservationIgnored var places = PlaceBook()
+    @ObservationIgnored var places = PlaceBook() {
+        didSet { for pane in panes { pane.places = places } }
+    }
     /// The sidebar's search field; while it holds text the sidebar lists hits.
     var query = ""
     var quickOpen = false {
@@ -174,40 +182,39 @@ final class WindowModel {
     var terminal = false
     @ObservationIgnored let terminalSession = TerminalSession()
     /// Set to select the text in the reader after a search hit opens.
-    var findText: String?
+    var findText: String? {
+        get { focused.findText }
+        set { focused.findText = newValue }
+    }
     /// The file command whose sheet is open: a new note, a rename, a move.
     var fileAction: FileAction?
-    /// The last Find command for the reader; it grows with each one.
-    var readerFind = ReaderFind(action: .none, count: 0)
-    /// The line of the heading the reader is in, for the outline.
-    var section: Int?
-    /// The reader's page, for read aloud and Export as PDF.
-    @ObservationIgnored weak var readerView: WKWebView?
+    /// The last Find command for the focused reader.
+    var readerFind: ReaderFind {
+        get { focused.readerFind }
+        set { focused.readerFind = newValue }
+    }
+    /// The line of the heading the focused reader is in, for the outline.
+    var section: Int? {
+        get { focused.section }
+        set { focused.section = newValue }
+    }
+    /// The focused reader's page, for read aloud and Export as PDF.
+    var readerView: WKWebView? { focused.readerView }
 
-    private var back: [ReaderRequest] = []
-    private var forward: [ReaderRequest] = []
     private(set) var recent: [String] = []
 
     var path: String? { request?.path }
-    var canGoBack: Bool { !back.isEmpty }
-    var canGoForward: Bool { !forward.isEmpty }
+    var canGoBack: Bool { focused.canGoBack }
+    var canGoForward: Bool { focused.canGoForward }
 
-    func open(_ path: String, heading: String? = nil, line: Int? = nil, store: VaultStore) {
+    /// Opens a note in the focused pane, or in [pane].
+    func open(_ path: String, heading: String? = nil, line: Int? = nil, in pane: NotePane? = nil, store: VaultStore) {
         guard Vault.opensInApp(path) else {
             // An attachment opens in the app the system gives it to.
             if let url = store.url(of: path) { NSWorkspace.shared.open(url) }
             return
         }
-        // A note opens where it was being read, unless a link names a place in it.
-        let line = line ?? (heading == nil ? places[path] : nil)
-        var next = ReaderRequest(path: path, heading: heading, line: line)
-        if let current = request {
-            if current.path == path { next.generation = current.generation + 1 }
-            back.append(current)
-        }
-        forward.removeAll()
-        request = next
-        cursorLine = line
+        (pane ?? focused).open(path, heading: heading, line: line)
         page = nil
         recent.removeAll { $0 == path }
         recent.insert(path, at: 0)
@@ -271,28 +278,74 @@ final class WindowModel {
     }
 
     func goBack() {
-        guard let previous = back.popLast() else { return }
-        if let request { forward.append(request) }
-        request = returning(to: previous)
+        focused.goBack()
         page = nil
     }
 
     func goForward() {
-        guard let next = forward.popLast() else { return }
-        if let request { back.append(request) }
-        request = returning(to: next)
+        focused.goForward()
         page = nil
     }
 
-    /// A note from the history, at the place it was left.
-    private func returning(to request: ReaderRequest) -> ReaderRequest {
-        var request = request
-        if let place = places[request.path] {
-            request.line = place
-            request.heading = nil
+    // MARK: Split
+
+    /// The pane that has the focus from now on.
+    func focus(_ pane: NotePane) {
+        guard focused !== pane, panes.contains(where: { $0 === pane }) else { return }
+        focused = pane
+    }
+
+    /// The pane beside [pane], when the window is split.
+    func other(than pane: NotePane) -> NotePane? { panes.first { $0 !== pane } }
+
+    /// View › Split Right: a second pane beside the focused one, on the same
+    /// note in the reader, with the focus; or, when split, back to one pane.
+    func toggleSplit() {
+        if isSplit { closeSplit() } else { split() }
+    }
+
+    @discardableResult func split() -> NotePane {
+        if let other = other(than: focused) { return other }
+        let pane = NotePane()
+        pane.places = places
+        if let request = focused.request { pane.show(request) }
+        panes.append(pane)
+        focused = pane
+        page = nil
+        return pane
+    }
+
+    /// One pane again: the focused one stays, with its note and history.
+    func closeSplit() {
+        panes = [focused]
+    }
+
+    /// Closes [pane]'s side of the split; the other one stays.
+    func close(_ pane: NotePane) {
+        guard isSplit else { return }
+        panes.removeAll { $0 === pane }
+        focused = panes[0]
+    }
+
+    /// ⌥-click: a link opens in the other pane, which a split makes when
+    /// there is none. The focus stays where the click was.
+    func openInOtherPane(_ path: String, heading: String? = nil, from pane: NotePane? = nil, store: VaultStore) {
+        let from = pane ?? focused
+        let target = other(than: from) ?? {
+            let made = split()
+            focused = from
+            return made
+        }()
+        open(path, heading: heading, in: target, store: store)
+    }
+
+    /// Reader or editor in [pane]. In Neovim mode a pane that starts editing
+    /// sends the other one back to the reader.
+    func setEditing(_ editing: Bool, in pane: NotePane) {
+        if editing, oneEditor {
+            for other in panes where other !== pane && other.editing { other.editing = false }
         }
-        cursorLine = request.line
-        return request
+        pane.editing = editing
     }
 
     /// `daftar://open?path=Folder/Note.md[&mode=edit]`, which the
@@ -344,15 +397,7 @@ final class WindowModel {
     /// After files moved: the note on screen, the history and the recent
     /// list follow them.
     func follow(_ moves: [String: String]) {
-        func moved(_ request: ReaderRequest) -> ReaderRequest {
-            guard let new = moves[request.path] else { return request }
-            var next = request
-            next.path = new
-            return next
-        }
-        if let request { self.request = moved(request) }
-        back = back.map(moved)
-        forward = forward.map(moved)
+        for pane in panes { pane.follow(moves) }
         recent = recent.map { moves[$0] ?? $0 }
     }
 
@@ -367,13 +412,8 @@ final class WindowModel {
     /// After a delete: a note that is gone is no longer shown.
     func forget(_ path: String) {
         let gone = { (other: String) in other == path || other.hasPrefix(path + "/") }
-        back.removeAll { gone($0.path) }
-        forward.removeAll { gone($0.path) }
+        for pane in panes { pane.forget(where: gone) }
         recent.removeAll(where: gone)
-        if let current = request, gone(current.path) {
-            request = nil
-            editing = false
-        }
     }
 }
 

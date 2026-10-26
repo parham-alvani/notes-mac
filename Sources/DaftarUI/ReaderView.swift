@@ -24,6 +24,8 @@ struct ReaderView: NSViewRepresentable {
     var request: ReaderRequest?
     var store: VaultStore
     var onOpen: (_ path: String, _ anchor: String?, _ newWindow: Bool) -> Void
+    /// ⌥-click on a link: the note opens in the other pane.
+    var onOpenBeside: ((_ path: String, _ anchor: String?) -> Void)?
     var onTag: (String) -> Void
     var onEditTask: (String, Int) -> Void = { _, _ in }
     /// A click on a link to a note that is not there yet: make it.
@@ -216,10 +218,18 @@ struct ReaderView: NSViewRepresentable {
                 let path = body["path"] as? String ?? ""
                 let anchor = (body["anchor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let newWindow = body["newTab"] as? Bool ?? false
+                let beside = body["otherPane"] as? Bool ?? false
+                let open = { (path: String) in
+                    if beside, !newWindow, let onOpenBeside = self.parent.onOpenBeside {
+                        onOpenBeside(path, anchor)
+                    } else {
+                        self.parent.onOpen(path, anchor, newWindow)
+                    }
+                }
                 // A markdown link, `[x](Notes/a.md)`, names its note by path.
                 let target = body["target"] as? String ?? ""
                 if path.isEmpty, let from = shown?.path, let found = parent.store.index.resolve(target, from: from) {
-                    parent.onOpen(found, anchor, newWindow)
+                    open(found)
                 } else if path.isEmpty {
                     if let onCreate = parent.onCreate, let from = shown?.path, !target.isEmpty {
                         onCreate(target, from)
@@ -228,7 +238,7 @@ struct ReaderView: NSViewRepresentable {
                         parent.store.notice = "“\(target)” is not in the vault yet."
                     }
                 } else if parent.store.index.files.contains(path) {
-                    parent.onOpen(path, anchor, newWindow)
+                    open(path)
                 }
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }

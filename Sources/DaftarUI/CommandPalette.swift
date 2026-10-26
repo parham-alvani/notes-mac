@@ -94,6 +94,16 @@ enum PaletteCommands {
                 model.history = true
             })
         }
+        if !model.showsPage {
+            out.append(PaletteCommand(id: "split", title: model.isSplit ? "Close Split" : "Split Right", group: "View", symbol: "rectangle.split.2x1", color: Palette.aqua, shortcut: "⌘\\") {
+                model.toggleSplit()
+            })
+        }
+        if !model.showsPage, let other = model.other(than: model.focused) {
+            out.append(PaletteCommand(id: "other-pane", title: "Focus the Other Pane", group: "View", symbol: "arrow.left.arrow.right", color: Palette.aqua) {
+                model.focus(other)
+            })
+        }
         if model.canGoBack {
             out.append(PaletteCommand(id: "back", title: "Go Back", group: "Go", symbol: "chevron.left", color: Palette.muted, shortcut: "⌘[") { model.goBack() })
         }

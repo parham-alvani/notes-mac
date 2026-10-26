@@ -71,6 +71,7 @@ Keep logic in `DaftarCore`: its tests run in a second and need no window. `Tests
 - **A note's history is `git log --follow`** (`Git.history`), and a restore is an ordinary `VaultStore.write`: the next sync commits it, so nothing in the history is lost.
 - **The dark palette is screen-only** (`@media screen and (prefers-color-scheme: dark)` in `reader.css`), so a PDF export or a print is always in Daylight.
 - **A `@MainActor` suite's `.enabled(if:)` deadlocks the whole test run before it starts.** Put the condition in a global constant.
+- **A window has one or two note panes (`NotePane`).** Each pane has its own note, mode, history and find; `WindowModel` keeps the panes and the focused one, and its `request`, `editing`, `path` and history commands act on the focused pane, so menus, quick open and the inspector follow the focus. A click in a pane gives it the focus (`PaneClicks`, a local mouse monitor) before the click acts. The editor saves when it stops being first responder and takes the file when it becomes first responder again with nothing unsaved, so the same note in the editor of two panes does not lose text. In Neovim mode only one pane edits (`WindowModel.oneEditor`): two Neovims would each own the same file. The split is not kept across launches; no window state is.
 - **The terminal is SwiftTerm, pinned exactly.** It runs the login shell in the vault's folder and lives in the window's model, so hiding the pane keeps the shell.
 
 ## Testing the app
