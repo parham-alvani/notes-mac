@@ -117,15 +117,63 @@ final class NotePane: Identifiable {
 }
 
 /// The window's note panes: one, or two side by side after View › Split Right.
+///
+/// Not `HSplitView`: its panes did not fill the window's height, and a pane's
+/// size limits changed in a layout pass made AppKit throw and quit the app.
 struct NotePanes: View {
     var model: WindowModel
+    /// The first pane's share of the width; the divider drags it.
+    @ViewState private var fraction = 0.5
+    @ViewState private var dragStart: Double?
+
+    private static let minWidth = 280.0
 
     var body: some View {
-        HSplitView {
-            ForEach(model.panes) { pane in
-                NotePaneView(model: model, pane: pane)
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            HStack(spacing: 0) {
+                ForEach(Array(model.panes.enumerated()), id: \.element.id) { index, pane in
+                    if index > 0 { divider(width: width) }
+                    NotePaneView(model: model, pane: pane)
+                        .frame(width: model.isSplit ? paneWidth(index, of: width) : nil)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
+    }
+
+    private func paneWidth(_ index: Int, of width: Double) -> Double {
+        let room = max(width - 1, 0)
+        let first = room * clamped(fraction, width: room)
+        return index == 0 ? first : room - first
+    }
+
+    private func clamped(_ value: Double, width: Double) -> Double {
+        guard width > 2 * Self.minWidth else { return 0.5 }
+        return min(max(value, Self.minWidth / width), 1 - Self.minWidth / width)
+    }
+
+    private func divider(width: Double) -> some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .onHover { inside in inside ? NSCursor.columnResize.push() : NSCursor.pop() }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { drag in
+                                let start = dragStart ?? fraction
+                                dragStart = start
+                                fraction = clamped(start + drag.translation.width / max(width - 1, 1), width: width - 1)
+                            }
+                            .onEnded { _ in dragStart = nil }
+                    )
+            }
+            .accessibilityHidden(true)
     }
 }
 
@@ -140,7 +188,6 @@ struct NotePaneView: View {
 
     var body: some View {
         content
-            .frame(minWidth: model.isSplit ? 280 : nil)
             .overlay(alignment: .top) {
                 if model.isSplit && model.focused === pane {
                     Rectangle().fill(Palette.accent).frame(height: 2).allowsHitTesting(false)
