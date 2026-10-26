@@ -99,6 +99,13 @@ public struct VaultIndex: Sendable {
         notes.values.flatMap { note in note.parsed.tasks.map { VaultTask(path: note.path, task: $0) } }
     }
 
+    /// Every task by its note's path, then by its line: the order a
+    /// ` ```tasks ` query keeps for ties. The notes are put in order, not
+    /// the tasks, which are in line order in each note already.
+    public var tasksInOrder: [VaultTask] {
+        notes.values.sorted { $0.path < $1.path }.flatMap { note in note.parsed.tasks.map { VaultTask(path: note.path, task: $0) } }
+    }
+
     /// The links, tags, tree and resolver again, after [notes] or [files] changed.
     public mutating func derive() {
         var aliases: [String: [String]] = [:]

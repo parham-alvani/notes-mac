@@ -105,21 +105,25 @@ public struct TasksQuery: Sendable {
     /// ties keep the order they were given in.
     public func run<T>(_ tasks: [T], today: Day, view: (T) -> QueryTask) -> [T] {
         // Each task's groups are worked out once, not in every comparison of the sort.
-        let kept = tasks.enumerated().map { ($0.offset, $0.element, view($0.element)) }
-            .filter { _, _, task in filters.allSatisfy { $0(task, today) } }
-            .map { offset, element, task in (offset, element, task, groupers.map { group in group(task) }) }
+        // The positions are sorted, not the tasks, which are large to move.
+        let kept = tasks.indices.filter { at in
+            let task = view(tasks[at])
+            return filters.allSatisfy { $0(task, today) }
+        }
+        let views = kept.map { view(tasks[$0]) }
+        let groups = views.map { task in groupers.map { group in group(task) } }
         let order: [Comparison] = sorts + [Self.defaultOrder]
-        let sorted = kept.sorted { a, b in
-            for (x, y) in zip(a.3, b.3) {
+        let sorted = kept.indices.sorted { a, b in
+            for (x, y) in zip(groups[a], groups[b]) {
                 let result = Self.compare(x, y)
                 if result != .orderedSame { return result == .orderedAscending }
             }
             for compare in order {
-                let result = compare(a.2, b.2)
+                let result = compare(views[a], views[b])
                 if result != .orderedSame { return result == .orderedAscending }
             }
-            return a.0 < b.0
-        }.map(\.1)
+            return kept[a] < kept[b]
+        }.map { tasks[kept[$0]] }
         return limit.map { Array(sorted.prefix($0)) } ?? sorted
     }
 

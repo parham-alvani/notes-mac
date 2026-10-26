@@ -247,6 +247,16 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
             (1...12).contains(m), (1...31).contains(d)
         else { return nil }
         self.init(year: y, month: m, day: d)
+        // From 1583 on, Foundation's calendar is the plain Gregorian one, and
+        // the length of the month says whether the day is real; before, it
+        // is Julian, and the calendar is asked. It was most of what reading
+        // a task's date took.
+        if y >= 1583 {
+            let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
+            let length = m == 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].contains(m) ? 30 : 31
+            guard d <= length else { return nil }
+            return
+        }
         guard description == "\(match.1)-\(match.2)-\(match.3)", Day(date: date) == self else { return nil }
     }
 

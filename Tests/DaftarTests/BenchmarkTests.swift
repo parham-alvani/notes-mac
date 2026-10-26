@@ -290,8 +290,7 @@ final class Stopwatch {
         for source in ["not done\ndue before in 7 days\nsort by due", "not done\ngroup by filename", "done\ngroup by function task.done.format(\"YYYY-MM\")"] {
             let found = watch.time("tasks query: \(source.replacingOccurrences(of: "\n", with: "; "))") { () -> [VaultTask] in
                 let query = TasksQuery.parse(source, file: "Projects/Note.md")
-                let all = store.index.tasks.sorted { ($0.path, $0.task.line) < ($1.path, $1.task.line) }
-                return query.run(all, today: Day(year: 2026, month: 10, day: 26)) { QueryTask($0) }
+                return query.run(store.index.tasksInOrder, today: Day(year: 2026, month: 10, day: 26)) { QueryTask($0) }
             }
             watch.rows[watch.rows.count - 1].note = "\(found.count) of \(tasks.count)"
         }

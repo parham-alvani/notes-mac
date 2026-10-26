@@ -304,7 +304,7 @@ extension ReaderView.Coordinator {
     func runQuery(_ source: String, in path: String) -> [String: Any] {
         let index = parent.store.index
         let query = TasksQuery.parse(source, file: path)
-        let found = query.run(index.tasks.sorted { ($0.path, $0.task.line) < ($1.path, $1.task.line) }, today: .today()) { QueryTask($0) }
+        let found = query.run(index.tasksInOrder, today: .today()) { QueryTask($0) }
         var links: [String: String] = [:]
         let tasks: [[String: Any]] = found.map { task in
             for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
