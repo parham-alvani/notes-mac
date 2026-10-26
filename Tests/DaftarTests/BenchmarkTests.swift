@@ -254,7 +254,7 @@ final class Stopwatch {
         let bytes = layout.notes.reduce(0) { $0 + ((try? root.appending(path: $1).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         watch.rows[watch.rows.count - 1].note = "\(index.notes.count) notes, \(index.files.count) files, \(bytes / 1_000_000) MB, \(tasks.count) tasks"
         var copy = index
-        watch.time("derive (links, tags, tree)") { copy.derive() }
+        watch.time("derive again, no file came or went") { copy.derive() }
         let search = SearchIndex()
         watch.time("FTS5 index build", runs: 1) {
             search.transaction {

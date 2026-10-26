@@ -52,6 +52,10 @@ public struct VaultIndex: Sendable {
     public private(set) var tags: [String: Int] = [:]
     /// The tags as the tag pane shows them, each note counted once per branch.
     public private(set) var tagTree: [TagNode] = []
+    /// What the resolver and the tree were made from. A saved note changes
+    /// neither, and with 20,000 files they took most of a second to make.
+    private var resolved: (files: Set<String>, aliases: [String: [String]])?
+    private var treed: (files: Set<String>, empty: Set<String>)?
 
     public init() {}
 
@@ -99,7 +103,10 @@ public struct VaultIndex: Sendable {
     public mutating func derive() {
         var aliases: [String: [String]] = [:]
         for note in notes.values where !note.parsed.aliases.isEmpty { aliases[note.path] = note.parsed.aliases }
-        resolver = LinkResolver(paths: files, aliases: aliases)
+        if resolved?.files != files || resolved?.aliases != aliases {
+            resolver = LinkResolver(paths: files, aliases: aliases)
+            resolved = (files, aliases)
+        }
 
         var back: [String: [Backlink]] = [:]
         var tagCounts: [String: Int] = [:]
@@ -117,7 +124,10 @@ public struct VaultIndex: Sendable {
         backlinks = back
         tags = tagCounts
         tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags))
-        tree = Vault.tree(of: files, emptyFolders: emptyFolders)
+        if treed?.files != files || treed?.empty != emptyFolders {
+            tree = Vault.tree(of: files, emptyFolders: emptyFolders)
+            treed = (files, emptyFolders)
+        }
     }
 }
 
@@ -330,8 +340,9 @@ public enum Vault {
                 }
                 return TreeNode(path: path, name: name, children: children, folderNote: hasNote ? note : nil, logo: logo)
             }
-            let leaves = folder.files.sorted { order(title(of: $0), title(of: $1)) }.map {
-                TreeNode(path: $0, name: isNote($0) ? title(of: $0) : String($0.split(separator: "/").last!), children: nil)
+            // Each title once, not twice in every comparison of the sort.
+            let leaves = folder.files.map { ($0, title(of: $0)) }.sorted { order($0.1, $1.1) }.map {
+                TreeNode(path: $0.0, name: isNote($0.0) ? $0.1 : String($0.0.split(separator: "/").last!), children: nil)
             }
             return subfolders + leaves
         }
