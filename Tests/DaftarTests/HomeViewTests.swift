@@ -74,7 +74,12 @@ import UniformTypeIdentifiers
         #expect(image.size.width == 2000)
         // Decoded once: the second ask is the same image.
         #expect(await HomePictures.shared.image(file) === image)
-        let red: (NSColor) -> Bool = { $0.redComponent > 0.75 && $0.blueComponent < 0.4 }
+        // With Reduce Transparency or Increase Contrast on, as on the CI
+        // runner, the scrim is 60% Daylight rather than 15%.
+        let workspace = NSWorkspace.shared
+        let strong = workspace.accessibilityDisplayShouldReduceTransparency || workspace.accessibilityDisplayShouldIncreaseContrast
+        let most = strong ? 0.75 : 0.4
+        let red: (NSColor) -> Bool = { $0.redComponent > 0.75 && $0.blueComponent < most && $0.redComponent - $0.blueComponent > 0.2 }
         let color = try await corner(until: red)
         #expect(red(color), "\(color)")
     }
