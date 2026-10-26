@@ -135,7 +135,7 @@ struct ReaderView: NSViewRepresentable {
                 "title": Vault.title(of: request.path),
                 "text": text,
                 "links": store.index.resolvedLinks(in: parsed, from: request.path),
-                "properties": parsed.properties.filter { !Self.hidden.contains($0.key) }
+                "properties": parsed.properties.filter { !Vault.hiddenProperties.contains($0.key) }
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
                 "textSize": store.settings.textSize,
@@ -183,9 +183,6 @@ struct ReaderView: NSViewRepresentable {
                 _ = try? await view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             }
         }
-
-        /// Front matter the reader does not print: the plugins' own keys.
-        private static let hidden: Set<String> = ["cssclasses", "cssclass", "icon", "iconColor", "position"]
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
 

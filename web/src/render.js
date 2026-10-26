@@ -20,6 +20,28 @@ export function isClosed(status) {
   return status === "x" || status === "X" || status === "-";
 }
 
+/** A colour of the palette for each tag, the same one every time. */
+const TAG_COLORS = ["--orange", "--aqua", "--pink", "--purple", "--chartreuse", "--blue", "--spring-green", "--vivid-yellow", "--red"];
+
+export function hue(text) {
+  let hash = 0;
+  for (const char of text) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  return TAG_COLORS[hash % TAG_COLORS.length];
+}
+
+/** The colour of a code block's language label. */
+const LANGUAGE_COLORS = {
+  go: "--aqua", python: "--vivid-yellow", py: "--vivid-yellow", bash: "--chartreuse", sh: "--chartreuse", shell: "--chartreuse", zsh: "--chartreuse",
+  fish: "--chartreuse", powershell: "--blue", yaml: "--pink", yml: "--pink", toml: "--pink", json: "--orange", sql: "--purple", rust: "--orange",
+  zig: "--orange", c: "--blue", cpp: "--blue", typescript: "--blue", ts: "--blue", javascript: "--vivid-yellow", js: "--vivid-yellow",
+  hcl: "--purple", terraform: "--purple", swift: "--orange", kotlin: "--purple", java: "--red", ruby: "--red", lua: "--blue",
+  dockerfile: "--aqua", nix: "--blue", html: "--orange", css: "--pink", markdown: "--grey", md: "--grey", text: "--grey", diff: "--spring-green",
+};
+
+export function languageColor(lang) {
+  return Object.hasOwn(LANGUAGE_COLORS, lang.toLowerCase()) ? LANGUAGE_COLORS[lang.toLowerCase()] : "--accent";
+}
+
 /** The line count of the front matter, so a token's line maps back to the file. */
 export function frontMatterLines(text) {
   if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) return 0;

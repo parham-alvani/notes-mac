@@ -257,4 +257,22 @@ import Testing
             for choice in ConflictText.Choice.allCases { _ = ConflictText.resolve(parts, all: choice) }
         }
     }
+
+    /// A Quick Look preview always has a page: the renderer never throws on
+    /// a note, and a `src` that names nothing in the vault stays as it was.
+    @Test func quickLookPreviewsAnyNote() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "daftar-robust-ql-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let renderer = quickLookScript.flatMap { QuickLookPreview.Renderer(script: $0) }
+        for text in Self.samples(300, seed: 14) {
+            let parsed = NoteParser.parse(text)
+            let links = QuickLookPreview.links(in: parsed, from: "Note.md", files: ["Note.md", "uploads/a.png"])
+            let input = QuickLookPreview.input(text: text, path: "Note.md", links: links)
+            let html = renderer.map { $0.html(input) } ?? text
+            #expect(html != nil)
+            let page = QuickLookPreview.attach(html ?? "", root: root, path: "Note.md")
+            #expect(page.attachments.isEmpty)
+            #expect(page.html == html)
+        }
+    }
 }
