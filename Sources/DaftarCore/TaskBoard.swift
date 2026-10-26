@@ -14,6 +14,8 @@ public enum TaskBoard {
         case status(Character)
         /// The due date; nil takes it away.
         case due(String?)
+        /// The Tasks plugin's Postpone: see `TaskLine.postponed`.
+        case postpone(TaskLine.Postpone)
     }
 
     public struct Column: Sendable, Identifiable, Equatable {
@@ -121,6 +123,9 @@ public enum TaskBoard {
         case .due(let day):
             guard fields.due != day else { return nil }
             fields.due = day
+        case .postpone(let amount):
+            guard let later = TaskLine.postponed(fields, by: amount, today: today) else { return nil }
+            fields = later
         }
         return TaskLine.edited(raw, fields).map { [$0] }
     }
@@ -141,5 +146,50 @@ extension VaultEdits {
         guard let replacement = TaskBoard.moved(clean, to: drop, today: today) else { return text }
         lines.replaceSubrange(line...line, with: replacement.map { crlf ? $0 + "\r" : $0 })
         return lines.joined(separator: "\n")
+    }
+}
+
+extension TaskLine {
+    /// How far the Tasks plugin's Postpone menu moves a task.
+    public enum Postpone: String, Sendable, Hashable, CaseIterable {
+        case day, twoDays, threeDays, week, twoWeeks, month
+
+        public var title: String {
+            switch self {
+            case .day: "a Day"
+            case .twoDays: "2 Days"
+            case .threeDays: "3 Days"
+            case .week: "a Week"
+            case .twoWeeks: "2 Weeks"
+            case .month: "a Month"
+            }
+        }
+
+        func apply(to day: Day) -> Day {
+            switch self {
+            case .day: day.adding(days: 1)
+            case .twoDays: day.adding(days: 2)
+            case .threeDays: day.adding(days: 3)
+            case .week: day.adding(days: 7)
+            case .twoWeeks: day.adding(days: 14)
+            case .month: day.adding(months: 1)
+            }
+        }
+    }
+
+    /// The task postponed as the Tasks plugin does: its due date, or else its
+    /// scheduled date, or else its start date moves on by [amount]. A date
+    /// already past moves on from today, so an overdue task is not overdue
+    /// again at once. Nil for an open task with none of the three dates,
+    /// and for a done or cancelled task.
+    public static func postponed(_ fields: TaskFields, by amount: Postpone, today: Day) -> TaskFields? {
+        guard !closed.contains(fields.status) else { return nil }
+        var fields = fields
+        for key in [\TaskFields.due, \TaskFields.scheduled, \TaskFields.start] {
+            guard let text = fields[keyPath: key], let day = Day(text) else { continue }
+            fields[keyPath: key] = amount.apply(to: max(day, today)).description
+            return fields
+        }
+        return nil
     }
 }

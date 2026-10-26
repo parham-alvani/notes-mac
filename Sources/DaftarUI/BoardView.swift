@@ -211,6 +211,7 @@ struct BoardView: View {
         .contextMenu {
             Button("Open Note") { model.open(task.path, line: task.task.line, store: store) }
             Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+            PostponeMenu(task: task)
             Divider()
             ForEach(TaskBoard.columns([], by: grouping, today: .today()).filter { $0.drop != nil }) { column in
                 Button("Move to \(column.title)") { withAnimation(.snappy) { _ = store.moveTask(task, to: column.drop!) } }

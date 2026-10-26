@@ -66,6 +66,7 @@ struct TodayView: View {
                     TaskRow(task: task, color: color) { model.open(task.path, line: task.task.line, store: store) }
                         .contextMenu {
                             Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+                            PostponeMenu(task: task)
                             Button("Open the Note") { model.open(task.path, line: task.task.line, store: store) }
                         }
                 }

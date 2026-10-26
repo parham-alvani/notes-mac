@@ -189,3 +189,19 @@ struct DateField: View {
         }
     }
 }
+
+/// "Postpone": the Tasks plugin's menu, for an open task with a date.
+struct PostponeMenu: View {
+    var task: VaultTask
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        if task.task.isOpen, task.task.due ?? task.task.scheduled ?? task.task.start != nil {
+            Menu("Postpone") {
+                ForEach(TaskLine.Postpone.allCases, id: \.self) { amount in
+                    Button("By \(amount.title)") { withAnimation(.snappy) { _ = store.moveTask(task, to: .postpone(amount)) } }
+                }
+            }
+        }
+    }
+}

@@ -67,3 +67,31 @@ import Testing
         #expect(throws: VaultEdits.Failure.taskMoved) { try VaultEdits.moveTask(in: text, line: 2, task: shown, to: .status("/"), today: today) }
     }
 }
+
+@Suite struct PostponeTests {
+    let today = Day(year: 2026, month: 10, day: 26)
+
+    func postponed(_ raw: String, _ amount: TaskLine.Postpone) -> String? {
+        TaskBoard.moved(raw, to: .postpone(amount), today: today)?.first
+    }
+
+    @Test func theDueDateMovesOnFromItselfOrFromToday() {
+        #expect(postponed("- [ ] Report 📅 2026-10-30", .day) == "- [ ] Report 📅 2026-10-31")
+        #expect(postponed("- [ ] Report 📅 2026-10-30", .month) == "- [ ] Report 📅 2026-11-30")
+        // Overdue: from today, so it is not overdue again at once.
+        #expect(postponed("- [ ] Report 📅 2026-10-01", .week) == "- [ ] Report 📅 2026-11-02")
+        #expect(postponed("- [ ] Report 📅 2026-10-26", .twoDays) == "- [ ] Report 📅 2026-10-28")
+    }
+
+    @Test func withoutADueDateTheScheduledThenTheStartDateMoves() {
+        #expect(postponed("- [ ] Plan ⏳ 2026-10-27 🛫 2026-10-20", .threeDays) == "- [ ] Plan 🛫 2026-10-20 ⏳ 2026-10-30")
+        #expect(postponed("- [/] Plan 🛫 2026-10-20 ^id-1", .twoWeeks) == "- [/] Plan 🛫 2026-11-09 ^id-1")
+    }
+
+    @Test func aTaskWithNoDateOrClosedStays() {
+        #expect(postponed("- [ ] No date", .day) == nil)
+        #expect(postponed("- [x] Done 📅 2026-10-30 ✅ 2026-10-25", .day) == nil)
+        #expect(postponed("- [-] Dropped 📅 2026-10-30", .day) == nil)
+        #expect(postponed("- [ ] Bad date 📅 2026-13-40", .day) == nil)
+    }
+}
