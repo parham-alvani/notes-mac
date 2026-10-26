@@ -41,6 +41,11 @@ final class AppSettings {
     var nvimPath: String { didSet { write("editor.nvim", .string(nvimPath)) } }
     var nvimConfig: String { didSet { write("editor.nvim_config", .string(nvimConfig)) } }
     var terminalFontSize: Int { didSet { write("terminal.font_size", .int(terminalFontSize)) } }
+    /// Quick capture's global shortcut, as `HotKeySpec` reads it; empty is off.
+    var captureHotkey: String { didSet { write("capture.hotkey", .string(captureHotkey)) } }
+    /// "daily", or a note's vault path.
+    var captureTarget: String { didSet { write("capture.target", .string(captureTarget)) } }
+    var captureHeading: String { didSet { write("capture.heading", .string(captureHeading)) } }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
@@ -89,6 +94,9 @@ final class AppSettings {
         livePreview = true
         nvimPath = ""
         nvimConfig = "user"
+        captureHotkey = "ctrl+opt+n"
+        captureTarget = "daily"
+        captureHeading = ""
         load()
         watch()
     }
@@ -127,6 +135,9 @@ final class AppSettings {
         nvimPath = file.string("editor.nvim") ?? ""
         nvimConfig = file.string("editor.nvim_config") ?? "user"
         terminalFontSize = file.int("terminal.font_size") ?? 13
+        captureHotkey = file.string("capture.hotkey") ?? "ctrl+opt+n"
+        captureTarget = file.string("capture.target") ?? "daily"
+        captureHeading = file.string("capture.heading") ?? ""
     }
 
     private func write(_ path: String, _ value: ConfigFile.Value) {

@@ -39,6 +39,9 @@ enum PaletteCommands {
             PaletteCommand(id: "new-note", title: "New Note", group: "File", symbol: "square.and.pencil", color: Palette.accent, shortcut: "⌘N") {
                 model.fileAction = .newNote(folder: model.currentFolder)
             },
+            PaletteCommand(id: "capture", title: "Quick Capture", group: "File", symbol: "tray.and.arrow.down.fill", color: Palette.green, shortcut: QuickCaptureController.shared.shortcut) {
+                QuickCaptureController.shared.show()
+            },
             PaletteCommand(id: "new-folder", title: "New Folder", group: "File", symbol: "folder.badge.plus", color: Palette.yellow, shortcut: "⇧⌘N") {
                 model.fileAction = .newFolder(parent: model.currentFolder)
             },

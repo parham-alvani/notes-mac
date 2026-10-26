@@ -223,6 +223,19 @@ public struct ConfigFile: Sendable, Equatable {
         shell = ""
         font_size = 13
 
+        [capture]
+        # Quick capture: a global shortcut opens a small panel, from any app,
+        # whose line goes into a note. Modifiers cmd, ctrl, opt and shift and
+        # a key (a letter, a digit, space, return, tab, an arrow, f1 to f20,
+        # - = [ ] ; ' , . / \\ `), joined with "+". Empty turns it off.
+        hotkey = "ctrl+opt+n"
+        # "daily" is the periodic note of today (as ⌘3 opens it, made from its
+        # template when it is not there), or a note's path in the vault.
+        target = "daily"
+        # A heading to add the line under, at the end of its section, made at
+        # the end of the note when it is missing; empty is the end of the note.
+        heading = ""
+
         [wakatime]
         # Send the time spent in each note to WakaTime, with wakatime-cli and
         # the key in ~/.wakatime.cfg, as Obsidian's WakaTime plugin does.
