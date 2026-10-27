@@ -260,13 +260,13 @@ struct FileRow: View {
     /// aqua dot of a note changed since it was read.
     private var kind: String {
         if node.isFolder { return node.folderNote != nil ? "Folder with a folder note" : "Folder" }
-        let what = Vault.isNote(node.path) ? "Note" : Vault.opensInApp(node.path) ? "File" : "File, opens in another app"
+        let what = Vault.isNote(node.path) ? "Note" : Vault.isImage(node.path) ? "Picture" : Vault.opensInApp(node.path) ? "File" : "File, opens in another app"
         return store.isUpdatedSinceRead(node.path) ? what + ", changed since you last read it" : what
     }
 
     private var attachmentSymbol: String {
-        switch node.path.split(separator: ".").last?.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "heic": "photo"
+        if Vault.isImage(node.path) { return "photo" }
+        return switch node.path.split(separator: ".").last?.lowercased() {
         case "pdf": "doc.richtext"
         case "base": "tablecells"
         case "canvas": "rectangle.on.rectangle"
@@ -296,6 +296,9 @@ struct FileMenu: View {
         }
         if let url = store.url(of: folder ?? path) {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            if folder == nil, Vault.isImage(path) {
+                Button("Open in Default App") { NSWorkspace.shared.open(url) }
+            }
             if Vault.opensInApp(path) || folder == nil {
                 ShareLink(item: url)
             }
@@ -571,6 +574,28 @@ struct InspectorView: View {
                 mentions = found
                 mentionsFor = path
             }
+        } else if !model.showsPage, let path = model.path, Vault.isImage(path) {
+            // A picture has no outline: the notes that show it or link to it.
+            let backlinks = (store.index.backlinks[path] ?? []).filter { !store.excluded.contains($0.source) }
+            List {
+                Section {
+                    if backlinks.isEmpty {
+                        Text("No note shows or links to this picture.").foregroundStyle(.secondary)
+                    }
+                    ForEach(backlinks, id: \.self) { link in
+                        Button {
+                            model.open(link.source, line: link.line, store: store)
+                        } label: {
+                            LinkRow(path: link.source, symbol: "arrow.turn.down.right", color: Palette.aqua)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows or links to this picture")
+                    }
+                } header: {
+                    SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua)
+                }
+            }
+            .listStyle(.sidebar)
         } else {
             ContentUnavailableView("No note", systemImage: "sidebar.right", description: Text("Open a note to see its outline and backlinks."))
         }
@@ -850,8 +875,8 @@ struct QuickOpenView: View {
         if Base.isBase(path) { return "tablecells" }
         if Canvas.isCanvas(path) { return "rectangle.on.rectangle" }
         if Vault.isNote(path) { return "doc.text" }
+        if Vault.isImage(path) { return "photo" }
         switch (path as NSString).pathExtension.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "tiff", "svg": return "photo"
         case "pdf": return "doc.richtext"
         case "mp3", "m4a", "wav", "ogg", "flac": return "waveform"
         case "mp4", "mov", "webm", "mkv": return "film"

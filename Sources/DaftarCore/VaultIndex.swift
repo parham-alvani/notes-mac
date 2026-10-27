@@ -145,9 +145,22 @@ public enum Vault {
 
     public static func isNote(_ path: String) -> Bool { path.lowercased().hasSuffix(".md") }
 
-    /// A note, a base or a canvas: a file the app shows itself rather than
-    /// handing it to the app the system gives it to.
-    public static func opensInApp(_ path: String) -> Bool { isNote(path) || Base.isBase(path) || Canvas.isCanvas(path) }
+    /// A note, a base, a canvas or a picture: a file the app shows itself
+    /// rather than handing it to the app the system gives it to.
+    public static func opensInApp(_ path: String) -> Bool { isNote(path) || Base.isBase(path) || Canvas.isCanvas(path) || isImage(path) }
+
+    /// The pictures the reader's web view draws, and the editor under an
+    /// embed: WebKit decodes each of these on macOS 26, an animated GIF,
+    /// WebP or APNG animates. Any other picture opens in its own app.
+    public static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "heic", "heif", "tif", "tiff",
+    ]
+
+    /// A picture the app shows on its own page, with zoom.
+    public static func isImage(_ path: String) -> Bool {
+        guard let dot = path.lastIndex(of: "."), !path[dot...].contains("/") else { return false }
+        return imageExtensions.contains(path[path.index(after: dot)...].lowercased())
+    }
 
     /// Whether a vault path is one the app reads at all.
     public static func counts(_ path: String) -> Bool {

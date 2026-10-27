@@ -24,7 +24,8 @@ public enum QuickSwitcher {
             self.aliases = aliases.map(Slugs.fold)
             folders = Slugs.fold(QuickSwitcher.folder(of: path))
             full = folders.isEmpty ? self.title : folders + "/" + self.title
-            note = Vault.opensInApp(path)
+            // A picture opens in the app too, but ranks as the attachment it is.
+            note = Vault.opensInApp(path) && !Vault.isImage(path)
         }
     }
 

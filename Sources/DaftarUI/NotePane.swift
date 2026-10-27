@@ -51,6 +51,8 @@ final class NotePane: Identifiable {
     private var forward: [ReaderRequest] = []
 
     var path: String? { request?.path }
+    /// A picture is a binary file: it has no editor, only the reader's page.
+    var canEdit: Bool { path.map { !Vault.isImage($0) } ?? true }
     var canGoBack: Bool { !back.isEmpty }
     var canGoForward: Bool { !forward.isEmpty }
 
@@ -233,7 +235,7 @@ struct NotePaneView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let path = pane.path, pane.editing {
+        if let path = pane.path, pane.editing, pane.canEdit {
             EditorView(path: path, store: store, line: pane.cursorLine, onCursor: { line in
                 pane.cursorLine = line
                 // The outline marks the section the cursor is in.

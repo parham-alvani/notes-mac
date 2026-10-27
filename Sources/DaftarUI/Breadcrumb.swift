@@ -147,7 +147,7 @@ struct Breadcrumb: View {
             AnyView(Button {
                 model.open(node.path, store: store)
             } label: {
-                Label(node.name, systemImage: node.path == path ? "checkmark" : Vault.isNote(node.path) ? "doc.text" : Base.isBase(node.path) ? "tablecells" : Canvas.isCanvas(node.path) ? "rectangle.on.rectangle" : "paperclip")
+                Label(node.name, systemImage: node.path == path ? "checkmark" : Vault.isNote(node.path) ? "doc.text" : Base.isBase(node.path) ? "tablecells" : Canvas.isCanvas(node.path) ? "rectangle.on.rectangle" : Vault.isImage(node.path) ? "photo" : "paperclip")
             })
         }
     }
@@ -170,12 +170,15 @@ struct Breadcrumb: View {
             }
             if let url = store.url(of: path) {
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                if Vault.isImage(path) {
+                    Button("Open in Default App") { NSWorkspace.shared.open(url) }
+                }
             }
         } label: {
             HStack(spacing: 5) {
                 IconicImage(
                     icon: store.iconic.icon(for: path, folder: false),
-                    fallback: Base.isBase(path) ? "tablecells" : Canvas.isCanvas(path) ? "rectangle.on.rectangle" : "doc.text.fill", fallbackColor: Palette.pink)
+                    fallback: Base.isBase(path) ? "tablecells" : Canvas.isCanvas(path) ? "rectangle.on.rectangle" : Vault.isImage(path) ? "photo" : "doc.text.fill", fallbackColor: Palette.pink)
                     .frame(width: 14, height: 14)
                 Text(Vault.isNote(path) ? Vault.title(of: path) : String(path.split(separator: "/").last ?? ""))
                     .fontWeight(.semibold).lineLimit(1)

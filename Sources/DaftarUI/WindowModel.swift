@@ -40,10 +40,23 @@ final class WindowModel {
         get { focused.request }
         set { focused.request = newValue }
     }
-    /// The focused note is open in the editor rather than the reader.
+    /// The focused note is open in the editor rather than the reader. A
+    /// picture has no editor: it is always read.
     var editing: Bool {
-        get { focused.editing }
+        get { focused.editing && focused.canEdit }
         set { setEditing(newValue, in: focused) }
+    }
+    /// A picture file is on screen in the focused pane: View › Zoom acts on it.
+    var showsImage: Bool { !showsPage && path.map(Vault.isImage) == true }
+    /// A note, a base or a canvas is on screen: a file of text, which the
+    /// commands that read, find, speak or print a note act on.
+    var showsText: Bool { !showsPage && path != nil && !showsImage }
+
+    /// View › Zoom In, Zoom Out, Zoom to Fit or Actual Size on the picture
+    /// on screen: "in", "out", "fit" or "actual".
+    func zoomImage(_ command: String) {
+        guard showsImage, let view = readerView else { return }
+        view.callAsyncJavaScript("return daftar.imageCommand(name)", arguments: ["name": command], in: nil, in: .page)
     }
     /// The source line the focused pane's cursor is on.
     var cursorLine: Int? {
@@ -158,7 +171,7 @@ final class WindowModel {
         Task {
             if let selected = await Self.selectedText(), !selected.isEmpty {
                 translation = selected
-            } else if let path, let text = store.text(of: path) {
+            } else if let path, showsText, let text = store.text(of: path) {
                 translation = Self.withoutProperties(text)
             }
         }
@@ -232,14 +245,14 @@ final class WindowModel {
 
     /// The open note read aloud, or the voice stopped.
     func readAloud() {
-        guard let path, !showsPage, let view = readerView else { return }
+        guard let path, showsText, let view = readerView else { return }
         if editing { editing = false }
         ReadAloud.shared.toggle(path, in: view)
     }
 
     /// The open note as a PDF on A4, Daylight and unfolded, where the person chooses.
     func exportPDF() {
-        guard let path, !showsPage, !editing, let view = readerView, let window = view.window else { return }
+        guard let path, showsText, !editing, let view = readerView, let window = view.window else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = Vault.title(of: path) + ".pdf"
@@ -264,7 +277,7 @@ final class WindowModel {
     /// The open note's tasks sorted as the vault's Task Sorter plugin does:
     /// in the editor as a step to undo, else in the file.
     func sortTasks(store: VaultStore) {
-        guard let path, !showsPage else { return }
+        guard let path, showsText else { return }
         if editing {
             NSApp.sendAction(#selector(NoteTextView.sortTasks(_:)), to: nil, from: nil)
         } else if !store.sortTasks(path) {
@@ -360,6 +373,7 @@ final class WindowModel {
     /// Reader or editor in [pane]. In Neovim mode a pane that starts editing
     /// sends the other one back to the reader.
     func setEditing(_ editing: Bool, in pane: NotePane) {
+        if editing, !pane.canEdit { return }
         if editing, oneEditor {
             for other in panes where other !== pane && other.editing { other.editing = false }
         }
@@ -390,7 +404,7 @@ final class WindowModel {
 
     /// Edit › Find: the editor's own find bar, or the reader's.
     func find(_ action: NSTextFinder.Action) {
-        guard !showsPage, path != nil else { return }
+        guard showsText else { return }
         if editing {
             let item = NSMenuItem()
             item.tag = action.rawValue

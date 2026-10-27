@@ -189,7 +189,37 @@ enum PaletteCommands {
             ]
         }
         out += editor(model: model, store: store)
+        if model.showsImage {
+            out = out.filter { !Self.textOnly.contains($0.id) } + image(model: model, store: store)
+        }
         return out
+    }
+
+    /// The commands that read, edit, speak or print a note's text: not for a picture.
+    static let textOnly: Set<String> = [
+        "translate", "read-aloud", "pdf", "assistant", "history", "edit", "find", "extract", "copy-block-link",
+        "sort-tasks", "rename-heading", "section-up", "section-down", "next-occurrence", "all-occurrences",
+    ]
+
+    /// A picture file's zoom, and its own app.
+    static func image(model: WindowModel, store: VaultStore) -> [PaletteCommand] {
+        [
+            PaletteCommand(id: "image-in", title: "Zoom In on the Picture", group: "Picture", symbol: "plus.magnifyingglass", color: Palette.accent, shortcut: "⌘+") {
+                model.zoomImage("in")
+            },
+            PaletteCommand(id: "image-out", title: "Zoom Out of the Picture", group: "Picture", symbol: "minus.magnifyingglass", color: Palette.accent, shortcut: "⌘−") {
+                model.zoomImage("out")
+            },
+            PaletteCommand(id: "image-fit", title: "Fit the Picture in the Window", group: "Picture", symbol: "arrow.up.left.and.arrow.down.right", color: Palette.aqua, shortcut: "⌘9") {
+                model.zoomImage("fit")
+            },
+            PaletteCommand(id: "image-actual", title: "Show the Picture at Actual Size", group: "Picture", symbol: "1.magnifyingglass", color: Palette.aqua, shortcut: "⌘0") {
+                model.zoomImage("actual")
+            },
+            PaletteCommand(id: "image-external", title: "Open the Picture in the Default App", group: "Picture", symbol: "arrow.up.forward.app.fill", color: Palette.blue) {
+                if let path = model.path, let url = store.url(of: path) { NSWorkspace.shared.open(url) }
+            },
+        ]
     }
 
     /// The commands that match [query], best first; with no query, the

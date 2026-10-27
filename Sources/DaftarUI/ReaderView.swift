@@ -124,6 +124,10 @@ struct ReaderView: NSViewRepresentable {
             shownRevision = store.revision
             shownSize = "\(store.settings.textSize)|\(store.settings.font)|\(store.settings.codeFont)"
             showCount += 1
+            if Vault.isImage(request.path) {
+                showImage(request, keepScroll: keepScroll)
+                return
+            }
             guard let text = store.text(of: request.path) else { return }
             if Base.isBase(request.path) {
                 showBase(request, source: text, keepScroll: keepScroll)
@@ -228,6 +232,27 @@ struct ReaderView: NSViewRepresentable {
             if !keepScroll { takeKeys() }
         }
 
+        /// A picture file: the page loads it from `vault:` and shows it with
+        /// zoom. The page reads its pixel size; its size on disk and its kind
+        /// come from here, and its date makes a changed file load again.
+        private func showImage(_ request: ReaderRequest, keepScroll: Bool) {
+            let store = parent.store
+            let values = store.url(of: request.path).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) }
+            let kind = UTType(filenameExtension: (request.path as NSString).pathExtension)
+            let image: [String: Any] = [
+                "size": values?.fileSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? "",
+                "type": kind?.localizedDescription ?? (request.path as NSString).pathExtension.uppercased(),
+                "version": "\(Int((values?.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000))-\(values?.fileSize ?? 0)",
+            ]
+            let note: [String: Any] = [
+                "path": request.path, "title": Vault.title(of: request.path), "text": "", "links": [String: String](),
+                "properties": [[String]](), "keepScroll": keepScroll, "image": image,
+                "textSize": store.settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
+            ]
+            view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+            if !keepScroll { takeKeys() }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
 
         /// The page stays the reader: a note's `<meta http-equiv=refresh>` or
@@ -290,6 +315,10 @@ struct ReaderView: NSViewRepresentable {
                 if let line = body["line"] as? Int { parent.onSection?(line < 0 ? nil : line) }
             case "stopSpeaking":
                 ReadAloud.shared.stop()
+            case "openExternal":
+                // The picture on screen, never a path the page names.
+                guard let path = shown?.path, Vault.isImage(path), let url = parent.store.url(of: path) else { return }
+                NSWorkspace.shared.open(url)
             case "folds":
                 if let path = shown?.path, let folds = body["folds"] as? [String] { parent.store.places.setFolds(path, folds) }
             case "cursor":

@@ -60,6 +60,7 @@ struct EditorView: NSViewRepresentable {
         coordinator.checkHeadings()
         coordinator.saveNow()
         coordinator.stopVim()
+        coordinator.animator.stop()
         coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
         coordinator.store.followers[ObjectIdentifier(coordinator)] = nil
     }
@@ -729,15 +730,15 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     // MARK: Images
 
     private var images: [String: NSImage] = [:]
+    /// Animated GIFs, WebPs and PNGs move (`EditorImages.swift`).
+    let animator = ImageAnimator()
 
     /// `![[picture.png]]` (or `![[picture.png|300]]`): the line keeps room
     /// for the picture under it, and `ImageLayoutFragment` draws it there.
     private func embedImage(_ embed: String, line: NSRange, in storage: NSTextStorage) {
         guard let path, embed.hasPrefix("![["), embed.hasSuffix("]]") else { return }
         let link = Wikilink(String(embed.dropFirst(3).dropLast(2)))
-        let extensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "tiff", "svg"]
-        guard let target = store.index.resolve(link.target, from: path),
-            extensions.contains((target as NSString).pathExtension.lowercased()), let url = store.url(of: target)
+        guard let target = store.index.resolve(link.target, from: path), Vault.isImage(target), let url = store.url(of: target)
         else { return }
         let image = images[target] ?? NSImage(contentsOf: url)
         guard let image, image.size.width > 0 else { return }
@@ -752,7 +753,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         let paragraph = ((storage.attribute(.paragraphStyle, at: line.location, effectiveRange: nil) as? NSParagraphStyle)?
             .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
         paragraph.paragraphSpacing = height + EmbeddedImage.gap * 2
-        storage.addAttributes([.paragraphStyle: paragraph, .daftarImage: EmbeddedImage(image: image, size: size)], range: line)
+        animator.view = view
+        let embedded = EmbeddedImage(image: image, size: size, animation: animator.animation(for: target, url: url))
+        storage.addAttributes([.paragraphStyle: paragraph, .daftarImage: embedded], range: line)
     }
 
     // MARK: `[[` completion

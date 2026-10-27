@@ -56,7 +56,7 @@ struct HistorySheet: View {
         }
     }
 
-    private var path: String? { model.showsPage ? nil : model.path }
+    private var path: String? { model.showsText ? model.path : nil }
 
     private var header: some View {
         HStack(spacing: 12) {

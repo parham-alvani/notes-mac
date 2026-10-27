@@ -49,20 +49,20 @@ public struct DaftarApp: App {
             CommandGroup(after: .pasteboard) {
                 Button("Copy Block Link") { window?.copyBlockLink(store: store) }
                     .keyboardShortcut("b", modifiers: [.command, .option])
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Divider()
                 Button("Find…") { window?.find(.showFindInterface) }
                     .keyboardShortcut("f")
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Button("Search in Vault") { window?.searchRequests += 1 }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
                     .disabled(window == nil || store.root == nil)
                 Button("Find Next") { window?.find(.nextMatch) }
                     .keyboardShortcut("g")
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Button("Find Previous") { window?.find(.previousMatch) }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Button("Replace in Vault…") { window?.vaultReplace = ReplaceTarget(folder: "") }
                     .keyboardShortcut("h", modifiers: [.command, .shift])
                     .disabled(window == nil || store.root == nil)
@@ -91,29 +91,39 @@ public struct DaftarApp: App {
                     .disabled(window == nil)
                 Button("Translate…") { window?.translate(store: store) }
                     .keyboardShortcut("t", modifiers: [.command, .control])
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Button(ReadAloud.shared.isSpeaking ? "Stop Reading Aloud" : "Read Aloud") { window?.readAloud() }
                     .keyboardShortcut("r", modifiers: [.command, .option])
-                    .disabled(!ReadAloud.shared.isSpeaking && (window?.path == nil || window?.showsPage == true))
+                    .disabled(!ReadAloud.shared.isSpeaking && window?.showsText != true)
                 Button("Apple Intelligence…") { window?.assistant = true }
                     .keyboardShortcut("a", modifiers: [.command, .option])
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Divider()
                 Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
                     .keyboardShortcut("e")
-                    .disabled(window?.path == nil || window?.showsPage == true)
+                    .disabled(window?.showsText != true)
                 Button(window?.isSplit == true ? "Close Split" : "Split Right") { window?.toggleSplit() }
                     .keyboardShortcut("\\")
                     .disabled(window == nil || window?.showsPage == true)
                 Toggle("Show Hidden Files", isOn: Bindable(store.settings).showHidden)
                     .keyboardShortcut(".", modifiers: [.command, .shift])
                 Divider()
-                Button("Bigger Text") { store.settings.textSize = min(store.settings.textSize + 1, 28) }
-                    .keyboardShortcut("+")
-                Button("Smaller Text") { store.settings.textSize = max(store.settings.textSize - 1, 10) }
-                    .keyboardShortcut("-")
-                Button("Actual Size") { store.settings.textSize = 14 }
-                    .keyboardShortcut("0")
+                // On a picture the same keys zoom the picture, as in Preview.
+                Button(window?.showsImage == true ? "Zoom In" : "Bigger Text") {
+                    if let window, window.showsImage { window.zoomImage("in") } else { store.settings.textSize = min(store.settings.textSize + 1, 28) }
+                }
+                .keyboardShortcut("+")
+                Button(window?.showsImage == true ? "Zoom Out" : "Smaller Text") {
+                    if let window, window.showsImage { window.zoomImage("out") } else { store.settings.textSize = max(store.settings.textSize - 1, 10) }
+                }
+                .keyboardShortcut("-")
+                Button("Actual Size") {
+                    if let window, window.showsImage { window.zoomImage("actual") } else { store.settings.textSize = 14 }
+                }
+                .keyboardShortcut("0")
+                Button("Zoom to Fit") { window?.zoomImage("fit") }
+                    .keyboardShortcut("9")
+                    .disabled(window?.showsImage != true)
             }
             CommandMenu("Go") {
                 Button("Back") { window?.goBack() }
@@ -562,21 +572,21 @@ struct FileCommands: Commands {
                 .disabled(window?.path == nil || window?.showsPage == true)
             Button("Show History…") { window?.history = true }
                 .keyboardShortcut("y", modifiers: [.command, .option])
-                .disabled(window?.path == nil || window?.showsPage == true || !store.isRepository)
+                .disabled(window?.showsText != true || !store.isRepository)
             Button("Sort Tasks") { window?.sortTasks(store: store) }
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.showsText != true)
             Button("Rename Heading…") { window?.renameHeading(store: store) }
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.showsText != true)
             Button("Move Section Up") { window?.moveSection(up: true, store: store) }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.showsText != true)
             Button("Move Section Down") { window?.moveSection(up: false, store: store) }
                 .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.showsText != true)
             Divider()
             Button("Export as PDF…") { window?.exportPDF() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(window?.path == nil || window?.showsPage == true || window?.editing == true)
+                .disabled(window?.showsText != true || window?.editing == true)
             Divider()
             Button(window?.path.map { store.bookmarks.contains($0) } == true ? "Remove Bookmark" : "Bookmark") {
                 if let path = window?.path { store.toggleBookmark(path) }

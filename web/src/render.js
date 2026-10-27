@@ -7,7 +7,7 @@ import footnote from "markdown-it-footnote";
 import katex from "katex";
 import hljs from "highlight.js/lib/common";
 
-const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/i;
+const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|hei[cf]|tiff?)$/i;
 const VIDEO = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const AUDIO = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus)$/i;
 const CALLOUT = /^\[!([\w-]+)\]([+-]?)[ \t]*(.*)$/;

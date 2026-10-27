@@ -2,10 +2,11 @@
 // what the person does with it. Every message to the app goes through
 // `post`, and the app calls `daftar.show` and `daftar.scrollTo`.
 
-import { render, renderInline, isClosed, hue, languageColor } from "./render.js";
+import { render, renderInline, isClosed, hue, languageColor, vaultUrl, escapeHtml } from "./render.js";
 import { renderView } from "./bases.js";
 import { renderCanvas, bounds, fit } from "./canvas.js";
-import { codeHead, findBar as findBarHtml, foldState, taskChip, baseTabs, canvasBar, zoomLabel } from "./controls.js";
+import { codeHead, findBar as findBarHtml, foldState, taskChip, baseTabs, canvasBar, zoomLabel, imageBar, imageInfo } from "./controls.js";
+import { PanZoom, percent, svgSize } from "./viewer.js";
 
 const app = window.webkit?.messageHandlers;
 
@@ -339,7 +340,11 @@ window.addEventListener("scroll", () => {
   if (preview.card?.classList.contains("is-open")) hidePreviewSoon();
 }, { passive: true });
 
-/** Click an image or a diagram to see it as large as the window allows. */
+/**
+ * Click an image or a diagram to see it as large as the window allows, then
+ * zoom and pan it as a picture file's page does. A click on the backdrop or
+ * Escape closes it; a click on the picture does not, so it can be dragged.
+ */
 function zoom(node) {
   const overlay = document.createElement("div");
   overlay.className = "zoom";
@@ -349,13 +354,23 @@ function zoom(node) {
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-label", zoomLabel(node.getAttribute("alt"), node.tagName !== "IMG"));
-  const copy = node.tagName === "IMG" ? Object.assign(document.createElement("img"), { src: node.src, alt: node.alt }) : node.cloneNode(true);
-  copy.removeAttribute("width");
-  copy.removeAttribute("height");
-  copy.removeAttribute("style");
-  overlay.appendChild(copy);
+  const diagram = node.tagName !== "IMG";
+  const copy = diagram ? node.cloneNode(true) : Object.assign(document.createElement("img"), { src: node.currentSrc || node.src, alt: node.alt });
+  for (const name of ["width", "height", "style", "tabindex"]) copy.removeAttribute(name);
+  copy.draggable = false;
+  overlay.innerHTML = imageBar();
+  overlay.prepend(copy);
+  document.body.appendChild(overlay);
+  const size = diagram
+    ? svgSize(node.getAttribute("viewBox"), node.getAttribute("width"), node.getAttribute("height"), node.getBoundingClientRect())
+    : { width: node.naturalWidth || node.clientWidth, height: node.naturalHeight || node.clientHeight };
+  const label = overlay.querySelector(".image-percent");
+  const viewer = new PanZoom(overlay, copy, { ...size, pad: 32, onChange: (view) => (label.textContent = percent(view.scale)) });
+  if (!diagram && !copy.complete) copy.addEventListener("load", () => viewer.setSize(copy.naturalWidth, copy.naturalHeight), { once: true });
+  overlay.querySelectorAll("[data-zoom]").forEach((button) => button.addEventListener("click", () => viewer.command(button.dataset.zoom)));
   const close = () => {
     overlay.remove();
+    viewer.observer.disconnect();
     document.removeEventListener("keydown", onKey, true);
     back?.focus?.({ preventScroll: true });
   };
@@ -363,12 +378,66 @@ function zoom(node) {
     if (event.key === "Escape") {
       event.preventDefault();
       close();
-    }
+    } else if (viewer.key(event)) event.stopPropagation();
   };
-  overlay.addEventListener("click", close);
+  // Only a click that went down and up on the backdrop, with no drag, closes.
+  let down = null;
+  overlay.addEventListener("pointerdown", (event) => (down = event.target), true);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay && down === overlay && !viewer.moved) close();
+  });
   document.addEventListener("keydown", onKey, true);
-  document.body.appendChild(overlay);
   overlay.focus();
+}
+
+/**
+ * A picture file on its own page: fitted to the window, zoomed and panned
+ * by `PanZoom`, with its bar and a line of what it is. The view is kept
+ * when the same file is shown again after it changed on disk.
+ */
+const imagePage = { viewer: null, path: "" };
+
+function showImage(main, note) {
+  const old = imagePage.viewer;
+  const kept = note.keepScroll && imagePage.path === note.path && old ? { view: old.view, fitted: old.fitted, width: old.width, height: old.height } : null;
+  old?.observer.disconnect();
+  imagePage.viewer = null;
+  imagePage.path = note.path;
+  const info = note.image ?? {};
+  main.innerHTML =
+    `<div class="image-page"><div class="image-stage">` +
+    `<img class="image-file" alt="${escapeHtml(note.title)}" draggable="false" src="${vaultUrl(note.path)}?v=${encodeURIComponent(info.version ?? "")}">` +
+    `</div><div class="image-foot"><span class="image-info" dir="auto">${imageInfo(0, 0, info.size, info.type)}</span>${imageBar({ external: true })}</div></div>`;
+  const page = main.querySelector(".image-page");
+  const stage = page.querySelector(".image-stage");
+  const img = stage.querySelector("img");
+  const label = page.querySelector(".image-percent");
+  page.querySelectorAll("[data-zoom]").forEach((button) => button.addEventListener("click", () => imagePage.viewer?.command(button.dataset.zoom)));
+  page.querySelector(".image-external").addEventListener("click", () => post({ kind: "openExternal" }));
+  img.addEventListener(
+    "load",
+    () => {
+      // An SVG with only a viewBox has no size of its own: it fills the window.
+      const width = img.naturalWidth || stage.clientWidth, height = img.naturalHeight || stage.clientHeight;
+      page.querySelector(".image-info").innerHTML = imageInfo(img.naturalWidth, img.naturalHeight, info.size, info.type);
+      const viewer = new PanZoom(stage, img, { width, height, pad: 24, onChange: (view) => (label.textContent = percent(view.scale)) });
+      if (kept && !kept.fitted && kept.width === width && kept.height === height) {
+        viewer.fitted = false;
+        viewer.apply(kept.view);
+      }
+      imagePage.viewer = viewer;
+      img.classList.add("is-loaded");
+    },
+    { once: true },
+  );
+  img.addEventListener(
+    "error",
+    () => {
+      stage.innerHTML = `<p class="image-error">This picture cannot be shown here. Open it in the default app.</p>`;
+      page.querySelectorAll("[data-zoom]").forEach((button) => (button.disabled = true));
+    },
+    { once: true },
+  );
 }
 
 /** Says [text] with VoiceOver through the page's live region. */
@@ -586,7 +655,7 @@ function decorate(root) {
   root.querySelectorAll('input.task-list-item-checkbox[data-status="/"]').forEach((box) => (box.indeterminate = true));
   // A picture opens large with a click, or with Return or Space on it.
   root.querySelectorAll("img, pre.mermaid svg").forEach((picture) => {
-    if (picture.closest(".zoom, .preview, .base-card-cover") || picture.hasAttribute("tabindex")) return;
+    if (picture.closest(".zoom, .preview, .base-card-cover, .image-page") || picture.hasAttribute("tabindex")) return;
     picture.setAttribute("tabindex", "0");
     if (picture.tagName !== "IMG") {
       picture.setAttribute("role", "img");
@@ -810,11 +879,20 @@ window.daftar = {
     if (note.fontCode) root.setProperty("--font-mono", note.fontCode);
     const main = document.getElementById("note");
     main.classList.toggle("is-canvas", Boolean(note.canvas));
+    main.classList.toggle("is-image", Boolean(note.image));
     if (note.canvas) {
       await showCanvas(main, note);
       return;
     }
     board.el = null;
+    if (note.image) {
+      showImage(main, note);
+      // A picture has no reading cursor: the last note's goes.
+      reading.restore(null);
+      return;
+    }
+    imagePage.viewer?.observer.disconnect();
+    imagePage.viewer = null;
     main.innerHTML =
       `<h1 class="inline-title" dir="${RTL_FIRST.test(note.title) ? "rtl" : "auto"}">${escape(note.title)}</h1>` +
       renderProperties(note.properties, note) +
@@ -908,6 +986,13 @@ window.daftar = {
       target.classList.add("is-linked-block");
       target.addEventListener("animationend", () => target.classList.remove("is-linked-block"), { once: true });
     }
+  },
+
+  /** View › Zoom In, Zoom Out, Zoom to Fit and Actual Size on a picture file: "in", "out", "fit" or "actual". */
+  imageCommand(name) {
+    if (!imagePage.viewer?.stage.isConnected) return false;
+    imagePage.viewer.command(name);
+    return true;
   },
 
   /** Edit › Find, Find Next and Find Previous, from the app's menu. */
@@ -1110,7 +1195,7 @@ document.addEventListener("click", (event) => {
   }
   if (!link) {
     const picture = event.target.closest("#note img, #note pre.mermaid svg");
-    if (picture && !event.target.closest(".zoom")) zoom(picture);
+    if (picture && !event.target.closest(".zoom, .image-page")) zoom(picture);
     return;
   }
   if (link.classList.contains("tag")) {
@@ -1277,6 +1362,11 @@ document.addEventListener("keydown", (event) => {
   }
   // A focused control takes its own Return and Space, not the reading cursor's.
   if ((event.key === "Enter" || event.key === " ") && event.target.closest?.("button, a[href], summary, [role=tab]")) return;
+  // A picture file has none either: its keys pan and zoom.
+  if (imagePage.viewer?.stage.isConnected) {
+    imagePage.viewer.key(event);
+    return;
+  }
   // A canvas has no reading cursor: its keys pan and zoom.
   if (board.el?.isConnected) {
     boardKey(event);

@@ -146,12 +146,15 @@ struct ContentView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             if let path = model.path, !model.showsPage {
-                Picker("Mode", selection: $model.editing) {
-                    Label("Read", systemImage: "book").tag(false)
-                    Label("Edit", systemImage: "square.and.pencil").tag(true)
+                // A picture has no editor.
+                if !model.showsImage {
+                    Picker("Mode", selection: $model.editing) {
+                        Label("Read", systemImage: "book").tag(false)
+                        Label("Edit", systemImage: "square.and.pencil").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .help("Read or edit the note (⌘E)")
                 }
-                .pickerStyle(.segmented)
-                .help("Read or edit the note (⌘E)")
                 if let url = store.url(of: path) {
                     ShareLink(item: url)
                 }
