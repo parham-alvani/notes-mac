@@ -290,6 +290,41 @@ import Testing
         }
     }
 
+    /// The properties form reads any front matter, prints it back byte for
+    /// byte when nothing changed, and an edit never touches the body.
+    @Test func propertiesFromAnyFrontMatter() throws {
+        var random = Seeded(state: 15)
+        let keys = ["title: ", "tags:\n  - ", "tags: [", "aliases:\n- ", "k: '", "k: \"", "x:", "\n", "\r\n", "  - ", "# ", " #", "&a ", "*a"]
+        for (index, text) in Self.samples(1500, seed: 15, pieces: 12).enumerated() {
+            let yaml = (0..<Int.random(in: 0...6, using: &random)).map { _ in keys.randomElement(using: &random)! + Self.text(&random, pieces: 3) }
+            let body = Self.text(&random, pieces: 8)
+            for note in [text, "---\n" + yaml.joined(separator: "\n") + "\n---\n" + body] {
+                let read = PropertySheet.read(note)
+                #expect(PropertySheet.length(of: note) <= (note as NSString).length)
+                guard var sheet = read.sheet else { continue }
+                #expect(sheet.applied(to: note) == note, "\(note.debugDescription)")
+                let rest = String(decoding: note.utf8.dropFirst(sheet.original.utf8.count), as: UTF8.self)
+                // An edit: set, add, rename or remove, then the body is as it was.
+                let key = sheet.properties.randomElement(using: &random)?.key
+                switch index % 4 {
+                case 0: if let key { sheet.set(key, .list(["a", Self.text(&random, pieces: 2)])) }
+                case 1: try? sheet.add(Self.text(&random, pieces: 2), .text(Self.text(&random, pieces: 3)))
+                case 2: if let key { try? sheet.rename(key, to: Self.text(&random, pieces: 2)) }
+                default: if let key { sheet.remove(key) }
+                }
+                let edited = try #require(sheet.applied(to: note))
+                #expect(edited.hasSuffix(rest))
+                // What was written reads back as a form with the same values.
+                if !sheet.properties.isEmpty, case .form(let again) = PropertySheet.read(edited) {
+                    #expect(again.properties.map(\.key) == sheet.properties.map(\.key), "\(edited.debugDescription)")
+                    #expect(again.properties.map(\.value) == sheet.properties.map(\.value), "\(edited.debugDescription)")
+                } else if !sheet.properties.isEmpty {
+                    Issue.record("Not a form after an edit: \(edited.debugDescription)")
+                }
+            }
+        }
+    }
+
     /// Every line of [old] is in [new], in the same order.
     static func keeps(_ old: [String], in new: [String]) -> Bool {
         var rest = new[...]
