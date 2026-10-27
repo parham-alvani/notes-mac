@@ -65,6 +65,25 @@ import Testing
         #expect(HotKeySpec.parse(ConfigFile(text: ConfigFile.template).string("capture.hotkey") ?? "") != nil)
     }
 
+    /// ⌥⌘S: today's scratch note, in the folder the settings name, made
+    /// empty once and found the next time, as on Linux.
+    @Test func theScratchpadIsTodaysNoteInItsFolder() throws {
+        let day = Day(year: 2026, month: 10, day: 27)
+        #expect(store.settings.scratchpadFolder == "Scratchpad")
+        let path = try store.scratchpad(for: day)
+        #expect(path == "Scratchpad/2026-10-27.md")
+        #expect(try text(path) == "")
+        try "first thought\n".write(to: root.appending(path: path), atomically: true, encoding: .utf8)
+        #expect(try store.scratchpad(for: day) == path)
+        #expect(try text(path) == "first thought\n")
+        store.settings.scratchpadFolder = "/Notes/Scratch/"
+        #expect(try store.scratchpad(for: day) == "Notes/Scratch/2026-10-27.md")
+        store.settings.scratchpadFolder = ""
+        #expect(try store.scratchpad(for: day) == "2026-10-27.md")
+        #expect(ConfigFile(text: ConfigFile.template).string("scratchpad.folder") == "Scratchpad")
+        #expect(ConfigFile(text: try String(contentsOf: store.settings.url, encoding: .utf8)).string("scratchpad.folder") == "")
+    }
+
     /// The core's key codes are Carbon's.
     @Test func theKeyCodesAreTheMacs() {
         let expected: [String: Int] = [

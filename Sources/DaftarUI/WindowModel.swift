@@ -293,6 +293,16 @@ final class WindowModel {
         }
     }
 
+    /// ⌥⌘S: today's scratch note, made when it is not there yet, in the editor.
+    func openScratchpad(store: VaultStore) {
+        do {
+            open(try store.scratchpad(), store: store)
+            editing = true
+        } catch {
+            store.notice = "The scratchpad could not be made: " + ((error as? VaultMoves.Failure)?.description ?? error.localizedDescription)
+        }
+    }
+
     /// The periodic note nearest to the open one in the direction of [step], when there is one.
     func periodicNeighbour(_ step: Int, store: VaultStore) -> String? {
         guard !showsPage, let path else { return nil }

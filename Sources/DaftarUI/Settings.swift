@@ -54,6 +54,8 @@ final class AppSettings {
     /// "daily", or a note's vault path.
     var captureTarget: String { didSet { write("capture.target", .string(captureTarget)) } }
     var captureHeading: String { didSet { write("capture.heading", .string(captureHeading)) } }
+    /// The folder of the day's scratch notes, `<folder>/YYYY-MM-DD.md`; empty is the vault's top.
+    var scratchpadFolder: String { didSet { write("scratchpad.folder", .string(scratchpadFolder)) } }
     /// The home page's picture, as the file has it: absolute, `~` or in the vault; empty is none.
     var homeImage: String { didSet { write("home.image", .string(homeImage)) } }
     /// Files for AI agents, by name in any folder, kept out of the lists as Obsidian's excluded files are.
@@ -117,6 +119,7 @@ final class AppSettings {
         captureHotkey = "ctrl+opt+n"
         captureTarget = "daily"
         captureHeading = ""
+        scratchpadFolder = "Scratchpad"
         homeImage = ""
         hiddenNames = Self.defaultHiddenNames
         showHidden = false
@@ -165,6 +168,7 @@ final class AppSettings {
         captureHotkey = file.string("capture.hotkey") ?? "ctrl+opt+n"
         captureTarget = file.string("capture.target") ?? "daily"
         captureHeading = file.string("capture.heading") ?? ""
+        scratchpadFolder = file.string("scratchpad.folder") ?? "Scratchpad"
         homeImage = file.string("home.image") ?? ""
         hiddenNames = file.strings("files.hidden") ?? Self.defaultHiddenNames
         showHidden = file.bool("files.show_hidden") ?? false

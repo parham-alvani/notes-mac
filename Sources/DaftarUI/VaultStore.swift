@@ -440,6 +440,15 @@ final class VaultStore {
         return try createNote(named: name, in: parts.dropLast().joined(separator: "/"), text: body)
     }
 
+    /// [day]'s scratch note in the `scratchpad.folder` setting, made empty
+    /// when it is not there yet: `Scratchpad/2026-10-27.md`.
+    func scratchpad(for day: Day = .today()) throws -> String {
+        let folder = settings.scratchpadFolder.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let path = (folder.isEmpty ? "" : folder + "/") + day.description + ".md"
+        if index.files.contains(path) { return path }
+        return try createNote(named: day.description, in: folder)
+    }
+
     /// The note a link to nothing names, made empty: `[[Folder/Name]]` in
     /// that folder, a bare `[[Name]]` next to the note with the link.
     func createNote(forLink target: String, from source: String) throws -> String {
