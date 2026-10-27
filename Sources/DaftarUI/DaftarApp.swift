@@ -35,6 +35,8 @@ public struct DaftarApp: App {
                 .onChange(of: store.settings.spotlight) { Spotlight.shared.follow(store) }
                 // The settings file can change under the app: follow it.
                 .onChange(of: store.settings.syncInterval) { store.scheduleAutoSync() }
+                .onChange(of: store.settings.hiddenNames) { store.refreshHidden() }
+                .onChange(of: store.settings.showHidden) { store.refreshHidden() }
                 .onChange(of: store.settings.vaultPath) { _, path in
                     if let path, path != store.root?.path { store.open(URL(filePath: path)) }
                 }
@@ -99,6 +101,8 @@ public struct DaftarApp: App {
                 Button(window?.isSplit == true ? "Close Split" : "Split Right") { window?.toggleSplit() }
                     .keyboardShortcut("\\")
                     .disabled(window == nil || window?.showsPage == true)
+                Toggle("Show Hidden Files", isOn: Bindable(store.settings).showHidden)
+                    .keyboardShortcut(".", modifiers: [.command, .shift])
                 Divider()
                 Button("Bigger Text") { store.settings.textSize = min(store.settings.textSize + 1, 28) }
                     .keyboardShortcut("+")
@@ -299,6 +303,12 @@ private struct GeneralSettings: View {
             Toggle("Hide the menu bar", isOn: $settings.hideMenuBar)
                 .help("The menu bar comes back when the pointer reaches the top of the screen.")
             Section {
+                HiddenNamesField(settings: settings)
+                Toggle("Show hidden files", isOn: $settings.showHidden)
+            } footer: {
+                Text("Files with these names, in any folder, and Obsidian's excluded files are not in the file tree, quick open, search or the graph. A link to one still opens it.")
+            }
+            Section {
                 Toggle("Send reading and writing time to WakaTime", isOn: $settings.wakatime)
             } footer: {
                 Text(WakaTime.cli(settings.wakatimeCLI) == nil
@@ -318,6 +328,25 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// `files.hidden` as names with commas between them, written when the field
+/// is submitted or left, so a comma being typed is not taken away.
+private struct HiddenNamesField: View {
+    let settings: AppSettings
+    @ViewState private var text = ""
+
+    var body: some View {
+        TextField("Hidden files", text: $text, prompt: Text("CLAUDE.md, AGENTS.md"))
+            .onSubmit(save)
+            .onAppear { text = settings.hiddenNames.joined(separator: ", ") }
+            .onDisappear(perform: save)
+            .onChange(of: settings.hiddenNames) { _, names in text = names.joined(separator: ", ") }
+    }
+
+    private func save() {
+        settings.hiddenNames = text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 }
 

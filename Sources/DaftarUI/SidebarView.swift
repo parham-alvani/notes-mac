@@ -129,7 +129,7 @@ struct FilesList: View {
                 }
             }
             Section(store.name) {
-                OutlineGroup(store.index.tree, children: \.children) { node in
+                OutlineGroup(store.tree, children: \.children) { node in
                     FileRow(node: node, dropTarget: dropTarget == node.path)
                         .tag(SidebarItem.file(node.folderNote ?? node.path))
                         .contextMenu { FileMenu(path: node.folderNote ?? node.path, folder: node.isFolder ? node.path : nil, model: model) }
@@ -507,7 +507,7 @@ struct InspectorView: View {
                         }
                     }
                 }
-                let backlinks = store.index.backlinks[path] ?? []
+                let backlinks = (store.index.backlinks[path] ?? []).filter { !store.excluded.contains($0.source) }
                 Section {
                     if backlinks.isEmpty {
                         Text("No note links here.").foregroundStyle(.secondary)

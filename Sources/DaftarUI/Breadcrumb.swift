@@ -102,7 +102,7 @@ struct Breadcrumb: View {
                 Button { model.open(note, store: store) } label: { Label("Open \(name)", systemImage: "doc.richtext") }
                 Divider()
             }
-            ForEach(store.index.folder(folder) ?? [], id: \.path) { node in
+            ForEach(store.folder(folder) ?? [], id: \.path) { node in
                 entry(node)
             }
         } label: {

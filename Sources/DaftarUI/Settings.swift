@@ -48,6 +48,12 @@ final class AppSettings {
     var captureHeading: String { didSet { write("capture.heading", .string(captureHeading)) } }
     /// The home page's picture, as the file has it: absolute, `~` or in the vault; empty is none.
     var homeImage: String { didSet { write("home.image", .string(homeImage)) } }
+    /// Files for AI agents, by name in any folder, kept out of the lists as Obsidian's excluded files are.
+    var hiddenNames: [String] { didSet { write("files.hidden", .strings(hiddenNames)) } }
+    /// The hidden and the excluded files show in the lists anyway.
+    var showHidden: Bool { didSet { write("files.show_hidden", .bool(showHidden)) } }
+
+    static let defaultHiddenNames = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", "CLAUDE.local.md"]
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
@@ -100,6 +106,8 @@ final class AppSettings {
         captureTarget = "daily"
         captureHeading = ""
         homeImage = ""
+        hiddenNames = Self.defaultHiddenNames
+        showHidden = false
         load()
         watch()
     }
@@ -142,6 +150,8 @@ final class AppSettings {
         captureTarget = file.string("capture.target") ?? "daily"
         captureHeading = file.string("capture.heading") ?? ""
         homeImage = file.string("home.image") ?? ""
+        hiddenNames = file.strings("files.hidden") ?? Self.defaultHiddenNames
+        showHidden = file.bool("files.show_hidden") ?? false
     }
 
     private func write(_ path: String, _ value: ConfigFile.Value) {

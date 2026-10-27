@@ -84,15 +84,7 @@ public struct VaultIndex: Sendable {
     }
 
     /// The folder at [path] in the tree; "" is the vault itself.
-    public func folder(_ path: String) -> [TreeNode]? {
-        if path.isEmpty { return tree }
-        var level = tree
-        for part in path.split(separator: "/").map(String.init) {
-            guard let next = level.first(where: { $0.isFolder && $0.name == part }) else { return nil }
-            level = next.children ?? []
-        }
-        return level
-    }
+    public func folder(_ path: String) -> [TreeNode]? { Vault.folder(path, in: tree) }
 
     /// Every task in the vault.
     public var tasks: [VaultTask] {
@@ -322,6 +314,17 @@ public enum Vault {
         }.first
     }
 
+    /// The folder at [path] in [tree]; "" is the vault itself.
+    public static func folder(_ path: String, in tree: [TreeNode]) -> [TreeNode]? {
+        if path.isEmpty { return tree }
+        var level = tree
+        for part in path.split(separator: "/").map(String.init) {
+            guard let next = level.first(where: { $0.isFolder && $0.name == part }) else { return nil }
+            level = next.children ?? []
+        }
+        return level
+    }
+
     /// The folder tree. A folder note `X/X.md` is not listed inside its folder;
     /// the folder opens it, as the folder-notes plugin does.
     public static func tree(of files: Set<String>, emptyFolders: Set<String> = []) -> [TreeNode] {
@@ -373,15 +376,19 @@ public enum Vault {
     }
 }
 
-/// Obsidian's "excluded files" (`userIgnoreFilters` in `.obsidian/app.json`):
-/// folders and files kept out of search and the switcher, though they stay
-/// in the tree and links to them still work. A filter is a path prefix, or
-/// a regular expression between slashes.
+/// Obsidian's "excluded files" (`userIgnoreFilters` in `.obsidian/app.json`)
+/// and the files for AI agents and other tools (`files.hidden` in the
+/// config, by name in any folder): kept out of the tree, search, the
+/// switcher and the graph. Links to them still work, and they still open
+/// by their path. A filter is a path prefix (`uploads/` hides the folder and
+/// all in it), or a regular expression between slashes.
 public struct ExcludedFiles: Sendable {
     public var prefixes: [String] = []
     nonisolated(unsafe) public var patterns: [NSRegularExpression] = []
+    /// Whole file names, folded: `CLAUDE.md` hides `Work/CLAUDE.md`, not `MyCLAUDE.md`.
+    public var names: Set<String> = []
 
-    public init(filters: [String] = []) {
+    public init(filters: [String] = [], names: [String] = []) {
         for filter in filters {
             let trimmed = filter.trimmingCharacters(in: .whitespaces)
             if trimmed.count > 2, trimmed.hasPrefix("/"), trimmed.hasSuffix("/") {
@@ -390,20 +397,57 @@ public struct ExcludedFiles: Sendable {
                 prefixes.append(Slugs.fold(trimmed))
             }
         }
+        self.names = Set(names.map { Slugs.fold($0.trimmingCharacters(in: .whitespaces)) }.filter { !$0.isEmpty })
     }
 
-    public static func load(_ root: URL) -> ExcludedFiles {
+    public static func load(_ root: URL, names: [String] = []) -> ExcludedFiles {
         guard let data = try? Data(contentsOf: root.appending(path: ".obsidian/app.json")),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let filters = object["userIgnoreFilters"] as? [String]
-        else { return ExcludedFiles() }
-        return ExcludedFiles(filters: filters)
+        else { return ExcludedFiles(names: names) }
+        return ExcludedFiles(filters: filters, names: names)
     }
+
+    public var isEmpty: Bool { prefixes.isEmpty && patterns.isEmpty && names.isEmpty }
 
     public func contains(_ path: String) -> Bool {
         let folded = Slugs.fold(path)
         if prefixes.contains(where: { folded.hasPrefix($0) }) { return true }
+        if !names.isEmpty, names.contains(String(folded[(folded.lastIndex(of: "/").map(folded.index(after:)) ?? folded.startIndex)...])) {
+            return true
+        }
         let range = NSRange(path.startIndex..., in: path)
         return patterns.contains { $0.firstMatch(in: path, range: range) != nil }
+    }
+
+    /// The folder at [path] is excluded itself, as `uploads/` excludes `uploads`.
+    public func containsFolder(_ path: String) -> Bool {
+        let folded = Slugs.fold(path) + "/"
+        if prefixes.contains(where: { folded.hasPrefix($0) }) { return true }
+        let folder = path + "/"
+        let range = NSRange(folder.startIndex..., in: folder)
+        return patterns.contains { $0.firstMatch(in: folder, range: range) != nil }
+    }
+
+    /// The tree without the excluded files and folders. A folder that holds
+    /// only hidden files (a `CLAUDE.md`) stays, as an empty folder.
+    public func tree(of files: Set<String>, emptyFolders: Set<String> = []) -> [TreeNode] {
+        guard !isEmpty else { return Vault.tree(of: files, emptyFolders: emptyFolders) }
+        var shown = Set<String>()
+        var empty = Set<String>()
+        for path in files {
+            if !contains(path) {
+                shown.insert(path)
+                continue
+            }
+            // Each folder above a hidden file that is not hidden itself.
+            var folder = path
+            while let slash = folder.lastIndex(of: "/") {
+                folder = String(folder[..<slash])
+                if !containsFolder(folder) { empty.insert(folder); break }
+            }
+        }
+        for folder in emptyFolders where !containsFolder(folder) { empty.insert(folder) }
+        return Vault.tree(of: shown, emptyFolders: empty)
     }
 }

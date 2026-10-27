@@ -13,7 +13,11 @@ final class VaultStore {
     @ObservationIgnored private var indexGeneration = 0
     /// The Iconic plugin's icons and colours for the tree.
     private(set) var iconic = Iconic()
-    /// Obsidian's excluded files, kept out of search and the switcher.
+    /// Obsidian's excluded files and the files for AI agents (`files.hidden`):
+    /// what the lists leave out, always, as Spotlight does.
+    private(set) var hidden = ExcludedFiles()
+    /// What the tree, search, the switcher and the graph leave out now:
+    /// [hidden], or nothing while Show Hidden Files is on.
     private(set) var excluded = ExcludedFiles()
     /// Obsidian's bookmarks, the same file both apps read and write.
     private(set) var bookmarks = Bookmarks()
@@ -87,7 +91,7 @@ final class VaultStore {
         // Only a new vault is written: the file may say `~/org` for this one.
         if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
-        excluded = ExcludedFiles.load(url)
+        loadHidden(url)
         bookmarks = Bookmarks.load(url)
         periodic = PeriodicNotes(DailyNotes.read(root: url))
         templates = Templates.read(root: url)
@@ -122,10 +126,40 @@ final class VaultStore {
         }
     }
 
+    private func loadHidden(_ url: URL) {
+        hiddenRevision += 1
+        hidden = ExcludedFiles.load(url, names: settings.hiddenNames)
+        excluded = settings.showHidden ? ExcludedFiles() : hidden
+    }
+
+    /// Reads the excluded and hidden files again, after `files.hidden` or
+    /// `files.show_hidden` changed; every list follows the new revision.
+    func refreshHidden() {
+        guard let root else { return }
+        loadHidden(root)
+        revision += 1
+    }
+
+    /// The file tree, without the excluded files, made again only when the
+    /// files or what is excluded changed.
+    var tree: [TreeNode] {
+        if excluded.isEmpty { return index.tree }
+        if let treed, treed.files == index.files, treed.empty == index.emptyFolders, treed.revision == hiddenRevision { return treed.tree }
+        let tree = excluded.tree(of: index.files, emptyFolders: index.emptyFolders)
+        treed = (index.files, index.emptyFolders, hiddenRevision, tree)
+        return tree
+    }
+
+    @ObservationIgnored private var treed: (files: Set<String>, empty: Set<String>, revision: Int, tree: [TreeNode])?
+    @ObservationIgnored private var hiddenRevision = 0
+
+    /// The folder at [path] in the shown tree; "" is the vault itself.
+    func folder(_ path: String) -> [TreeNode]? { Vault.folder(path, in: tree) }
+
     /// For tests: the vault indexed before this returns, with no watcher and no git.
     func openSynchronously(_ url: URL) {
         root = url.standardizedFileURL
-        excluded = ExcludedFiles.load(url)
+        loadHidden(url)
         bookmarks = Bookmarks.load(url)
         periodic = PeriodicNotes(DailyNotes.read(root: url))
         templates = Templates.read(root: url)
@@ -246,6 +280,7 @@ final class VaultStore {
     var updatedSinceRead: [String] {
         index.notes.values
             .filter { note in places.lastRead(note.path).map { note.modified.timeIntervalSince($0) > 2 } ?? false }
+            .filter { !excluded.contains($0.path) }
             .sorted { $0.modified > $1.modified }
             .map(\.path)
     }
@@ -799,7 +834,8 @@ final class VaultStore {
     func taskGroups(today: Day = .today(), days: Int = 7) -> TaskGroups {
         var groups = TaskGroups()
         let horizon = today.adding(days: days)
-        for task in index.tasks where task.task.isOpen {
+        let excluded = excluded
+        for task in index.tasks where task.task.isOpen && !excluded.contains(task.path) {
             guard let text = task.task.day, let day = Day(text) else {
                 if task.task.status == "/" { groups.inProgress.append(task) }
                 continue
@@ -826,7 +862,7 @@ final class VaultStore {
     }
 
     func switcher(_ query: String, recent: [String], limit: Int = 100) -> QuickSwitcher.Ranking {
-        let present = recent.filter { index.files.contains($0) }
+        let present = recent.filter { index.files.contains($0) && !excluded.contains($0) }
         return QuickSwitcher.ranking(query, in: quickOpenCandidates(), recent: present, limit: limit)
     }
 

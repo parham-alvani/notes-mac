@@ -13,14 +13,21 @@ public struct ConfigFile: Sendable, Equatable {
         case string(String)
         case int(Int)
         case bool(Bool)
+        case strings([String])
 
         var toml: String {
             switch self {
             case .string(let text):
-                "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+                Self.quoted(text)
+            case .strings(let list):
+                "[" + list.map(Self.quoted).joined(separator: ", ") + "]"
             case .int(let number): String(number)
             case .bool(let flag): flag ? "true" : "false"
             }
+        }
+
+        private static func quoted(_ text: String) -> String {
+            "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
     }
 
@@ -63,6 +70,11 @@ public struct ConfigFile: Sendable, Equatable {
 
     public func bool(_ path: String) -> Bool? {
         if case .bool(let flag) = self[path] { return flag }
+        return nil
+    }
+
+    public func strings(_ path: String) -> [String]? {
+        if case .strings(let list) = self[path] { return list }
         return nil
     }
 
@@ -121,27 +133,47 @@ public struct ConfigFile: Sendable, Equatable {
     }
 
     private static func value(_ raw: String) -> Value? {
-        if raw.hasPrefix("\"") {
-            var out = ""
-            var escaped = false
-            for ch in raw.dropFirst() {
-                if escaped {
-                    out.append(ch == "n" ? "\n" : ch == "t" ? "\t" : ch)
-                    escaped = false
-                } else if ch == "\\" {
-                    escaped = true
-                } else if ch == "\"" {
-                    return .string(out)
-                } else {
-                    out.append(ch)
-                }
+        // By scalars, so a combining mark after a quote leaves it a quote.
+        let scalars = Substring(raw).unicodeScalars
+        if scalars.first == "\"" { return string(scalars.dropFirst()).map { .string($0.text) } }
+        if scalars.first == "[" {
+            // `["a", "b"]`: quoted strings, a comma between them.
+            let blank = { (scalar: Unicode.Scalar) in scalar == " " || scalar == "\t" }
+            var list: [String] = []
+            var rest = scalars.dropFirst().drop(while: blank)
+            while rest.first != "]" {
+                guard rest.first == "\"", let item = string(rest.dropFirst()) else { return nil }
+                list.append(item.text)
+                rest = item.rest.drop(while: blank)
+                if rest.first == "," { rest = rest.dropFirst().drop(while: blank) } else if rest.first != "]" { return nil }
             }
-            return nil
+            return .strings(list)
         }
         let bare = raw.split(separator: "#", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         if bare == "true" { return .bool(true) }
         if bare == "false" { return .bool(false) }
         if let number = Int(bare.replacingOccurrences(of: "_", with: "")) { return .int(number) }
+        return nil
+    }
+
+    /// The text of a quoted string whose opening quote is gone, and what
+    /// follows its closing quote; nil when it is not closed.
+    private static func string(_ raw: Substring.UnicodeScalarView) -> (text: String, rest: Substring.UnicodeScalarView)? {
+        var out = String.UnicodeScalarView()
+        var escaped = false
+        for index in raw.indices {
+            let scalar = raw[index]
+            if escaped {
+                out.append(scalar == "n" ? "\n" : scalar == "t" ? "\t" : scalar)
+                escaped = false
+            } else if scalar == "\\" {
+                escaped = true
+            } else if scalar == "\"" {
+                return (String(out), raw[raw.index(after: index)...])
+            } else {
+                out.append(scalar)
+            }
+        }
         return nil
     }
 
@@ -242,6 +274,15 @@ public struct ConfigFile: Sendable, Equatable {
         # PNG, JPEG, HEIC or WebP file. Empty is no picture. The rest of the
         # page follows Obsidian's Beautitab plugin settings in the vault.
         image = ""
+
+        [files]
+        # Files for AI agents and other tools, by name, in any folder. They
+        # are not shown in the file tree, quick open, search, the graph or
+        # the recent notes, as Obsidian's excluded files (Settings > Files
+        # and links) are not. A link to one still opens it.
+        hidden = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", "CLAUDE.local.md"]
+        # Show the hidden and the excluded files anyway (View > Show Hidden Files).
+        show_hidden = false
 
         [wakatime]
         # Send the time spent in each note to WakaTime, with wakatime-cli and

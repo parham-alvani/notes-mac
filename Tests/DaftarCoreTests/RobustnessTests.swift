@@ -219,6 +219,11 @@ import Testing
             _ = Templates(json: data)
             _ = ReadingPlaces(data: data)
             _ = ConfigFile(text: text)
+            // A list of names reads back as it was written.
+            _ = ConfigFile(text: "x = " + text).strings("x")
+            var config = ConfigFile(text: "")
+            config.set("files.hidden", .strings([text, "CLAUDE.md"]))
+            #expect(config.strings("files.hidden") == [text, "CLAUDE.md"] || text.contains(where: \.isNewline), "\(text.debugDescription) -> \(config.text.debugDescription)")
             let home = Beautitab(json: data)
             #expect(!home.showQuote || !home.quotes.isEmpty)
             _ = Home.pictureURL(text, vault: URL(filePath: "/vault"))

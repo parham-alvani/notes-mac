@@ -30,14 +30,15 @@ public struct NoteGraph: Sendable, Equatable {
         return build(index, paths: paths, distances: [:])
     }
 
-    /// [center] and the notes [depth] links away, in either direction.
-    public static func local(_ index: VaultIndex, center: String, depth: Int = 2) -> NoteGraph {
+    /// [center] and the notes [depth] links away, in either direction,
+    /// without the excluded ones (but [center] itself, which is open).
+    public static func local(_ index: VaultIndex, center: String, depth: Int = 2, excluded: ExcludedFiles = ExcludedFiles()) -> NoteGraph {
         var distances: [String: Int] = [center: 0]
         var frontier = [center]
         for step in 1...max(1, depth) {
             var next: [String] = []
             for path in frontier {
-                for neighbour in neighbours(of: path, in: index) where distances[neighbour] == nil {
+                for neighbour in neighbours(of: path, in: index) where distances[neighbour] == nil && !excluded.contains(neighbour) {
                     distances[neighbour] = step
                     next.append(neighbour)
                 }

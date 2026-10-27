@@ -27,7 +27,7 @@ final class Spotlight {
             return
         }
         cleared = nil
-        let notes = store.index.notes.values.filter { !store.excluded.contains($0.path) }
+        let notes = store.index.notes.values.filter { !store.hidden.contains($0.path) }
         let fresh = root != current
         if fresh {
             // The vault before is not finished: its notes are not this one's.

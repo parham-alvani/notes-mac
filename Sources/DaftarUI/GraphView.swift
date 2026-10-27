@@ -238,7 +238,7 @@ struct GraphView: View {
         let depth = self.depth
         layout = nil
         let (built, laidOut) = await Task.detached(priority: .userInitiated) { () -> (NoteGraph, GraphLayout) in
-            let graph = whole || center == nil ? NoteGraph.vault(index, excluded: excluded) : NoteGraph.local(index, center: center!, depth: depth)
+            let graph = whole || center == nil ? NoteGraph.vault(index, excluded: excluded) : NoteGraph.local(index, center: center!, depth: depth, excluded: excluded)
             var layout = GraphLayout(graph, pin: whole ? nil : 0)
             layout.run(graph.nodes.count > 800 ? 160 : 300)
             return (graph, layout)

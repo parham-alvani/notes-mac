@@ -57,6 +57,9 @@ enum PaletteCommands {
             PaletteCommand(id: "terminal", title: model.terminal ? "Hide Terminal" : "Show Terminal", group: "View", symbol: "apple.terminal", color: Palette.green, shortcut: "⌃`") {
                 model.terminal.toggle()
             },
+            PaletteCommand(id: "hidden", title: store.settings.showHidden ? "Hide Hidden Files" : "Show Hidden Files", group: "View", symbol: "eye", color: Palette.aqua, shortcut: "⇧⌘.") {
+                store.settings.showHidden.toggle()
+            },
             PaletteCommand(id: "bigger", title: "Bigger Text", group: "View", symbol: "textformat.size.larger", color: Palette.pink, shortcut: "⌘+") {
                 store.settings.textSize = min(store.settings.textSize + 1, 28)
             },

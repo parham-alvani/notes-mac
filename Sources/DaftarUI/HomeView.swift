@@ -147,7 +147,7 @@ struct HomeView: View {
         guard settings.showRecentFiles else { return [] }
         return Home.recent(
             opened: model.recent, read: store.places.recentlyRead(40),
-            exists: { store.index.files.contains($0) }, limit: compact ? 5 : 8)
+            exists: { store.index.files.contains($0) && !store.excluded.contains($0) }, limit: compact ? 5 : 8)
     }
 
     private var bookmarked: [String] {

@@ -57,6 +57,41 @@ import Testing
         #expect(store.renameTag("work", to: "2026") == 0)
     }
 
+    @Test func hiddenFilesAreOnlyLeftOutOfTheLists() throws {
+        try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appending(path: "uploads"), withIntermediateDirectories: true)
+        try #"{"userIgnoreFilters":["uploads/"]}"#.write(to: root.appending(path: ".obsidian/app.json"), atomically: true, encoding: .utf8)
+        try "Rules. - [ ] Example 📅 2026-10-30".write(to: root.appending(path: "Notes/CLAUDE.md"), atomically: true, encoding: .utf8)
+        try "png".write(to: root.appending(path: "uploads/plan.png"), atomically: true, encoding: .utf8)
+        try "Mine".write(to: root.appending(path: "Notes/MyCLAUDE.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let shown = { (folder: String) in store.folder(folder)?.map(\.path) }
+        #expect(shown("Notes") == ["Notes/MyCLAUDE.md", "Notes/Plan.md"])
+        #expect(shown("uploads") == nil)
+        #expect(store.quickOpen("claude", recent: []) == ["Notes/MyCLAUDE.md"])
+        #expect(store.quickOpen("", recent: ["Notes/CLAUDE.md", "Home.md"]) == ["Home.md"])
+        #expect(store.quickOpen("plan", recent: []).contains("uploads/plan.png") == false)
+        // Still a file of the vault: a link resolves and its path opens.
+        #expect(store.index.resolve("plan.png", from: "Home.md") == "uploads/plan.png")
+        #expect(store.index.notes["Notes/CLAUDE.md"] != nil)
+        #expect(store.hidden.contains("Notes/CLAUDE.md"))
+
+        store.settings.showHidden = true
+        store.refreshHidden()
+        #expect(shown("Notes") == ["Notes/CLAUDE.md", "Notes/MyCLAUDE.md", "Notes/Plan.md"])
+        #expect(shown("uploads") == ["uploads/plan.png"])
+        #expect(Set(store.quickOpen("claude", recent: [])) == ["Notes/CLAUDE.md", "Notes/MyCLAUDE.md"])
+        #expect(store.hidden.contains("Notes/CLAUDE.md"))
+
+        store.settings.showHidden = false
+        store.settings.hiddenNames = ["MyCLAUDE.md"]
+        store.refreshHidden()
+        #expect(shown("Notes") == ["Notes/CLAUDE.md", "Notes/Plan.md"])
+        let config = ConfigFile(text: try String(contentsOf: store.settings.url, encoding: .utf8))
+        #expect(config.strings("files.hidden") == ["MyCLAUDE.md"])
+        #expect(config.bool("files.show_hidden") == false)
+    }
+
     @Test func replaceInVaultWritesTheCheckedMatches() async throws {
         try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appending(path: "Archive"), withIntermediateDirectories: true)
