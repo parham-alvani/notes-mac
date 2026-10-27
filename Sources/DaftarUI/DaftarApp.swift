@@ -46,6 +46,9 @@ public struct DaftarApp: App {
         .commands {
             FileCommands(window: window, store: store)
             CommandGroup(after: .pasteboard) {
+                Button("Copy Block Link") { window?.copyBlockLink(store: store) }
+                    .keyboardShortcut("b", modifiers: [.command, .option])
+                    .disabled(window?.path == nil || window?.showsPage == true)
                 Divider()
                 Button("Find…") { window?.find(.showFindInterface) }
                     .keyboardShortcut("f")

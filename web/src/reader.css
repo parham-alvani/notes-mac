@@ -866,3 +866,10 @@ a.detected:hover { color: var(--link-color, var(--accent)); }
   :root { --text-faint: var(--text-muted); --rule-color: var(--text-muted); --table-hairline: var(--text-muted); }
   .heading-link, .fold-toggle { color: var(--text-muted); }
 }
+
+/* The block a `[[Note#^id]]` link names, marked a moment when the link opens it. */
+.is-linked-block { border-radius: 6px; animation: linked-block 2.2s ease-out; }
+@keyframes linked-block {
+  0%, 40% { background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+  100% { background-color: transparent; }
+}

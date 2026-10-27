@@ -588,6 +588,24 @@ final class VaultStore {
         return sorted
     }
 
+    /// Gives the block that starts on [line] of [path] and says [text] the
+    /// id [id], read from the file first. False, with a notice, when the
+    /// block changed since it was listed.
+    @discardableResult
+    func addBlockId(_ id: String, to path: String, line: Int, text: String) -> Bool {
+        guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
+        do {
+            try ownEdit(path, in: root) { try BlockRefs.addId(id, toBlockAt: line, expected: text, in: $0) }
+        } catch {
+            notice = "\(Vault.title(of: path)) changed, so the block got no id. Nothing was written there."
+            changed([path])
+            return false
+        }
+        changed([path])
+        requestSync()
+        return true
+    }
+
     /// The notes that have the tag [tag] or one under it.
     func notes(tagged tag: String) -> [String] {
         let folded = Slugs.fold(tag.hasPrefix("#") ? String(tag.dropFirst()) : tag)

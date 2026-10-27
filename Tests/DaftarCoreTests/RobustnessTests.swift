@@ -186,6 +186,8 @@ import Testing
                 let location = Int.random(in: 0...string.length, using: &random)
                 let length = Int.random(in: 0...(string.length - location), using: &random)
                 _ = EditorCommands.linkQuery(in: string, at: location)
+                _ = LinkCompletion.query(in: string, at: location)
+                if let tag = LinkCompletion.tagQuery(in: string, at: location) { #expect(NSMaxRange(tag) == location) }
                 _ = EditorCommands.opensSlashMenu(in: string, at: location)
                 _ = MarkdownHighlighter.blockState(before: location, in: string)
                 _ = EditorCommands.moveLines(in: string, selection: NSRange(location: location, length: length), up: Bool.random(using: &random))
@@ -255,6 +257,24 @@ import Testing
                 let same = found.map { match in var match = match; match.replacement = match.found; return match }
                 #expect(VaultReplace.apply(same, to: text) == text)
                 _ = VaultReplace.apply(found, to: text)
+            }
+        }
+    }
+
+    @Test func blockIdsGoInAnyNote() {
+        for text in Self.samples(800, seed: 13, pieces: 25) {
+            let lines = text.components(separatedBy: "\n").count
+            let blocks = BlockRefs.blocks(in: text)
+            #expect(blocks.allSatisfy { $0.start <= $0.end && $0.end < lines })
+            _ = LinkCompletion.blocks(blocks, matching: "a")
+            for block in blocks where block.id == nil && block.kind != .heading {
+                // The id is there after, and only text was added.
+                guard let added = try? BlockRefs.addId("zz9zz9", toBlockAt: block.start, expected: block.text, in: text) else {
+                    Issue.record("\(text.debugDescription): no id for \(block)")
+                    continue
+                }
+                #expect(BlockRefs.ids(in: added).contains("zz9zz9"), "\(text.debugDescription) -> \(added.debugDescription)")
+                #expect(added.count > text.count)
             }
         }
     }

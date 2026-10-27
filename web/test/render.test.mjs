@@ -77,6 +77,24 @@ test("a block id is hidden and names its paragraph", () => {
   assert.match(render("Some text ^abc-1"), /<p id="\^abc-1"[^>]*>Some text<\/p>/);
 });
 
+test("a block id names its list item, in a tight list too", () => {
+  const html = render("- one ^item1\n- two\n    - nested ^deep");
+  assert.match(html, /<li id="\^item1"[^>]*>one<\/li>/);
+  assert.match(html, /<li id="\^deep"[^>]*>nested<\/li>/);
+});
+
+test("a block id on its own line names the table, quote or code above it", () => {
+  const table = render("| a | b |\n|---|---|\n| 1 | 2 |\n\n^tbl\n\nAfter");
+  assert.match(table, /<table id="\^tbl"/);
+  assert.doesNotMatch(table, /\^tbl</);
+  assert.match(table, /<p[^>]*>After<\/p>/);
+  assert.match(render("> A quote\n\n^q1"), /<blockquote id="\^q1"/);
+  assert.match(render("> [!tip] Title\n> Body\n\n^c1"), /<div class="callout"[^>]*id="\^c1"/);
+  assert.match(render("```js\nx\n```\n\n^code1"), /<pre id="\^code1"><code class="language-js">/);
+  // After a paragraph it is a paragraph of its own, as Obsidian shows it.
+  assert.match(render("Text\n\n^p1"), /<p[^>]*>\^p1<\/p>/);
+});
+
 test("mermaid is left for the page to draw", () => {
   assert.match(render("```mermaid\ngraph TD; A-->B\n```"), /<pre class="mermaid">graph TD; A--&gt;B/);
 });
