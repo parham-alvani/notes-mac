@@ -552,6 +552,9 @@ struct FileCommands: Commands {
             Button("New Folder…") { window?.fileAction = .newFolder(parent: window?.currentFolder ?? "") }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(window == nil)
+            Button("Today's Scratchpad") { window?.openScratchpad(store: store) }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(window == nil || store.root == nil)
             Button("New Tab") { openWindow(value: TabRequest(path: window?.showsPage == true ? nil : window?.path)) }
                 .keyboardShortcut("t")
             Button("New Window") { openWindow(id: "main") }

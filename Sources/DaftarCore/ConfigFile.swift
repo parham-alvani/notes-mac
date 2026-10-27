@@ -267,6 +267,11 @@ public struct ConfigFile: Sendable, Equatable {
         shell = ""
         font_size = 13
 
+        [scratchpad]
+        # ⌥⌘S: today's scratch note, `<folder>/YYYY-MM-DD.md`, made empty
+        # when it is not there and opened in the editor.
+        folder = "Scratchpad"
+
         [capture]
         # Quick capture: a global shortcut opens a small panel, from any app,
         # whose line goes into a note. Modifiers cmd, ctrl, opt and shift and

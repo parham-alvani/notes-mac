@@ -45,6 +45,9 @@ enum PaletteCommands {
             PaletteCommand(id: "capture", title: "Quick Capture", group: "File", symbol: "tray.and.arrow.down.fill", color: Palette.green, shortcut: QuickCaptureController.shared.shortcut) {
                 QuickCaptureController.shared.show()
             },
+            PaletteCommand(id: "scratchpad", title: "Today's Scratchpad", group: "File", symbol: "note.text", color: Palette.accent, shortcut: "⌥⌘S") {
+                model.openScratchpad(store: store)
+            },
             PaletteCommand(id: "new-folder", title: "New Folder", group: "File", symbol: "folder.badge.plus", color: Palette.yellow, shortcut: "⇧⌘N") {
                 model.fileAction = .newFolder(parent: model.currentFolder)
             },
