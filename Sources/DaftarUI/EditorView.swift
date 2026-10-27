@@ -214,14 +214,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         Task { await session.start() }
     }
 
-    func stopVim() {
+    func stopVim(writing: Bool = true) {
         guard let session else { return }
         self.session = nil
         view?.vim = nil
         view?.allowsUndo = true
         view?.writingToolsBehavior = .complete
         container?.setStatus(nil, mode: nil)
-        Task { await session.stop() }
+        Task { await session.stop(writing: writing) }
     }
 
     private func showStatus() {
@@ -289,6 +289,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         case .deleted(let gone):
             guard path == gone || path.hasPrefix(gone + "/") else { return }
             saveTask?.cancel()
+            stopVim(writing: false)
             self.path = nil
         }
     }

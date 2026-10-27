@@ -86,6 +86,22 @@ let hasNeovim = NeovimClient.locate() != nil
         #expect(!FileManager.default.fileExists(atPath: old))
     }
 
+    @Test func aDeletedNoteStaysDeleted() async throws {
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        for key in ["A", " ", "z", "\u{1B}"] { press(key) }
+        #expect(await eventually { session.isNormal })
+        try await store.delete("Note.md")
+        let file = root.appending(path: "Note.md").path
+        // Neovim's buffer outlived the file: nothing may write it back.
+        try await Task.sleep(for: .seconds(2))
+        #expect(!FileManager.default.fileExists(atPath: file))
+        controller.stopVim()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(!FileManager.default.fileExists(atPath: file))
+    }
+
     @Test func theViewScrollsWithNeovimsWindow() async throws {
         let long = (1...400).map { "line \($0)" }.joined(separator: "\n") + "\n"
         try long.write(to: root.appending(path: "Long.md"), atomically: true, encoding: .utf8)

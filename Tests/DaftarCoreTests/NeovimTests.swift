@@ -39,6 +39,23 @@ import Testing
     }
 }
 
+@Suite struct VimGridTests {
+    @Test func aViewOnScreenGivesItsGrid() {
+        let grid = VimGrid.size(height: 800, width: 700, lineHeight: 20, letterWidth: 7)
+        #expect(grid.rows == 40)
+        #expect(grid.cols == 100)
+    }
+
+    @Test func aViewOffScreenNeverStopsTheApp() {
+        // A text container that does not follow its view is as wide as a CGFloat goes.
+        #expect(VimGrid.size(height: 800, width: .greatestFiniteMagnitude, lineHeight: 20, letterWidth: 7).cols == 1000)
+        #expect(VimGrid.size(height: .infinity, width: 700, lineHeight: 20, letterWidth: 7).rows == 40)
+        #expect(VimGrid.size(height: .nan, width: .nan, lineHeight: .nan, letterWidth: .nan) == (40, 100))
+        #expect(VimGrid.size(height: 0, width: 0, lineHeight: 0, letterWidth: 0) == (40, 100))
+        #expect(VimGrid.size(height: 3, width: 3, lineHeight: 20, letterWidth: 7) == (5, 20))
+    }
+}
+
 @Suite struct BufferMirrorTests {
     @Test func applyReturnsTheSmallestEdit() {
         var mirror = BufferMirror(lines: ["one", "two", "three"])

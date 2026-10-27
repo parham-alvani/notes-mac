@@ -222,6 +222,28 @@ public struct BufferMirror: Sendable, Equatable {
     }
 }
 
+/// The grid Neovim is told it draws on, from the editor's size.
+public enum VimGrid {
+    /// Rows and columns for a view [height] by [width] points, with lines
+    /// [lineHeight] apart and letters [letterWidth] wide.
+    ///
+    /// Whatever the view says, and a view that is not on screen says strange
+    /// things: a note deleted under the editor leaves it with no height, and a
+    /// text container that does not follow its view is as wide as a CGFloat
+    /// goes. `Int(_:)` of an infinite, NaN or too-large value stops the app,
+    /// so each side is kept to a sensible grid before it is made an integer.
+    public static func size(height: Double, width: Double, lineHeight: Double, letterWidth: Double) -> (rows: Int, cols: Int) {
+        (cells(height, each: lineHeight, least: 5, fallback: 40), cells(width, each: letterWidth, least: 20, fallback: 100))
+    }
+
+    private static func cells(_ length: Double, each: Double, least: Int, fallback: Int) -> Int {
+        guard length.isFinite, length > 0, each.isFinite else { return fallback }
+        let count = length / max(each, 1)
+        guard count.isFinite else { return fallback }
+        return max(least, Int(min(count, 1000).rounded(.down)))
+    }
+}
+
 /// A key press as Neovim's `nvim_input` spells it: `a`, `<CR>`, `<C-w>`,
 /// `<M-Left>`, `<LT>`.
 public enum VimKeys {

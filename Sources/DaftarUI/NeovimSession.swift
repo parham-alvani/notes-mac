@@ -300,10 +300,11 @@ final class NeovimSession {
     private func size() -> (Int, Int) {
         guard let view, let font = view.font else { return (40, 100) }
         let line = font.ascender - font.descender + font.leading
-        let rows = max(5, Int(view.visibleRect.height / (line * 1.6)))
         let width = ("M" as NSString).size(withAttributes: [.font: font]).width
-        let cols = max(20, Int((view.textContainer?.size.width ?? 600) / max(width, 1)))
-        return (rows, cols)
+        let grid = VimGrid.size(
+            height: view.visibleRect.height, width: Double(view.textContainer?.size.width ?? 600),
+            lineHeight: line * 1.6, letterWidth: width)
+        return (grid.rows, grid.cols)
     }
 
     /// Neovim writes the file, a moment after the last change, and never in
@@ -380,9 +381,12 @@ final class NeovimSession {
         client.notify("nvim_command", ["silent! checktime"])
     }
 
-    func stop() async {
+    /// Ends Neovim, and writes the buffer first unless [writing] is false:
+    /// after a delete. Neovim's `autoread` marks a buffer whose file went
+    /// away as changed, so the `:update` would put the deleted note back.
+    func stop(writing: Bool = true) async {
         saveSoon?.cancel()
-        if case .running = state {
+        if writing, case .running = state {
             _ = try? await client.request("nvim_command", ["silent! update"])
         }
         state = .ended
