@@ -39,6 +39,22 @@ import WebKit
         #expect(!model.isSplit)
     }
 
+    @Test func homeShowsTheHomePageAndBackReturnsToTheNote() {
+        let model = WindowModel()
+        model.open("A.md", store: store)
+        model.editing = true
+        model.goHome()
+        #expect(model.showsHome)
+        #expect(model.path == nil && !model.editing)
+        model.goBack()
+        #expect(model.path == "A.md")
+        // From a page, too: the home page replaces Today.
+        model.showsToday = true
+        #expect(!model.showsHome)
+        model.goHome()
+        #expect(model.showsHome && !model.showsToday)
+    }
+
     @Test func aLinkOpensInTheOtherPaneAndTheFocusStays() {
         let model = WindowModel()
         model.open("A.md", store: store)

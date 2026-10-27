@@ -139,6 +139,9 @@ struct ContentView: View {
                 .disabled(!model.canGoBack)
             Button { model.goForward() } label: { Label("Forward", systemImage: "chevron.right") }
                 .disabled(!model.canGoForward)
+            Button { model.goHome() } label: { Label("Home", systemImage: "house") }
+                .disabled(model.showsHome)
+                .help("Show the home page (⇧⌘D)")
         }
         ToolbarItemGroup(placement: .primaryAction) {
             if let path = model.path, !model.showsPage {

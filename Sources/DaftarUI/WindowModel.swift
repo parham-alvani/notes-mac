@@ -294,6 +294,15 @@ final class WindowModel {
         page = nil
     }
 
+    /// The home page in the focused pane, in place of a note or a page.
+    func goHome() {
+        focused.goHome()
+        page = nil
+    }
+
+    /// The focused pane already shows the home page.
+    var showsHome: Bool { !showsPage && path == nil }
+
     // MARK: Split
 
     /// The pane that has the focus from now on.

@@ -63,6 +63,15 @@ final class NotePane: Identifiable {
         cursorLine = line
     }
 
+    /// The home page: no note. Back returns to the note that was open.
+    func goHome() {
+        guard let current = request else { return }
+        back.append(current)
+        forward.removeAll()
+        request = nil
+        editing = false
+    }
+
     /// The note of a new pane: [request], with no history.
     func show(_ request: ReaderRequest) {
         self.request = ReaderRequest(path: request.path, line: places[request.path] ?? request.line)

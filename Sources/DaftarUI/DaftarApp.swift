@@ -115,6 +115,9 @@ public struct DaftarApp: App {
                     .keyboardShortcut("]")
                     .disabled(!(window?.canGoForward ?? false))
                 Divider()
+                Button("Home") { window?.goHome() }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                    .disabled(window == nil || window?.showsHome == true)
                 Button("Today") { window?.showsToday = true }
                     .keyboardShortcut("1")
                 Button("Board") { window?.showsBoard = true }
