@@ -434,6 +434,7 @@ private struct EditorSettings: View {
         Form {
             Section {
                 Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
+                Toggle("Show the front matter as properties", isOn: $settings.propertiesForm)
                 Toggle("Edit with Neovim", isOn: $settings.vimMode)
                 LabeledContent("nvim") {
                     Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)

@@ -38,6 +38,8 @@ final class AppSettings {
     var shell: String { didSet { write("terminal.shell", .string(shell)) } }
     var vimMode: Bool { didSet { write("editor.vim_mode", .bool(vimMode)) } }
     var livePreview: Bool { didSet { write("editor.live_preview", .bool(livePreview)) } }
+    /// The front matter shows as a form of properties above the editor, not as YAML.
+    var propertiesForm: Bool { didSet { write("editor.properties_form", .bool(propertiesForm)) } }
     var nvimPath: String { didSet { write("editor.nvim", .string(nvimPath)) } }
     var nvimConfig: String { didSet { write("editor.nvim_config", .string(nvimConfig)) } }
     var terminalFontSize: Int { didSet { write("terminal.font_size", .int(terminalFontSize)) } }
@@ -100,6 +102,7 @@ final class AppSettings {
         terminalFontSize = 13
         vimMode = false
         livePreview = true
+        propertiesForm = true
         nvimPath = ""
         nvimConfig = "user"
         captureHotkey = "ctrl+opt+n"
@@ -143,6 +146,7 @@ final class AppSettings {
         shell = file.string("terminal.shell") ?? ""
         vimMode = file.bool("editor.vim_mode") ?? false
         livePreview = file.bool("editor.live_preview") ?? true
+        propertiesForm = file.bool("editor.properties_form") ?? true
         nvimPath = file.string("editor.nvim") ?? ""
         nvimConfig = file.string("editor.nvim_config") ?? "user"
         terminalFontSize = file.int("terminal.font_size") ?? 13

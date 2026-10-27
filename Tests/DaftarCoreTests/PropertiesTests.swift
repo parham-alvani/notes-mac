@@ -66,14 +66,14 @@ import Testing
     }
 
     @Test func aNoteWithoutFrontMatterGetsOneWhenAPropertyIsAdded() throws {
-        guard case .none(var sheet) = PropertySheet.read("# Title\nBody") else {
+        guard case .absent(var sheet) = PropertySheet.read("# Title\nBody") else {
             Issue.record("front matter found")
             return
         }
         #expect(sheet.applied(to: "# Title\nBody") == "# Title\nBody")
         try sheet.add("tags", .list(["a"]))
         #expect(sheet.applied(to: "# Title\nBody") == "---\ntags:\n  - a\n---\n# Title\nBody")
-        guard case .none(var crlf) = PropertySheet.read("Body\r\n") else {
+        guard case .absent(var crlf) = PropertySheet.read("Body\r\n") else {
             Issue.record("front matter found")
             return
         }

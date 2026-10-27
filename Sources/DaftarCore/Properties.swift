@@ -82,7 +82,7 @@ public enum PropertyType: String, Sendable, CaseIterable, Identifiable {
 /// What the editor shows for a note's front matter.
 public enum FrontMatterForm: Sendable, Equatable {
     /// The note has no front matter; a property added makes one.
-    case none(PropertySheet)
+    case absent(PropertySheet)
     case form(PropertySheet)
     /// YAML the form cannot show without losing something: the raw text
     /// stays, and [reason] says why.
@@ -90,7 +90,7 @@ public enum FrontMatterForm: Sendable, Equatable {
 
     public var sheet: PropertySheet? {
         switch self {
-        case .none(let sheet), .form(let sheet): sheet
+        case .absent(let sheet), .form(let sheet): sheet
         case .source: nil
         }
     }
@@ -164,7 +164,7 @@ public struct PropertySheet: Sendable, Equatable {
                 sheet.open = "---\r"
                 sheet.close = "---\r"
             }
-            return .none(sheet)
+            return .absent(sheet)
         }
         do {
             return .form(try PropertySheet(block))

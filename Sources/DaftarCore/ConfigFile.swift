@@ -226,6 +226,9 @@ public struct ConfigFile: Sendable, Equatable {
         # Away from the cursor's line, the marks (**, ==, [[ ]], #, a link's
         # address) fade out, so the note reads as it will look.
         live_preview = true
+        # The front matter shows as a form of properties, as Obsidian's
+        # Properties view; false shows the YAML.
+        properties_form = true
         # Edit with your own Neovim: it owns the buffer and the file, and the
         # editor shows it. Needs `nvim` (brew install neovim).
         vim_mode = false

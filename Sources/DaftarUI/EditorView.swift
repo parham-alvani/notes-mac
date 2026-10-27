@@ -76,6 +76,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private var replacing = false
     private var styling: Task<Void, Never>?
     private var shownMode = ""
+    /// The front matter the properties form shows in its place, in UTF-16
+    /// units: hidden here, and out of the cursor's reach (`PropertiesView`).
+    var hiddenFront = 0
 
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
 
@@ -283,7 +286,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     func applyTextSize() {
         let settings = store.settings
-        let key = "\(settings.textSize)|\(settings.font)|\(settings.codeFont)"
+        let key = "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
         guard key != fontKey else { return }
         fontKey = key
         restyle(all: true)
@@ -408,6 +411,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             let now = Self.structure(of: text)
             let rest = now != structure
             structure = now
+            if rest { hiddenFront = frontMatterToHide() }
             style(textStorage, range: rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines)
         }
     }
@@ -416,6 +420,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
         structure = Self.structure(of: storage.string as NSString)
+        hiddenFront = frontMatterToHide()
         storage.beginEditing()
         style(storage, range: NSRange(location: 0, length: storage.length))
         storage.endEditing()
@@ -428,6 +433,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
         structure = Self.structure(of: storage.string as NSString)
+        hiddenFront = frontMatterToHide()
         view?.typingAttributes = base
         let part = 12_000
         func next(after start: Int) -> NSRange? {
@@ -614,6 +620,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             }
         }
         if store.settings.livePreview { hideMarks(spans, in: storage) }
+        collapseFrontMatter(storage, range: range)
     }
 
     // MARK: Live preview
