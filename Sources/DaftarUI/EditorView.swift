@@ -739,17 +739,11 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         _ textView: NSTextView, completions words: [String], forPartialWordRange charRange: NSRange,
         indexOfSelectedItem index: UnsafeMutablePointer<Int>?
     ) -> [String] {
-        guard let view = textView as? NoteTextView, view.completingLink else { return words }
-        let query = (textView.string as NSString).substring(with: charRange)
-        let paths = store.quickOpen(query, recent: [], limit: 30)
-        // The shortest name that still finds the note, as Obsidian writes it.
-        let names = paths.map { path -> String in
-            let title = Vault.title(of: path)
-            guard Vault.isNote(path) else { return store.index.resolve(title, from: self.path ?? "") == path ? title : path }
-            return store.index.resolve(title, from: self.path ?? "") == path ? title : String(path.dropLast(3))
-        }
-        index?.pointee = names.isEmpty ? -1 : 0
-        return names
+        guard let view = textView as? NoteTextView, view.completion.kind != nil else { return words }
+        // Notes, headings, blocks or tags: EditorCompletion.swift.
+        let rows = completions(for: view, range: charRange)
+        index?.pointee = rows.isEmpty ? -1 : 0
+        return rows
     }
 
     /// A file from outside the vault, copied into the attachment folder under
@@ -783,8 +777,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 /// The text view, with the markdown editing commands on its keys.
 final class NoteTextView: NSTextView {
     weak var controller: EditorController?
-    /// True while `[[` completion is open, so the delegate offers notes.
-    private(set) var completingLink = false
+    /// What the open `[[` or `#` completion offers, and what each row writes.
+    var completion = CompletionState()
     /// Neovim mode: the keys go here, and the text changes only when Neovim says.
     weak var vim: NeovimSession?
     private var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
@@ -1280,6 +1274,7 @@ final class NoteTextView: NSTextView {
             DispatchQueue.main.async { [weak self] in self?.showSlashMenu(at: slash) }
             return
         }
+        if let typed = string as? String { completeAfterTyping(typed) }
         guard let typed = string as? String, typed == "[" else { return }
         let at = selectedRange().location
         if at >= 2, ns.substring(with: NSRange(location: at - 2, length: 2)) == "[[" {
@@ -1402,23 +1397,13 @@ final class NoteTextView: NSTextView {
     }
 
     override var rangeForUserCompletion: NSRange {
-        if let query = EditorCommands.linkQuery(in: ns, at: selectedRange().location) {
-            completingLink = true
-            return query
-        }
-        completingLink = false
-        return super.rangeForUserCompletion
+        completionRange() ?? super.rangeForUserCompletion
     }
 
     override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
-        super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
-        guard flag, completingLink else { return }
-        completingLink = false
-        // Step over the `]]` that the `[[` put there.
-        let at = selectedRange().location
-        if at + 2 <= ns.length, ns.substring(with: NSRange(location: at, length: 2)) == "]]" {
-            setSelectedRange(NSRange(location: at + 2, length: 0))
-        }
+        // A row shows a label; what goes in is the row's own text.
+        super.insertCompletion(completion.insert(for: word), forPartialWordRange: charRange, movement: movement, isFinal: flag)
+        if flag { finishCompletion(word, movement: movement) }
     }
 
     // MARK: Dropping files

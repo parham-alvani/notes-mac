@@ -81,7 +81,12 @@ function section(root, anchor) {
   if (anchor.startsWith("^")) {
     const block = root.querySelector(`[id="${CSS.escape(anchor)}"]`);
     const wrap = document.createElement("div");
-    if (block) wrap.appendChild(block.cloneNode(true));
+    if (block?.tagName === "LI") {
+      // An item alone, with what is nested under it, in a list of its kind.
+      const list = block.parentElement.cloneNode(false);
+      list.appendChild(block.cloneNode(true));
+      wrap.appendChild(list);
+    } else if (block) wrap.appendChild(block.cloneNode(true));
     return wrap;
   }
   const start = heading(root, anchor);
@@ -825,7 +830,14 @@ window.daftar = {
     if (anchor.startsWith("^")) target = main.querySelector(`[id="${CSS.escape(anchor)}"]`);
     else target = heading(main, anchor);
     if (target) folds.reveal(target);
-    target?.scrollIntoView({ block: "start" });
+    target?.scrollIntoView({ block: anchor.startsWith("^") ? "center" : "start" });
+    // A block a link names is marked a moment, so the eye finds it.
+    if (target && anchor.startsWith("^")) {
+      target.classList.remove("is-linked-block");
+      void target.offsetWidth;
+      target.classList.add("is-linked-block");
+      target.addEventListener("animationend", () => target.classList.remove("is-linked-block"), { once: true });
+    }
   },
 
   /**
@@ -861,7 +873,14 @@ window.daftar = {
     const blocks = [...document.querySelectorAll("#note [data-line]")];
     const target = blocks.filter((b) => Number(b.dataset.line) <= line).pop();
     if (target) folds.reveal(target);
-    target?.scrollIntoView({ block: "start" });
+    target?.scrollIntoView({ block: anchor.startsWith("^") ? "center" : "start" });
+    // A block a link names is marked a moment, so the eye finds it.
+    if (target && anchor.startsWith("^")) {
+      target.classList.remove("is-linked-block");
+      void target.offsetWidth;
+      target.classList.add("is-linked-block");
+      target.addEventListener("animationend", () => target.classList.remove("is-linked-block"), { once: true });
+    }
   },
 
   /** Edit › Find, Find Next and Find Previous, from the app's menu. */

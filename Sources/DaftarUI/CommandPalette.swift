@@ -149,6 +149,9 @@ enum PaletteCommands {
                     if !model.editing { model.editing = true }
                     DispatchQueue.main.async { NSApp.sendAction(#selector(NoteTextView.extractSelection(_:)), to: nil, from: nil) }
                 },
+                PaletteCommand(id: "copy-block-link", title: "Copy Block Link", group: "Note", symbol: "link", color: Palette.aqua, shortcut: "⌥⌘B") {
+                    model.copyBlockLink(store: store)
+                },
                 PaletteCommand(id: "sort-tasks", title: "Sort Tasks (Done First)", group: "Note", symbol: "arrow.up.arrow.down", color: Palette.green) {
                     model.sortTasks(store: store)
                 },

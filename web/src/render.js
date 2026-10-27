@@ -12,6 +12,7 @@ const VIDEO = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const AUDIO = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus)$/i;
 const CALLOUT = /^\[!([\w-]+)\]([+-]?)[ \t]*(.*)$/;
 const BLOCK_ID = /\s\^([A-Za-z0-9-]+)\s*$/;
+const OWN_BLOCK_ID = /^\^([A-Za-z0-9-]+)$/;
 const TASK = /^\[([^\]\n])\][ \t]+/;
 const TAG = /^#([\p{L}\p{N}_\/-]+)/u;
 
@@ -392,7 +393,8 @@ function callouts(md) {
     const tag = fold ? "details" : "div";
     const open = fold === "+" ? " open" : "";
     // A plain callout is a note to a screen reader; a folding one is a details already.
-    return `<${tag} class="callout" data-callout="${escapeHtml(callout)}" dir="auto"${fold ? "" : ' role="note"'}${open}>`;
+    const id = tokens[idx].attrGet("id");
+    return `<${tag} class="callout" data-callout="${escapeHtml(callout)}" dir="auto"${id ? ` id="${escapeHtml(id)}"` : ""}${fold ? "" : ' role="note"'}${open}>`;
   };
   md.renderer.rules.callout_close = (tokens, idx) => (tokens[idx].meta.fold ? "</details>\n" : "</div>\n");
   md.renderer.rules.callout_title = (tokens, idx, options, env, self) => {
@@ -438,21 +440,45 @@ function tasks(md) {
   };
 }
 
-/** A trailing `^block-id` is hidden, and names the paragraph or item it ends. */
+/**
+ * A trailing `^block-id` is hidden, and names the paragraph it ends, or the
+ * list item: on the item, not its paragraph, which a tight list never
+ * draws. A `^block-id` paragraph of its own names the table, quote or code
+ * block just above it, as Obsidian writes them, and is not drawn.
+ */
 function blockIds(md) {
   md.core.ruler.after("inline", "block_id", (state) => {
     const tokens = state.tokens;
     for (let i = 1; i < tokens.length; i++) {
       const inline = tokens[i];
       if (inline.type !== "inline") continue;
+      const own = OWN_BLOCK_ID.exec(inline.content);
+      const start = own && tokens[i - 1].level === 0 ? blockAbove(tokens, i - 2) : -1;
+      if (start >= 0) {
+        tokens[start].attrSet("id", "^" + own[1]);
+        tokens.splice(i - 1, 3);
+        i -= 2;
+        continue;
+      }
       const last = inline.children[inline.children.length - 1];
       if (last?.type !== "text") continue;
       const match = BLOCK_ID.exec(last.content);
       if (!match) continue;
       last.content = last.content.slice(0, match.index);
-      tokens[i - 1].attrSet("id", "^" + match[1]);
+      const item = tokens[i - 2]?.type === "list_item_open" ? tokens[i - 2] : tokens[i - 1];
+      item.attrSet("id", "^" + match[1]);
     }
   });
+}
+
+/** Where the table, quote or code block that ends at [end] starts; -1 for any other block. */
+function blockAbove(tokens, end) {
+  const last = tokens[end];
+  if (!last || last.level !== 0) return -1;
+  if (last.type === "fence" || last.type === "code_block") return end;
+  if (last.type !== "table_close" && last.type !== "blockquote_close") return -1;
+  for (let j = end - 1; j >= 0; j--) if (tokens[j].level === 0 && tokens[j].nesting === 1) return j;
+  return -1;
 }
 
 /**
@@ -524,6 +550,12 @@ function fences(md) {
     if (lang === "base") return `<div class="base-query" data-source="${escapeHtml(token.content)}"></div>\n`;
     if (lang === "math" || lang === "latex") {
       return `<div class="math math-block">${katex.renderToString(token.content, { displayMode: true, throwOnError: false })}</div>\n`;
+    }
+    // A `^id` line under the block names it: the id goes on its outer tag.
+    const id = token.attrGet("id");
+    if (id) {
+      token.attrs = token.attrs.filter(([name]) => name !== "id");
+      return base(tokens, idx, options, env, self).replace(/^<(\w+)/, `<$1 id="${escapeHtml(id)}"`);
     }
     return base(tokens, idx, options, env, self);
   };
