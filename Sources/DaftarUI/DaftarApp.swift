@@ -45,6 +45,7 @@ public struct DaftarApp: App {
         .handlesExternalEvents(matching: ["*"])
         .commands {
             FileCommands(window: window, store: store)
+            EditorModeCommands(window: window, store: store)
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Find…") { window?.find(.showFindInterface) }
@@ -434,6 +435,9 @@ private struct EditorSettings: View {
         Form {
             Section {
                 Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
+                Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)
+                Toggle("Dim all but the cursor's paragraph (focus)", isOn: $settings.focusMode)
+                Toggle("Check spelling as you type", isOn: $settings.spellCheck)
                 Toggle("Edit with Neovim", isOn: $settings.vimMode)
                 LabeledContent("nvim") {
                     Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)
