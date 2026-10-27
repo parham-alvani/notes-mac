@@ -145,6 +145,8 @@ final class WindowModel {
     var tagRename: TagTarget?
     /// ⇧⌘H, "Replace in Vault…": the folder it opens on.
     var vaultReplace: ReplaceTarget?
+    /// "Rename Heading…": the heading whose sheet is open.
+    var headingRename: HeadingTarget?
     /// "Set Icon…": the note or folder the icon picker is open on.
     var iconTarget: IconTarget?
     /// ⌃⌘T: the text the system's translation panel shows.

@@ -61,12 +61,12 @@ public struct ParsedTask: Sendable, Equatable, Hashable {
 }
 
 public enum NoteParser {
-    nonisolated(unsafe) private static let heading = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/
+    nonisolated(unsafe) static let heading = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
     nonisolated(unsafe) private static let markdownLink = /(!?)\[[^\]\n]*\]\(<?([^)>\s]+)>?\)/
     nonisolated(unsafe) private static let tag = /(?:^|\s)#([\p{L}\p{N}_\/-]+)/
     nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
-    nonisolated(unsafe) private static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
+    nonisolated(unsafe) static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
 
     public static func parse(_ text: String) -> ParsedNote {
         let lines = text.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }

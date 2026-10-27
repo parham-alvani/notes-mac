@@ -478,34 +478,7 @@ struct InspectorView: View {
         if !model.showsPage, let path = model.path, let note = store.index.notes[path] {
             List {
                 if !note.parsed.headings.isEmpty {
-                    Section("Outline") {
-                        ForEach(Array(note.parsed.headings.enumerated()), id: \.offset) { _, heading in
-                            Button {
-                                model.open(path, heading: heading.text, store: store)
-                            } label: {
-                                // Each level in its heading colour, as the reader shows it;
-                                // the section on screen is marked.
-                                HStack(spacing: 6) {
-                                    RoundedRectangle(cornerRadius: 1.5)
-                                        .fill(Palette.heading(heading.level))
-                                        .frame(width: 3, height: heading.level <= 2 ? 14 : 10)
-                                    Text(heading.text)
-                                        .font(heading.level <= 2 ? .body.weight(.medium) : .callout)
-                                        .foregroundStyle(heading.level <= 3 ? Palette.heading(heading.level) : .secondary)
-                                        .lineLimit(1)
-                                }
-                                .padding(.leading, CGFloat(heading.level - 1) * 10)
-                                .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(heading.text) ? .trailing : .leading)
-                                .padding(.vertical, 1).padding(.horizontal, 4)
-                                .background(model.section == heading.line && !model.editing ? Palette.heading(heading.level).opacity(0.16) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 5))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(Spoken.heading(level: heading.level, text: heading.text))
-                            .accessibilityAddTraits(model.section == heading.line && !model.editing ? .isSelected : [])
-                        }
-                    }
+                    OutlineSection(model: model, path: path, headings: note.parsed.headings)
                 }
                 let backlinks = (store.index.backlinks[path] ?? []).filter { !store.excluded.contains($0.source) }
                 Section {

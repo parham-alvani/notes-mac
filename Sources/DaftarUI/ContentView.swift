@@ -66,6 +66,7 @@ struct ContentView: View {
             if store.rebasing, ActiveWindow.shared.model == nil || ActiveWindow.shared.model === model { model.conflicts = true }
         }
         .sheet(item: $model.vaultReplace) { VaultReplaceSheet(target: $0) }
+        .sheet(item: $model.headingRename) { HeadingRenameSheet(target: $0) }
         .translationPresentation(isPresented: Binding { model.translation != nil } set: { if !$0 { model.translation = nil } }, text: model.translation ?? "")
         .sheet(item: $model.taskEdit) { task in
             TaskEditSheet(task: task)

@@ -14,6 +14,10 @@ struct EditorView: NSViewRepresentable {
     var onCursor: ((Int) -> Void)?
     /// The selection to become a note: its text, and how to put the link back.
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
+    /// Headings were renamed in the note: the change, to offer their links.
+    var onHeadingsRenamed: ((HeadingRename.Change) -> Void)?
+    /// The outline asked for a heading.
+    var jump: EditorJump?
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
@@ -29,6 +33,8 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.load(path)
         if let line { context.coordinator.go(toLine: line) }
         context.coordinator.onExtract = onExtract
+        context.coordinator.onHeadingsRenamed = onHeadingsRenamed
+        context.coordinator.lastJump = jump
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return container
     }
@@ -37,6 +43,7 @@ struct EditorView: NSViewRepresentable {
         let controller = context.coordinator
         controller.onExtract = onExtract
         controller.onCursor = onCursor
+        controller.onHeadingsRenamed = onHeadingsRenamed
         if controller.path != path {
             controller.saveNow()
             controller.load(path)
@@ -45,9 +52,11 @@ struct EditorView: NSViewRepresentable {
         }
         controller.applyTextSize()
         controller.followVimSetting()
+        controller.jump(jump)
     }
 
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
+        coordinator.checkHeadings()
         coordinator.saveNow()
         coordinator.stopVim()
         coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
@@ -78,6 +87,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private var shownMode = ""
 
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
+    var onHeadingsRenamed: ((HeadingRename.Change) -> Void)?
+    /// The headings at the last look, to find one renamed; the start of the
+    /// heading line the cursor is on; the outline's last jump.
+    var headingBaseline: [Heading] = []
+    var headingLine: Int?
+    var lastJump: EditorJump?
 
     /// ⌥⌘X: the selection goes to a new note, and a link takes its place.
     func extract() {
@@ -144,6 +159,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         self.path = path
         let text = store.text(of: path) ?? ""
         saved = text
+        headingBaseline = Sections.headings(in: text)
+        headingLine = nil
         seenRevision = store.revision
         guard let view else { return }
         view.textStorage?.delegate = self
@@ -276,6 +293,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let view else { return }
         let selection = view.selectedRange()
         saved = disk
+        headingBaseline = Sections.headings(in: disk)
         view.string = disk
         restyle(all: true)
         view.setSelectedRange(NSRange(location: min(selection.location, (disk as NSString).length), length: 0))
@@ -359,6 +377,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     func textViewDidChangeSelection(_ notification: Notification) {
         revealSelection()
         reportLine()
+        followHeadingLine()
         updateCounts()
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
         view?.cursorLineMoved()
@@ -896,7 +915,10 @@ final class NoteTextView: NSTextView {
     /// note in the other pane of a split shows each edit when it gets the focus.
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { controller?.saveNow() }
+        if resigned {
+            controller?.checkHeadings()
+            controller?.saveNow()
+        }
         return resigned
     }
 
@@ -1035,7 +1057,7 @@ final class NoteTextView: NSTextView {
         return content
     }
 
-    private func replace(_ range: NSRange, with text: String, select: NSRange? = nil) {
+    func replace(_ range: NSRange, with text: String, select: NSRange? = nil) {
         guard shouldChangeText(in: range, replacementString: text) else { return }
         textStorage?.replaceCharacters(in: range, with: text)
         didChangeText()

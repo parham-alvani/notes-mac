@@ -259,6 +259,37 @@ import Testing
         }
     }
 
+    @Test func sectionsMoveAndHeadingsRenameInAnyText() {
+        for text in Self.samples(1500, seed: 13) {
+            let headings = Sections.headings(in: text)
+            #expect(headings == NoteParser.parse(text).headings)
+            // A section moved keeps every line, and moved back is the note again.
+            for index in headings.indices {
+                let siblings = Sections.siblings(of: index, in: headings)
+                for position in siblings.indices {
+                    guard let moved = Sections.move(text, heading: index, to: position) else { continue }
+                    #expect(moved.text.components(separatedBy: "\n").sorted() == text.components(separatedBy: "\n").sorted())
+                    let back = Sections.headings(in: moved.text).firstIndex { $0.line == moved.to }
+                    #expect(back.flatMap { Sections.move(moved.text, heading: $0, to: siblings.firstIndex(of: index)!)?.text } == text)
+                }
+            }
+            for at in [0, (text as NSString).length / 2, (text as NSString).length] {
+                for up in [true, false] {
+                    guard let edit = Sections.moveSection(in: text as NSString, selection: NSRange(location: at, length: 0), up: up) else { continue }
+                    let new = (text as NSString).replacingCharacters(in: edit.range, with: edit.text) as NSString
+                    #expect(NSMaxRange(edit.selection) <= new.length)
+                }
+            }
+            // A rename of each heading changes only lines with links, and keeps the lines.
+            let change = HeadingRename.Change(
+                path: "Note.md", headings: headings, renames: Dictionary(uniqueKeysWithValues: headings.indices.map { ($0, "Renamed") }))
+            let edits = HeadingRename.edits(in: text, source: "Note.md", change: change) { $0 == "Note" }
+            #expect(edits.allSatisfy { $0.before.contains("[[") || $0.before.contains("](") })
+            #expect((try? HeadingRename.apply(edits, to: text))?.components(separatedBy: "\n").count == text.components(separatedBy: "\n").count)
+            _ = HeadingRename.renamed(from: headings, to: Sections.headings(in: String(text.reversed())))
+        }
+    }
+
     /// Every line of [old] is in [new], in the same order.
     static func keeps(_ old: [String], in new: [String]) -> Bool {
         var rest = new[...]

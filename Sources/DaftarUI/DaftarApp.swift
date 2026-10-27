@@ -557,6 +557,14 @@ struct FileCommands: Commands {
                 .disabled(window?.path == nil || window?.showsPage == true || !store.isRepository)
             Button("Sort Tasks") { window?.sortTasks(store: store) }
                 .disabled(window?.path == nil || window?.showsPage == true)
+            Button("Rename Heading…") { window?.renameHeading(store: store) }
+                .disabled(window?.path == nil || window?.showsPage == true)
+            Button("Move Section Up") { window?.moveSection(up: true, store: store) }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(window?.path == nil || window?.showsPage == true)
+            Button("Move Section Down") { window?.moveSection(up: false, store: store) }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(window?.path == nil || window?.showsPage == true)
             Divider()
             Button("Export as PDF…") { window?.exportPDF() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

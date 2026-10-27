@@ -152,6 +152,15 @@ enum PaletteCommands {
                 PaletteCommand(id: "sort-tasks", title: "Sort Tasks (Done First)", group: "Note", symbol: "arrow.up.arrow.down", color: Palette.green) {
                     model.sortTasks(store: store)
                 },
+                PaletteCommand(id: "rename-heading", title: "Rename Heading", group: "Note", symbol: "number.square", color: Palette.accent) {
+                    model.renameHeading(store: store)
+                },
+                PaletteCommand(id: "section-up", title: "Move Section Up", group: "Note", symbol: "arrow.up.to.line", color: Palette.aqua, shortcut: "⌥⌘↑") {
+                    model.moveSection(up: true, store: store)
+                },
+                PaletteCommand(id: "section-down", title: "Move Section Down", group: "Note", symbol: "arrow.down.to.line", color: Palette.aqua, shortcut: "⌥⌘↓") {
+                    model.moveSection(up: false, store: store)
+                },
                 PaletteCommand(id: "rename", title: "Rename", group: "Note", symbol: "character.cursor.ibeam", color: Palette.blue, shortcut: "⌘R") {
                     model.fileAction = .rename(note)
                 },

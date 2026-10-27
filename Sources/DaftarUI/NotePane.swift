@@ -38,8 +38,12 @@ final class NotePane: Identifiable {
     var findText: String?
     /// The last Find command for the reader; it grows with each one.
     var readerFind = ReaderFind(action: .none, count: 0)
-    /// The line of the heading the reader is in, for the outline.
+    /// The line of the heading the reader or the editor's cursor is in, for the outline.
     var section: Int?
+    /// Headings renamed in the editor, whose links the pane offers to update.
+    var headingOffer: HeadingRename.Change?
+    /// Set by a click in the outline: the editor's cursor goes to the line.
+    var editorJump: EditorJump?
     /// The reader's page, for read aloud and Export as PDF.
     @ObservationIgnored weak var readerView: WKWebView?
 
@@ -207,6 +211,11 @@ struct NotePaneView: View {
             .background(PaneClicks { [weak model, weak pane] in
                 if let model, let pane { model.focus(pane) }
             })
+            .overlay(alignment: .bottom) {
+                if let offer = pane.headingOffer {
+                    HeadingLinksBanner(change: offer) { pane.headingOffer = nil }.id(offer)
+                }
+            }
             // The accent line is the focus for the eye; VoiceOver hears it.
             .accessibilityElement(children: .contain)
             .accessibilityLabel(paneName)
@@ -225,11 +234,16 @@ struct NotePaneView: View {
 
     @ViewBuilder private var content: some View {
         if let path = pane.path, pane.editing {
-            EditorView(path: path, store: store, line: pane.cursorLine, onCursor: { pane.cursorLine = $0 }) { text, replace in
+            EditorView(path: path, store: store, line: pane.cursorLine, onCursor: { line in
+                pane.cursorLine = line
+                // The outline marks the section the cursor is in.
+                let headings = store.index.notes[path]?.parsed.headings ?? []
+                pane.section = Sections.heading(at: line, in: headings).map { headings[$0].line }
+            }, onExtract: { text, replace in
                 model.focus(pane)
                 model.extractReplace = replace
                 model.fileAction = .extract(folder: model.currentFolder, text: text)
-            }
+            }, onHeadingsRenamed: { pane.headingOffer = $0 }, jump: pane.editorJump)
             .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model, onClose: onClose) }
         } else if pane.request != nil {
             ReaderView(
