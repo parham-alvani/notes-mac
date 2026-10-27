@@ -275,4 +275,21 @@ public enum VimKeys {
     public static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "<", with: "<LT>")
     }
+
+    /// Neovim's `langmap` for a second keyboard layout: each of its letters
+    /// as the key in the same place on the Latin layout, so `j` and `dd`
+    /// work in Normal mode with the Persian layout on, while Insert mode
+    /// still types Persian. [pairs] is (the layout's letter, the Latin one),
+    /// from the keyboard; a pair of two Latin letters (Dvorak beside QWERTY)
+    /// is left out, as is a letter that comes twice.
+    public static func langmap(_ pairs: [(Character, Character)]) -> String {
+        var seen = Set<Character>()
+        var items: [String] = []
+        func escape(_ c: Character) -> String { c == "," || c == ";" || c == "\\" ? "\\\(c)" : String(c) }
+        for (from, to) in pairs {
+            guard !from.isASCII, to.isASCII, let ascii = to.asciiValue, (0x21...0x7E).contains(ascii), seen.insert(from).inserted else { continue }
+            items.append(escape(from) + escape(to))
+        }
+        return items.joined(separator: ",")
+    }
 }

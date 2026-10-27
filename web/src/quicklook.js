@@ -9,6 +9,9 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+/** Text whose first letter is right to left, as a Persian note's title (reader.js has the same). */
+const RTL_FIRST = /^[^\p{L}]*[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/u;
+
 function unescapeHtml(text) {
   return text.replace(/&(amp|lt|gt|quot|#39);/g, (_, name) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[name]);
 }
@@ -34,7 +37,7 @@ export function preview({ title = "", text = "", path = "", links = {}, properti
     );
   });
   const rows = properties.map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td dir="auto">${escapeHtml(value)}</td></tr>`).join("");
-  return `<h1 class="inline-title" dir="auto">${escapeHtml(title)}</h1>` + (rows ? `<table class="properties">${rows}</table>` : "") + body;
+  return `<h1 class="inline-title" dir="${RTL_FIRST.test(title) ? "rtl" : "auto"}">${escapeHtml(title)}</h1>` + (rows ? `<table class="properties">${rows}</table>` : "") + body;
 }
 
 // What the extension calls, with the note as JSON.

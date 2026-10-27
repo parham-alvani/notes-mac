@@ -145,7 +145,23 @@ import Testing
         #expect(view.string == "Before\n![[pic.png]]\nAfter\n")
     }
 
-    @Test func linksOpenNotesInTheirMode() {
+    @Test func aLineStandsOnTheSideItsTextReadsFrom() throws {
+        let text = "- [x] تماس با علی\n- [ ] buy milk\nسلام\n- [[Start|پیوند]] و\n"
+        try text.write(to: root.appending(path: "Notes/Persian.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("Notes/Persian.md")
+        func alignment(_ word: String) -> NSTextAlignment? {
+            let at = (view.string as NSString).range(of: word).location
+            return (view.textStorage?.attribute(.paragraphStyle, at: at, effectiveRange: nil) as? NSParagraphStyle)?.alignment
+        }
+        #expect(alignment("تماس") == .right)
+        #expect(alignment("پیوند") == .right)
+        // A line whose first letter is its text's keeps the natural side.
+        #expect(alignment("buy") == .natural)
+        #expect(alignment("سلام") == .natural)
+    }
+
+        @Test func linksOpenNotesInTheirMode() {
         let model = WindowModel()
         model.handle(URL(string: "daftar://open?path=Notes/Plan.md&mode=edit")!, store: store)
         #expect(model.path == "Notes/Plan.md" && model.editing)

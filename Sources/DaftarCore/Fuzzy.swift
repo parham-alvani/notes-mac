@@ -11,9 +11,9 @@ public enum Fuzzy {
     }
 
     public static func match(_ query: String, in text: String) -> Match? {
-        let needle = Array(Slugs.fold(query).filter { !$0.isWhitespace })
+        let needle = Array(Slugs.search(query).filter { !$0.isWhitespace })
         guard !needle.isEmpty else { return Match(score: 0, positions: []) }
-        let haystack = Array(Slugs.fold(text))
+        let haystack = Array(Slugs.search(text))
         let original = Array(text)
         guard haystack.count == original.count else { return nil }
         let n = haystack.count, m = needle.count

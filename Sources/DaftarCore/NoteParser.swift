@@ -296,6 +296,63 @@ public enum TextDirection {
         text.unicodeScalars.contains(where: isRtl)
     }
 
+    /// The direction of a markdown line as it reads, from its first strong
+    /// letter after the syntax a reader does not show: the list mark, the
+    /// task box, the heading and quote marks, a callout's type and a
+    /// wikilink's target before its alias. `- [x] سلام` is right to left,
+    /// though `x` is a Latin letter. `nil` when it has no letter at all.
+    public static func ofLine(_ line: String) -> Bool? {
+        var rest = Substring(line).drop(while: \.isWhitespace)
+        while true {
+            let before = rest
+            rest = rest.drop(while: { $0 == ">" || $0 == "#" || $0 == " " || $0 == "\t" })
+            for mark in ["- ", "* ", "+ "] where rest.hasPrefix(mark) { rest = rest.dropFirst(2) }
+            let digits = rest.prefix(while: { $0.isASCII && $0.isNumber }).count
+            if digits > 0, let next = rest.dropFirst(digits).first, next == "." || next == ")" {
+                rest = rest.dropFirst(digits + 1)
+            }
+            if rest.first == "[" {
+                let after = rest.dropFirst()
+                if after.count >= 2, after.dropFirst().first == "]" {
+                    rest = after.dropFirst(2)
+                } else if after.first == "!" {
+                    let kind = after.dropFirst()
+                    if let end = kind.firstIndex(of: "]") { rest = kind[kind.index(after: end)...] }
+                }
+            }
+            if rest == before { break }
+        }
+        var at = rest.startIndex
+        while at < rest.endIndex {
+            // `[[target|alias]]` reads as its alias.
+            if rest[at...].hasPrefix("[[") {
+                let inner = rest[rest.index(at, offsetBy: 2)...]
+                let close = inner.range(of: "]]")?.lowerBound ?? inner.endIndex
+                if let bar = inner[..<close].firstIndex(of: "|") {
+                    if let found = firstStrong(inner[inner.index(after: bar)..<close]) { return found }
+                    at = close
+                    continue
+                }
+            }
+            for scalar in rest[at].unicodeScalars {
+                if isRtl(scalar) { return true }
+                if scalar.properties.isAlphabetic { return false }
+            }
+            at = rest.index(after: at)
+        }
+        return nil
+    }
+
+    /// Whether the first letter of [text] is right to left, as a text
+    /// layout finds a paragraph's direction; `nil` with no letter.
+    public static func firstStrong(_ text: some StringProtocol) -> Bool? {
+        for scalar in text.unicodeScalars {
+            if isRtl(scalar) { return true }
+            if scalar.properties.isAlphabetic { return false }
+        }
+        return nil
+    }
+
     /// From the first strong letter, as `dir="auto"` decides it.
     public static func startsRtl(_ text: String) -> Bool {
         for scalar in text.unicodeScalars {

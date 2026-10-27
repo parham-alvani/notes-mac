@@ -72,7 +72,7 @@ let quickLookScript: String? = try? String(
         #expect(page.html.contains("<mark>marked</mark>"))
         #expect(page.html.contains("--tag-color"))
         #expect(page.html.contains("class=\"internal-link\" href=\"#\" data-path=\"Other.md\""))
-        #expect(page.html.contains("<p dir=\"auto\" data-line=\"5\">سلام دنیا</p>"))
+        #expect(page.html.contains("<p dir=\"rtl\" data-line=\"5\">سلام دنیا</p>"))
         #expect(page.html.contains("<img src=\"cid:file0\""))
         #expect(page.attachments["file0"]?.lastPathComponent == "logo.png")
     }

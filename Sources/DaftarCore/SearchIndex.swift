@@ -30,7 +30,7 @@ public final class SearchIndex: @unchecked Sendable {
         sqlite3_open(":memory:", &db)
         exec("""
             CREATE VIRTUAL TABLE note_fts USING fts5(
-                path UNINDEXED, title, body,
+                path UNINDEXED, title, body, folded,
                 tokenize = 'unicode61 remove_diacritics 2'
             )
             """)
@@ -48,10 +48,15 @@ public final class SearchIndex: @unchecked Sendable {
         lock.withLock {
             delete(path)
             var statement: OpaquePointer?
-            sqlite3_prepare_v2(db, "INSERT INTO note_fts (path, title, body) VALUES (?, ?, ?)", -1, &statement, nil)
+            // Persian as a search finds it, when that is not the text itself:
+            // matched, never shown, so a snippet keeps the note's own letters.
+            let (titleFolded, bodyFolded) = (Self.persian(title), Self.persian(body))
+            let folded = titleFolded == title && bodyFolded == body ? "" : titleFolded + "\n" + bodyFolded
+            sqlite3_prepare_v2(db, "INSERT INTO note_fts (path, title, body, folded) VALUES (?, ?, ?, ?)", -1, &statement, nil)
             sqlite3_bind_text(statement, 1, path, -1, Self.transient)
             sqlite3_bind_text(statement, 2, title, -1, Self.transient)
             sqlite3_bind_text(statement, 3, body, -1, Self.transient)
+            sqlite3_bind_text(statement, 4, folded, -1, Self.transient)
             if sqlite3_step(statement) == SQLITE_DONE { rows[path] = sqlite3_last_insert_rowid(db) }
             sqlite3_finalize(statement)
         }
@@ -81,7 +86,7 @@ public final class SearchIndex: @unchecked Sendable {
     /// side, as typed, come first; then the words near each other; then the
     /// notes that hold them anywhere. Within each, the title counts most.
     public func search(_ query: String, limit: Int = 100) -> [Hit] {
-        let tiers = Self.matchTiers(query)
+        let tiers = Self.matchTiers(Self.persian(query))
         guard !tiers.isEmpty else { return [] }
         return lock.withLock {
             var hits: [Hit] = []
@@ -101,7 +106,7 @@ public final class SearchIndex: @unchecked Sendable {
         let sql = """
             SELECT path, snippet(note_fts, 2, char(1), char(2), '…', 16)
             FROM note_fts WHERE note_fts MATCH ?
-            ORDER BY bm25(note_fts, 0, 8, 1) LIMIT ?
+            ORDER BY bm25(note_fts, 0, 8, 1, 1) LIMIT ?
             """
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
         defer { sqlite3_finalize(statement) }
@@ -114,6 +119,17 @@ public final class SearchIndex: @unchecked Sendable {
             hits.append(Hit(path: path, snippet: snippet))
         }
         return hits
+    }
+
+    /// Persian letters as `Slugs.persianLetter` makes them one, with the
+    /// half space (ZWNJ) taken out: `می‌خواهم` is found as `میخواهم` too,
+    /// while the tokenizer, which splits at a ZWNJ, finds `می خواهم` in the
+    /// text.
+    static func persian(_ text: String) -> String {
+        guard text.unicodeScalars.contains(where: { (0x0600...0x06FF).contains($0.value) || $0.value == 0x200C }) else { return text }
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars where scalar.value != 0x200C { scalars.append(Slugs.persianLetter(scalar)) }
+        return String(scalars)
     }
 
     /// The FTS5 expressions [search] runs, best first: with two or more
