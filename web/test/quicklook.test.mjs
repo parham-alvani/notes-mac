@@ -6,7 +6,7 @@ test("the preview has the title, the properties and the body", () => {
   const html = preview({ title: "Plan <a>", text: "Body", properties: [["status", "open & done"]] });
   assert.match(html, /^<h1 class="inline-title" dir="auto">Plan &lt;a&gt;<\/h1>/);
   assert.match(html, /<tr><th>status<\/th><td dir="auto">open &amp; done<\/td><\/tr>/);
-  assert.match(html, /<p dir="auto"[^>]*>Body<\/p>/);
+  assert.match(html, /<p dir="ltr"[^>]*>Body<\/p>/);
 });
 
 test("tags get their colour, as in the reader", () => {
@@ -20,9 +20,10 @@ test("a code block is drawn under its language, a diagram is not", () => {
 });
 
 test("Persian paragraphs and callouts take their own direction", () => {
-  const html = preview({ text: "> [!tip] سلام\n> متن\n\nدنیا" });
+  const html = preview({ title: "سفر", text: "> [!tip] سلام\n> متن\n\nدنیا" });
+  assert.match(html, /^<h1 class="inline-title" dir="rtl">سفر<\/h1>/);
   assert.match(html, /<div class="callout" data-callout="tip" dir="auto" role="note">/);
-  assert.match(html, /<p dir="auto"[^>]*>دنیا<\/p>/);
+  assert.match(html, /<p dir="rtl"[^>]*>دنیا<\/p>/);
 });
 
 test("the extension's entry point takes JSON", async () => {

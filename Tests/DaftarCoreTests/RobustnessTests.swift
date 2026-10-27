@@ -73,6 +73,9 @@ import Testing
         for _ in 0..<3000 {
             let line = ["- [ ] ", "- [x] ", "  - [/] ", "> - [ ] ", ""].randomElement(using: &random)! + Self.text(&random, pieces: 12)
             _ = TaskLine.parse(line, line: 0, section: "")
+            _ = TextDirection.ofLine(line)
+            // Fuzzy marks the letters it matched by their place: a search fold keeps every character one.
+            #expect(Slugs.search(line).count == Slugs.fold(line).count)
             _ = TaskLine.toggled(line, today: "2026-10-26")
             _ = TaskMetadata.split(line)
             _ = EditorCommands.onReturn(after: line)

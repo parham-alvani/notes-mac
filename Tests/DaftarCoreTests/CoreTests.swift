@@ -34,6 +34,18 @@ import Testing
         #expect(resolver.resolve("Kubernetes", from: "Work/Deploy.md") == "Work/Kubernetes.md")
         #expect(resolver.resolve("Kubernetes", from: "Learning/Pods.md") == "Learning/Kubernetes.md")
     }
+
+    @Test func persianIsSearchedAsItIsMeant() {
+        #expect(Slugs.search("علي كتاب ۱۲") == "علی کتاب 12")
+        // Swift counts the half space as part of the letter before it, so it goes, and the text keeps its length.
+        #expect(Slugs.search("می\u{200C}خواهم") == "میخواهم")
+        #expect(Slugs.search("می\u{200C}خواهم").count == "می\u{200C}خواهم".count)
+        #expect(Slugs.search("پائیز آب").count == "پائیز آب".count)
+        #expect(Slugs.search("پائیز آب") == "پاییز اب")
+        #expect(Slugs.search("Hello") == "hello")
+        #expect(Fuzzy.match("می خواهم", in: "می\u{200C}خواهم") != nil)
+        #expect(Fuzzy.match("كتاب", in: "کتاب‌ها") != nil)
+    }
 }
 
 @Suite struct NoteParserTests {
@@ -93,6 +105,21 @@ import Testing
     @Test func persianIsRightToLeft() {
         #expect(NoteParser.parse("سلام، این یک یادداشت است").rtl)
         #expect(!NoteParser.parse("Plain English").rtl)
+    }
+
+    @Test func aLineReadsInTheDirectionOfItsTextNotItsSyntax() {
+        #expect(TextDirection.ofLine("- [x] تماس با علی") == true)
+        #expect(TextDirection.ofLine("  * [ ] buy milk") == false)
+        #expect(TextDirection.ofLine("12. مورد") == true)
+        #expect(TextDirection.ofLine("## کارها") == true)
+        #expect(TextDirection.ofLine("> [!note] یادداشت") == true)
+        #expect(TextDirection.ofLine("- [[Start|پیوند]] و") == true)
+        #expect(TextDirection.ofLine("[[Start]] سلام") == false)
+        #expect(TextDirection.ofLine("Mixed فارسی") == false)
+        #expect(TextDirection.ofLine("- [ ] 12:30") == nil)
+        #expect(TextDirection.ofLine("") == nil)
+        #expect(TextDirection.firstStrong("12 سلام") == true)
+        #expect(TextDirection.firstStrong("- 12") == nil)
     }
 }
 
@@ -268,6 +295,17 @@ import Testing
         #expect(SearchIndex.matchTiers("\"House II\"") == ["\"House II\""])
         #expect(SearchIndex.matchTiers("house").count == 1)
         #expect(index.search("house ii", limit: 2).count == 2)
+    }
+
+    @Test func persianIsFoundHoweverItWasTyped() {
+        let index = SearchIndex()
+        index.put(path: "a.md", title: "سفر", body: "می\u{200C}خواهم كتاب علي را ۱۲ بار بخوانم")
+        index.put(path: "b.md", title: "Other", body: "nothing here")
+        for query in ["میخواهم", "می\u{200C}خواهم", "می خواهم", "کتاب", "علی", "12", "۱۲"] {
+            #expect(index.search(query, limit: 10).map(\.path) == ["a.md"], "\(query)")
+        }
+        // The snippet is the note's own text.
+        #expect(index.search("خواهم", limit: 10).first?.snippet.unicodeScalars.contains("\u{200C}") == true)
     }
 }
 

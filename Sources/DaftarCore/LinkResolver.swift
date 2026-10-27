@@ -11,6 +11,41 @@ public enum Slugs {
         normalize(text).lowercased(with: Locale(identifier: "en_US_POSIX"))
     }
 
+    /// [fold], and Persian as people type it on different keyboards made
+    /// one: Arabic Yeh and Kaf as the Persian letters, the hamza forms of
+    /// Alef, Waw and Yeh as the letters under them, Persian and Arabic
+    /// digits as ASCII ones, and the half space (ZWNJ) taken out. Each
+    /// character stays one, so offsets into the folded text are offsets
+    /// into the text: Swift counts a ZWNJ as part of the letter before it,
+    /// so it goes rather than becoming a space as on Linux, and a ZWNJ that
+    /// is a character of its own becomes a space. For matching only: a link
+    /// still resolves by [fold].
+    public static func search(_ text: String) -> String {
+        let folded = fold(text)
+        guard folded.unicodeScalars.contains(where: { (0x0600...0x06FF).contains($0.value) || $0.value == 0x200C }) else { return folded }
+        var out = ""
+        for character in folded {
+            var scalars = String.UnicodeScalarView()
+            for scalar in character.unicodeScalars where scalar.value != 0x200C { scalars.append(persianLetter(scalar)) }
+            out.append(scalars.isEmpty ? " " : String(scalars))
+        }
+        return out
+    }
+
+    /// The letter a Persian search finds [scalar] as: see [search].
+    public static func persianLetter(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        switch scalar {
+        case "\u{064A}", "\u{0649}", "\u{0626}": return "\u{06CC}"  // ي ى ئ as ی
+        case "\u{0643}": return "\u{06A9}"  // ك as ک
+        case "\u{0629}": return "\u{0647}"  // ة as ه
+        case "\u{0623}", "\u{0625}", "\u{0622}", "\u{0671}": return "\u{0627}"  // أ إ آ ٱ as ا
+        case "\u{0624}": return "\u{0648}"  // ؤ as و
+        case "\u{06F0}"..."\u{06F9}": return Unicode.Scalar(0x30 + scalar.value - 0x06F0)!
+        case "\u{0660}"..."\u{0669}": return Unicode.Scalar(0x30 + scalar.value - 0x0660)!
+        default: return scalar
+        }
+    }
+
     /// A heading as `[[Note#Heading]]` names it: Obsidian matches the text,
     /// so this only folds case and collapses white space.
     public static func heading(_ text: String) -> String {

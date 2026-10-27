@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import DaftarCore
 
 /// The editor in Neovim mode: Neovim owns the buffer and the file, and the
@@ -86,6 +87,11 @@ final class NeovimSession {
             }
             try await client.request("nvim_buf_attach", [0, false, [:]])
             try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel))]])
+            // Normal mode's keys on the Persian layout too, unless the person's config sets a langmap.
+            let langmap = Self.keyboardLangmap()
+            if !langmap.isEmpty {
+                _ = try? await client.request("nvim_exec_lua", ["if vim.o.langmap == '' then vim.o.langmap = ... end", [.string(langmap)]])
+            }
             state = .running
             if let offset = startOffset {
                 startOffset = nil
@@ -96,6 +102,50 @@ final class NeovimSession {
             status = "Neovim did not start: \(error)"
         }
         onChange?()
+    }
+
+    /// The keyboard's layouts beside the Latin one as Neovim's `langmap`
+    /// (`VimKeys.langmap`): each key's letter on another enabled layout
+    /// paired with its letter on the Latin one, Shift and all.
+    static func keyboardLangmap() -> String {
+        guard let latinSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
+            let latin = layoutData(latinSource),
+            let list = TISCreateInputSourceList([kTISPropertyInputSourceCategory as String: kTISCategoryKeyboardInputSource as String] as CFDictionary, false)?
+                .takeRetainedValue()
+        else { return "" }
+        var pairs: [(Character, Character)] = []
+        for source in list as NSArray as! [TISInputSource] {
+            guard let other = layoutData(source), other != latin else { continue }
+            // The keys of the main block; the keypad and the function keys are the same on every layout.
+            for keycode in UInt16(0)..<51 {
+                for shift in [false, true] {
+                    guard let to = character(latin, keycode, shift: shift), let from = character(other, keycode, shift: shift) else { continue }
+                    pairs.append((from, to))
+                }
+            }
+        }
+        return VimKeys.langmap(pairs)
+    }
+
+    private static func layoutData(_ source: TISInputSource) -> Data? {
+        guard let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        return Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data
+    }
+
+    /// The one character a key types on a layout, with no dead keys.
+    private static func character(_ layout: Data, _ keycode: UInt16, shift: Bool) -> Character? {
+        layout.withUnsafeBytes { bytes -> Character? in
+            guard let base = bytes.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return nil }
+            var dead: UInt32 = 0
+            var length = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            let modifiers = shift ? UInt32((shiftKey >> 8) & 0xFF) : 0
+            let status = UCKeyTranslate(
+                base, keycode, UInt16(kUCKeyActionDown), modifiers, UInt32(LMGetKbdType()),
+                OptionBits(kUCKeyTranslateNoDeadKeysMask), &dead, chars.count, &length, &chars)
+            guard status == noErr, length == 1, let scalar = Unicode.Scalar(chars[0]) else { return nil }
+            return Character(scalar)
+        }
     }
 
     /// The autocommands that tell the view where the cursor is and what mode

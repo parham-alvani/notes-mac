@@ -613,7 +613,27 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
                 storage.addAttributes([.foregroundColor: NSPalette.muted, .font: Fonts.text(size: fontSize * 0.85)], range: r)
             }
         }
+        alignByText(storage, range: range, text: text)
         if store.settings.livePreview { hideMarks(spans, in: storage) }
+    }
+
+    /// Each line on the side its text reads from, whatever its syntax starts
+    /// with: AppKit takes a paragraph's direction from its first letter, and
+    /// in `- [x] سلام` that is the `x`. Only the alignment changes, so the
+    /// marks stay in the order they are written.
+    private func alignByText(_ storage: NSTextStorage, range: NSRange, text: NSString) {
+        var at = range.location
+        let end = min(NSMaxRange(range), text.length)
+        while at < end {
+            let line = text.lineRange(for: NSRange(location: at, length: 0))
+            at = NSMaxRange(line)
+            let string = text.substring(with: line)
+            guard TextDirection.containsRtl(string), let rtl = TextDirection.ofLine(string), TextDirection.firstStrong(string) != rtl else { continue }
+            let paragraph = ((storage.attribute(.paragraphStyle, at: line.location, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            paragraph.alignment = rtl ? .right : .left
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: line)
+        }
     }
 
     // MARK: Live preview

@@ -78,6 +78,12 @@ import Testing
         #expect(VimKeys.notation(characters: "ش", modifiers: []) == "ش")
         #expect(VimKeys.escape("a<b") == "a<LT>b")
     }
+
+    @Test func aSecondLayoutMapsToTheLatinKeys() {
+        let pairs: [(Character, Character)] = [("ض", "q"), ("ت", "j"), ("ئ", "m"), ("و", ","), ("ج", "["), ("ت", "x"), ("'", "q"), ("ق", " ")]
+        #expect(VimKeys.langmap(pairs) == "ضq,تj,ئm,و\\,,ج[")
+        #expect(VimKeys.langmap([]) == "")
+    }
 }
 
 /// Against a real Neovim, when there is one: CI has none, and skips these.
