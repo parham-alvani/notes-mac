@@ -188,6 +188,7 @@ enum PaletteCommands {
                 },
             ]
         }
+        out += editor(model: model, store: store)
         return out
     }
 

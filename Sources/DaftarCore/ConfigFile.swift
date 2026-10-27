@@ -229,6 +229,15 @@ public struct ConfigFile: Sendable, Equatable {
         # The front matter shows as a form of properties, as Obsidian's
         # Properties view; false shows the YAML.
         properties_form = true
+        # Typewriter mode: the cursor's line stays in the middle of the
+        # editor while you type.
+        typewriter = false
+        # Focus mode: every paragraph but the cursor's dims.
+        focus = false
+        # Spelling as you type: English lines in English. macOS has no Persian
+        # dictionary, so Persian lines are not marked. Code, links, tags and
+        # the front matter are never marked.
+        spell_check = true
         # Edit with your own Neovim: it owns the buffer and the file, and the
         # editor shows it. Needs `nvim` (brew install neovim).
         vim_mode = false

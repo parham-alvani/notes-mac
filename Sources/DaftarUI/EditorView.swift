@@ -53,6 +53,7 @@ struct EditorView: NSViewRepresentable {
         controller.applyTextSize()
         controller.followVimSetting()
         controller.jump(jump)
+        controller.followWritingModes()
     }
 
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
@@ -384,6 +385,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         updateCounts()
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
         view?.cursorLineMoved()
+        followCursor()
     }
 
     func textDidChange(_ notification: Notification) {
@@ -781,6 +783,8 @@ final class NoteTextView: NSTextView {
     var completion = CompletionState()
     /// Neovim mode: the keys go here, and the text changes only when Neovim says.
     weak var vim: NeovimSession?
+    /// The many cursors, and what focus and typewriter mode did (`EditorCursors.swift`).
+    let extras = EditorExtras()
     private var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
 
     // MARK: Neovim mode
@@ -902,11 +906,12 @@ final class NoteTextView: NSTextView {
     }
 
     override func doCommand(by selector: Selector) {
-        if vimActive { return }
+        if vimActive || commandAtCursors(selector) { return }
         super.doCommand(by: selector)
     }
 
     override func mouseDown(with event: NSEvent) {
+        if cursorClick(event) { return }
         super.mouseDown(with: event)
         if vimActive { vim?.moveCursor(to: selectedRange().location) }
     }
@@ -1266,6 +1271,7 @@ final class NoteTextView: NSTextView {
             vim?.input(VimKeys.escape(text))
             return
         }
+        if insertAtCursors(string) { return }
         if let typed = string as? String, handlePair(typed, replacementRange: replacementRange) { return }
         super.insertText(string, replacementRange: replacementRange)
         if let typed = string as? String, typed == "/", EditorCommands.opensSlashMenu(in: ns, at: selectedRange().location) {
@@ -1443,6 +1449,7 @@ final class NoteTextView: NSTextView {
             vim?.paste(text)
             return
         }
+        if pasteAtCursors() { return }
         // A web address pasted on selected words makes them a link to it.
         let selection = selectedRange()
         if selection.length > 0, let text = board.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),

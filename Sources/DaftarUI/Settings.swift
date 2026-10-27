@@ -40,6 +40,12 @@ final class AppSettings {
     var livePreview: Bool { didSet { write("editor.live_preview", .bool(livePreview)) } }
     /// The front matter shows as a form of properties above the editor, not as YAML.
     var propertiesForm: Bool { didSet { write("editor.properties_form", .bool(propertiesForm)) } }
+    /// The cursor's line stays in the middle of the editor while you type.
+    var typewriter: Bool { didSet { write("editor.typewriter", .bool(typewriter)) } }
+    /// Every paragraph but the cursor's dims.
+    var focusMode: Bool { didSet { write("editor.focus", .bool(focusMode)) } }
+    /// Spelling as you type, each paragraph in its own language.
+    var spellCheck: Bool { didSet { write("editor.spell_check", .bool(spellCheck)) } }
     var nvimPath: String { didSet { write("editor.nvim", .string(nvimPath)) } }
     var nvimConfig: String { didSet { write("editor.nvim_config", .string(nvimConfig)) } }
     var terminalFontSize: Int { didSet { write("terminal.font_size", .int(terminalFontSize)) } }
@@ -103,6 +109,9 @@ final class AppSettings {
         vimMode = false
         livePreview = true
         propertiesForm = true
+        typewriter = false
+        focusMode = false
+        spellCheck = true
         nvimPath = ""
         nvimConfig = "user"
         captureHotkey = "ctrl+opt+n"
@@ -147,6 +156,9 @@ final class AppSettings {
         vimMode = file.bool("editor.vim_mode") ?? false
         livePreview = file.bool("editor.live_preview") ?? true
         propertiesForm = file.bool("editor.properties_form") ?? true
+        typewriter = file.bool("editor.typewriter") ?? false
+        focusMode = file.bool("editor.focus") ?? false
+        spellCheck = file.bool("editor.spell_check") ?? true
         nvimPath = file.string("editor.nvim") ?? ""
         nvimConfig = file.string("editor.nvim_config") ?? "user"
         terminalFontSize = file.int("terminal.font_size") ?? 13

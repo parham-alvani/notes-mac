@@ -345,6 +345,39 @@ import Testing
         }
     }
 
+    @Test func cursorsAndSpellingTakeAnyText() {
+        for text in Self.samples(600, seed: 14, pieces: 20) {
+            let string = text as NSString
+            var random = Seeded(state: UInt64(string.length) &+ 14)
+            let cursors = (0..<Int.random(in: 1...6, using: &random)).map { _ in
+                let location = Int.random(in: 0...string.length, using: &random)
+                return NSRange(location: location, length: Int.random(in: 0...min(3, string.length - location), using: &random))
+            }
+            // Typing at every cursor, then Backspace: every caret in the text, every line kept but the typed ones.
+            for (texts, deletions) in [(["x"], false), (["", "ab\n"], false), ([""], true)] {
+                let ranges = deletions ? MultiCursor.deletions(cursors, in: string, forward: Bool.random(using: &random)) : cursors
+                let change = MultiCursor.replace(ranges, with: texts)
+                var edited = text as NSString
+                for edit in change.edits.reversed() { edited = edited.replacingCharacters(in: edit.range, with: edit.text) as NSString }
+                #expect(change.carets.allSatisfy { NSMaxRange($0) <= edited.length })
+                #expect(MultiCursor.normalize(change.carets) == change.carets)
+            }
+            let anchor = Int.random(in: 0...string.length, using: &random), head = Int.random(in: 0...string.length, using: &random)
+            for range in MultiCursor.column(in: string, from: anchor, to: head) {
+                #expect(NSMaxRange(range) <= string.length && !string.substring(with: range).contains("\n"))
+            }
+            if let word = MultiCursor.word(at: anchor, in: string) {
+                #expect(MultiCursor.occurrences(of: string.substring(with: word), in: string, wholeWord: true).contains(word))
+            }
+            // The parts spelling checks are inside the text, in order, apart, each on one line.
+            let parts = Spelling.parts(in: string, range: NSRange(location: min(anchor, head), length: abs(anchor - head)))
+            #expect(zip(parts, parts.dropFirst()).allSatisfy { NSMaxRange($0.range) <= $1.range.location })
+            #expect(parts.allSatisfy { NSMaxRange($0.range) <= string.length && !string.substring(with: $0.range).contains("\n") })
+            let paragraph = FocusParagraph.range(at: head, in: string)
+            #expect(NSMaxRange(paragraph) <= string.length && (string.length == 0 || NSLocationInRange(min(head, string.length - 1), paragraph) || head == string.length))
+        }
+    }
+
     /// Every line of [old] is in [new], in the same order.
     static func keeps(_ old: [String], in new: [String]) -> Bool {
         var rest = new[...]
