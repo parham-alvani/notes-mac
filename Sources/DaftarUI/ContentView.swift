@@ -232,17 +232,36 @@ struct TabbedWindow: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = WindowView()
         let coordinator = context.coordinator
         coordinator.model = model
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
+        view.moved = { window in
             window.tabbingMode = .preferred
             window.tabbingIdentifier = "daftar.main"
-            TabbedWindow.join(window)
-            coordinator.watch(window)
+            // A window that is to be a tab stays unseen until it is one,
+            // or it shows as a window first. It joins once SwiftUI has
+            // put it on screen: joined before, it kept a frame of its own.
+            let hidden = TabbedWindow.willJoin(window)
+            if hidden { window.alphaValue = 0 }
+            DispatchQueue.main.async {
+                TabbedWindow.join(window)
+                if hidden { window.alphaValue = 1 }
+                coordinator.watch(window)
+            }
         }
         return view
+    }
+
+    /// Tells when it is put in a window, before SwiftUI shows the window.
+    final class WindowView: NSView {
+        var moved: ((NSWindow) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window, let moved else { return }
+            self.moved = nil
+            moved(window)
+        }
     }
 
     func updateNSView(_ view: NSView, context: Context) { context.coordinator.model = model }
@@ -250,15 +269,20 @@ struct TabbedWindow: NSViewRepresentable {
     /// The Daftar window last in front, which a new window joins as a tab.
     @MainActor private static weak var lastKey: NSWindow?
 
-    /// The tabbing mode is set only once the window is on screen, too late
-    /// for AppKit to make it a tab: on macOS 27 ⌘T opened a window, in full
-    /// screen a Space of its own. So the window joins the tabs of the one
-    /// last in front; the order of `NSApp.orderedWindows` across Spaces
-    /// named a tab behind the full screen one.
+    /// SwiftUI gives no say in how its window opens: on macOS 27 ⌘T opened
+    /// a window, in full screen a Space of its own. So the window joins the
+    /// tabs of the one last in front; the order of `NSApp.orderedWindows`
+    /// across Spaces named a tab behind the full screen one.
     static func join(_ window: NSWindow) {
-        guard (window.tabbedWindows?.count ?? 1) <= 1, let front = lastKey, front !== window, front.isVisible else { return }
+        guard willJoin(window), let front = lastKey else { return }
         front.addTabbedWindow(window, ordered: .above)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// True when [window] is alone and another window is there to join.
+    static func willJoin(_ window: NSWindow) -> Bool {
+        guard (window.tabbedWindows?.count ?? 1) <= 1, let front = lastKey else { return false }
+        return front !== window && front.isVisible
     }
 
     @MainActor
