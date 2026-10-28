@@ -228,7 +228,11 @@ import Testing
         controller.load("Notes/Lines.md")
         controller.go(toLine: 2)
         #expect(view.selectedRange().location == ("zero\none\n" as NSString).length)
-        try await Task.sleep(for: .milliseconds(300))
+        // The line is told a moment later, later still on a busy runner.
+        for _ in 0..<150 {
+            if reported.last == 2 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(reported.last == 2)
     }
 
