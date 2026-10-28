@@ -16,9 +16,10 @@ struct BoardView: View {
 
     var body: some View {
         let tasks = shown
-        let columns = TaskBoard.columns(tasks, by: grouping, today: .today(), closedWithin: allClosed ? nil : 14)
+        let statuses = store.index.statuses
+        let columns = TaskBoard.columns(tasks, by: grouping, today: .today(), closedWithin: allClosed ? nil : 14, statuses: statuses)
         VStack(spacing: 0) {
-            header(count: tasks.filter(\.task.isOpen).count)
+            header(count: tasks.filter { $0.task.isOpen(in: statuses) }.count)
             if columns.allSatisfy(\.tasks.isEmpty) {
                 ContentUnavailableView {
                     Label(query.isEmpty ? "No tasks" : "No task matches “\(query)”", systemImage: "checklist")
@@ -44,7 +45,7 @@ struct BoardView: View {
         let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
         return store.index.tasks.filter { task in
             !store.excluded.contains(task.path) && (file == nil || task.path == file)
-                && (needle.isEmpty || Slugs.fold(task.task.text + " " + task.task.section + " " + task.path).contains(needle))
+                && (needle.isEmpty || Slugs.fold(task.task.text + " " + (task.task.reason ?? "") + " " + task.task.section + " " + task.path).contains(needle))
         }
     }
 
@@ -157,6 +158,10 @@ struct BoardView: View {
             var moved = false
             for id in ids {
                 guard let task = tasks.first(where: { $0.id == id }) else { continue }
+                if asksReason(task, drop) {
+                    model.taskCancel = TaskCancel(task: task)
+                    return true
+                }
                 withMotion(.snappy) { moved = store.moveTask(task, to: drop) || moved }
             }
             return moved
@@ -183,7 +188,9 @@ struct BoardView: View {
                     .lineLimit(4)
                     .multilineTextAlignment(rtl ? .trailing : .leading)
                     .frame(maxWidth: .infinity, alignment: rtl ? .trailing : .leading)
+                TaskStatusBadge(status: task.task.status)
             }
+            if let reason = task.task.reason { TaskReasonLabel(reason: reason).padding(.leading, 24) }
             HStack(spacing: 5) {
                 Text(Vault.title(of: task.path)).foregroundStyle(Palette.aqua)
                 if !task.task.section.isEmpty { Text("› \(task.task.section)").foregroundStyle(.secondary) }
@@ -232,7 +239,7 @@ struct BoardView: View {
         .accessibilityAction(named: "Edit Task") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
         .accessibilityActions {
             ForEach(TaskBoard.columns([], by: grouping, today: .today()).filter { $0.drop != nil }) { column in
-                Button("Move to \(column.title)") { withMotion(.snappy) { _ = store.moveTask(task, to: column.drop!) } }
+                Button("Move to \(column.title)") { move(task, to: column.drop!) }
             }
         }
         .draggable(task.id) {
@@ -242,21 +249,36 @@ struct BoardView: View {
         .contextMenu {
             Button("Open Note") { model.open(task.path, line: task.task.line, store: store) }
             Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+            StatusMenu(task: task, model: model)
             PostponeMenu(task: task)
             Divider()
             ForEach(TaskBoard.columns([], by: grouping, today: .today()).filter { $0.drop != nil }) { column in
-                Button("Move to \(column.title)") { withMotion(.snappy) { _ = store.moveTask(task, to: column.drop!) } }
+                Button("Move to \(column.title)") { move(task, to: column.drop!) }
             }
         }
         .help(task.path)
     }
 
+    /// A card moved to a column: to Cancelled, the reason is asked first.
+    private func move(_ task: VaultTask, to drop: TaskBoard.Drop) {
+        if asksReason(task, drop) { model.taskCancel = TaskCancel(task: task) }
+        else { withMotion(.snappy) { _ = store.moveTask(task, to: drop) } }
+    }
+
+    /// A drop that cancels a task that is not cancelled yet.
+    private func asksReason(_ task: VaultTask, _ drop: TaskBoard.Drop) -> Bool {
+        guard case .status(let status, _) = drop else { return false }
+        let statuses = store.index.statuses
+        return statuses.type(status) == .cancelled && statuses.type(task.task.status) != .cancelled
+    }
+
     private func symbol(_ status: Character) -> String {
-        switch status {
-        case "/": "square.inset.filled"
-        case "x", "X": "checkmark.square.fill"
-        case "-": "xmark.square"
-        default: "square"
+        switch store.index.statuses.type(status) {
+        case .inProgress: "square.inset.filled"
+        case .done: "checkmark.square.fill"
+        case .cancelled: "xmark.square"
+        case .nonTask: "minus.square"
+        case .todo: "square"
         }
     }
 

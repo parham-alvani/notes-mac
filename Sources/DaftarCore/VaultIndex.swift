@@ -52,6 +52,8 @@ public struct VaultIndex: Sendable {
     public private(set) var tags: [String: Int] = [:]
     /// The tags as the tag pane shows them, each note counted once per branch.
     public private(set) var tagTree: [TagNode] = []
+    /// The task statuses of the Tasks plugin's settings.
+    public var statuses = TaskStatuses.defaults
     /// What the resolver and the tree were made from. A saved note changes
     /// neither, and with 20,000 files they took most of a second to make.
     private var resolved: (files: Set<String>, aliases: [String: [String]])?
@@ -225,6 +227,7 @@ public enum Vault {
     /// Builds the whole index of the vault at [root].
     public static func index(_ root: URL, search: SearchIndex? = nil) -> VaultIndex {
         var index = VaultIndex()
+        index.statuses = TaskStatuses.load(root)
         index.files = scan(root)
         index.emptyFolders = emptyFolders(root, files: index.files)
         let notes = read(index.files.filter(isNote).sorted(), in: root)
@@ -237,9 +240,11 @@ public enum Vault {
     }
 
     /// The index after the files at [changed] changed on disk: each is read
-    /// again, or dropped when it is gone.
+    /// again, or dropped when it is gone. The Tasks plugin's settings are
+    /// read again when they are among them.
     public static func update(_ index: VaultIndex, changed: Set<String>, in root: URL, search: SearchIndex? = nil) -> VaultIndex {
         var index = index
+        if changed.contains(TaskStatuses.file) { index.statuses = TaskStatuses.load(root) }
         let manager = FileManager.default
         var reread: [String] = []
         // A folder came or went, or its last file did: the empty ones are found again.

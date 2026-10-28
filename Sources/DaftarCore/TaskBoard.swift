@@ -11,7 +11,9 @@ public enum TaskBoard {
 
     /// What a column writes on a task dropped on it.
     public enum Drop: Sendable, Hashable {
-        case status(Character)
+        /// The status, and the reason it is given with: a card dropped on
+        /// Cancelled is asked for one first.
+        case status(Character, reason: String? = nil)
         /// The due date; nil takes it away.
         case due(String?)
         /// The Tasks plugin's Postpone: see `TaskLine.postponed`.
@@ -27,8 +29,11 @@ public enum TaskBoard {
     }
 
     /// The board of [tasks]. Done and cancelled tasks show when they closed
-    /// within [closedWithin] days, or all of them when it is nil.
-    public static func columns(_ tasks: [VaultTask], by grouping: Grouping, today: Day, closedWithin: Int? = 14) -> [Column] {
+    /// within [closedWithin] days, or all of them when it is nil. A status
+    /// goes to the column of its type, so `[r]` "In Review" is In Progress;
+    /// a non-task is on no column.
+    public static func columns(_ tasks: [VaultTask], by grouping: Grouping, today: Day, closedWithin: Int? = 14,
+                               statuses: TaskStatuses = .current) -> [Column] {
         switch grouping {
         case .status:
             let since = closedWithin.map { today.adding(days: -$0) }
@@ -38,11 +43,12 @@ public enum TaskBoard {
             }
             var todo: [VaultTask] = [], doing: [VaultTask] = [], done: [VaultTask] = [], cancelled: [VaultTask] = []
             for task in tasks {
-                switch task.task.status {
-                case "/": doing.append(task)
-                case "x", "X": if recent(task.task.done) { done.append(task) }
-                case "-": if recent(task.task.cancelled) { cancelled.append(task) }
-                default: todo.append(task)
+                switch statuses.type(task.task.status) {
+                case .inProgress: doing.append(task)
+                case .done: if recent(task.task.done) { done.append(task) }
+                case .cancelled: if recent(task.task.cancelled) { cancelled.append(task) }
+                case .nonTask: break
+                case .todo: todo.append(task)
                 }
             }
             return [
@@ -54,7 +60,7 @@ public enum TaskBoard {
         case .day:
             let tomorrow = today.adding(days: 1), week = today.adding(days: 7)
             var columns: [String: [VaultTask]] = [:]
-            for task in tasks where task.task.isOpen {
+            for task in tasks where task.task.isOpen(in: statuses) {
                 let key: String
                 if let text = task.task.day, let day = Day(text) {
                     key = day < today ? "overdue" : day == today ? "today" : day == tomorrow ? "tomorrow" : day <= week ? "week" : "later"
@@ -73,7 +79,7 @@ public enum TaskBoard {
             ]
             return all.map { Column(id: $0.0, title: $0.1, tasks: (columns[$0.0] ?? []).sorted(by: open), drop: $0.2) }
         case .file:
-            let byFile = Dictionary(grouping: tasks.filter(\.task.isOpen), by: \.path)
+            let byFile = Dictionary(grouping: tasks.filter { $0.task.isOpen(in: statuses) }, by: \.path)
             return byFile.keys.sorted { Vault.title(of: $0).localizedStandardCompare(Vault.title(of: $1)) == .orderedAscending }.map {
                 Column(id: $0, title: Vault.title(of: $0), tasks: byFile[$0]!.sorted(by: open), drop: nil)
             }
@@ -108,23 +114,19 @@ public enum TaskBoard {
     }
 
     /// The lines a task line becomes when it is dropped on [drop]; nil when
-    /// it is not a task, or nothing changes.
-    public static func moved(_ raw: String, to drop: Drop, today: Day) -> [String]? {
+    /// it is not a task, or nothing changes. A card already of the column's
+    /// type keeps its own symbol: `[r]` dropped on In Progress stays `[r]`.
+    public static func moved(_ raw: String, to drop: Drop, today: Day, statuses: TaskStatuses = .current) -> [String]? {
         guard var fields = TaskLine.fields(raw) else { return nil }
         switch drop {
-        case .status(let status):
-            let wasClosed = TaskLine.closed.contains(fields.status)
-            if status == fields.status || (status == "x" && fields.status == "X") { return nil }
-            // Done from open: the tick a click makes, recurrence and all.
-            if status == "x", !wasClosed { return TaskLine.toggled(raw, today: today.description) }
-            fields.status = status
-            fields.done = status == "x" ? today.description : nil
-            fields.cancelled = status == "-" ? today.description : nil
+        case .status(let status, let reason):
+            let target = statuses.type(status) == statuses.type(fields.status) ? fields.status : status
+            return TaskLine.settingStatus(raw, to: target, reason: reason, today: today, statuses: statuses)
         case .due(let day):
             guard fields.due != day else { return nil }
             fields.due = day
         case .postpone(let amount):
-            guard let later = TaskLine.postponed(fields, by: amount, today: today) else { return nil }
+            guard let later = TaskLine.postponed(fields, by: amount, today: today, statuses: statuses) else { return nil }
             fields = later
         }
         return TaskLine.edited(raw, fields).map { [$0] }
@@ -134,7 +136,24 @@ public enum TaskBoard {
 extension VaultEdits {
     /// The task on [line] of [text] dropped on a board column. [task] is
     /// what the card showed, whose status and words the line must still hold.
-    public static func moveTask(in text: String, line: Int, task: ParsedTask, to drop: TaskBoard.Drop, today: Day) throws -> String {
+    public static func moveTask(in text: String, line: Int, task: ParsedTask, to drop: TaskBoard.Drop, today: Day,
+                                statuses: TaskStatuses = .current) throws -> String {
+        try changeTask(in: text, line: line, task: task) { TaskBoard.moved($0, to: drop, today: today, statuses: statuses) }
+    }
+
+    /// The task on [line] of [text] set to [status], from a status menu:
+    /// exactly that symbol, with [reason] or none. [task] is what the menu
+    /// was opened on.
+    public static func setTaskStatus(in text: String, line: Int, task: ParsedTask, to status: Character, reason: String? = nil,
+                                     today: Day, statuses: TaskStatuses = .current) throws -> String {
+        try changeTask(in: text, line: line, task: task) {
+            TaskLine.settingStatus($0, to: status, reason: reason, today: today, statuses: statuses)
+        }
+    }
+
+    /// [change] applied to the line of [task], which must still hold its
+    /// status and words; the text unchanged when [change] gives nil.
+    private static func changeTask(in text: String, line: Int, task: ParsedTask, _ change: (String) -> [String]?) throws -> String {
         var lines = text.components(separatedBy: "\n")
         guard line >= 0, line < lines.count else { throw Failure.taskMoved }
         let raw = lines[line]
@@ -143,7 +162,7 @@ extension VaultEdits {
         guard let now = TaskLine.parse(clean, line: line, section: ""), now.status == task.status, now.text == task.text else {
             throw Failure.taskMoved
         }
-        guard let replacement = TaskBoard.moved(clean, to: drop, today: today) else { return text }
+        guard let replacement = change(clean) else { return text }
         lines.replaceSubrange(line...line, with: replacement.map { crlf ? $0 + "\r" : $0 })
         return lines.joined(separator: "\n")
     }
@@ -182,8 +201,8 @@ extension TaskLine {
     /// already past moves on from today, so an overdue task is not overdue
     /// again at once. Nil for an open task with none of the three dates,
     /// and for a done or cancelled task.
-    public static func postponed(_ fields: TaskFields, by amount: Postpone, today: Day) -> TaskFields? {
-        guard !closed.contains(fields.status) else { return nil }
+    public static func postponed(_ fields: TaskFields, by amount: Postpone, today: Day, statuses: TaskStatuses = .current) -> TaskFields? {
+        guard !statuses.isClosed(fields.status) else { return nil }
         var fields = fields
         for key in [\TaskFields.due, \TaskFields.scheduled, \TaskFields.start] {
             guard let text = fields[keyPath: key], let day = Day(text) else { continue }

@@ -4,14 +4,16 @@ import Foundation
 /// task's status, its priority arrow, a red date. Each is words here, so a
 /// row reads the same as it looks.
 public enum Spoken {
-    /// A task's status box in words.
-    public static func status(_ status: Character) -> String {
+    /// A task's status box in words: a status of the vault's own by its name.
+    public static func status(_ status: Character, statuses: TaskStatuses = .current) -> String {
         switch status {
-        case " ": "open"
-        case "/": "in progress"
-        case "x", "X": "done"
-        case "-": "cancelled"
-        default: "status \(status)"
+        case " ": return "open"
+        case "/": return "in progress"
+        case "x", "X": return "done"
+        case "-": return "cancelled"
+        default:
+            let named = statuses.status(status).name
+            return named == "[\(status)]" ? "status \(status)" : named.lowercased()
         }
     }
 
@@ -61,6 +63,7 @@ public enum Spoken {
     /// `Call Sara, open, due today, high priority, repeats every week, in Work › Kit`.
     public static func task(_ task: ParsedTask, note: String? = nil, today: Day) -> String {
         var parts = [plain(task.text).trimmingCharacters(in: .whitespaces), status(task.status)]
+        if let reason = task.reason { parts.append("reason: \(plain(reason))") }
         if let when = when(task, today: today) { parts.append(when) }
         if let priority = priority(task.priority) { parts.append(priority) }
         if let rule = task.recurring?.trimmingCharacters(in: .whitespaces), !rule.isEmpty { parts.append("repeats \(rule)") }

@@ -7,7 +7,13 @@ import Observation
 @MainActor @Observable
 final class VaultStore {
     private(set) var root: URL?
-    private(set) var index = VaultIndex() { didSet { indexGeneration += 1 } }
+    private(set) var index = VaultIndex() {
+        didSet {
+            indexGeneration += 1
+            // The rules given only a symbol (a tick, `isOpen`) follow the open vault's statuses.
+            if index.statuses != oldValue.statuses { TaskStatuses.current = index.statuses }
+        }
+    }
     /// Grows with every change to the index, so a slow update can tell that
     /// the index moved on while it read the files.
     @ObservationIgnored private var indexGeneration = 0
@@ -295,9 +301,10 @@ final class VaultStore {
     /// that was clicked.
     func toggleTask(path: String, line: Int, status: Character) {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return }
+        let statuses = index.statuses
         do {
             try ownEdit(path, in: root) { text in
-                try VaultEdits.toggleTask(in: text, line: line, status: status, today: .today())
+                try VaultEdits.toggleTask(in: text, line: line, status: status, today: .today(), statuses: statuses)
             }
             changed([path])
             requestSync()
@@ -541,15 +548,37 @@ final class VaultStore {
     /// the task the card showed.
     func moveTask(_ task: VaultTask, to drop: TaskBoard.Drop) -> Bool {
         guard let root, url(of: task.path) != nil, index.files.contains(task.path) else { return false }
+        let statuses = index.statuses
         do {
             try ownEdit(task.path, in: root) { text in
-                try VaultEdits.moveTask(in: text, line: task.task.line, task: task.task, to: drop, today: .today())
+                try VaultEdits.moveTask(in: text, line: task.task.line, task: task.task, to: drop, today: .today(), statuses: statuses)
             }
             changed([task.path])
             requestSync()
             return true
         } catch {
             notice = "\(TaskRow.plain(task.task.text)) changed in its note before the drop. Nothing was written."
+            changed([task.path])
+            return false
+        }
+    }
+
+    /// Sets [task]'s status to [status] from a status menu, with [reason]
+    /// or none. False when its line no longer holds the task the menu showed.
+    @discardableResult
+    func setTaskStatus(_ task: VaultTask, to status: Character, reason: String? = nil) -> Bool {
+        guard let root, url(of: task.path) != nil, index.files.contains(task.path) else { return false }
+        let statuses = index.statuses
+        do {
+            try ownEdit(task.path, in: root) { text in
+                try VaultEdits.setTaskStatus(in: text, line: task.task.line, task: task.task, to: status, reason: reason,
+                                             today: .today(), statuses: statuses)
+            }
+            changed([task.path])
+            requestSync()
+            return true
+        } catch {
+            notice = "\(TaskRow.plain(task.task.text)) changed in its note before the change. Nothing was written."
             changed([task.path])
             return false
         }
@@ -862,9 +891,10 @@ final class VaultStore {
         var groups = TaskGroups()
         let horizon = today.adding(days: days)
         let excluded = excluded
-        for task in index.tasks where task.task.isOpen && !excluded.contains(task.path) {
+        let statuses = index.statuses
+        for task in index.tasks where task.task.isOpen(in: statuses) && !excluded.contains(task.path) {
             guard let text = task.task.day, let day = Day(text) else {
-                if task.task.status == "/" { groups.inProgress.append(task) }
+                if statuses.type(task.task.status) == .inProgress { groups.inProgress.append(task) }
                 continue
             }
             if day < today { groups.overdue.append(task) }

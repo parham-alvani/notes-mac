@@ -66,6 +66,8 @@ struct TodayView: View {
                     TaskRow(task: task, color: color) { model.open(task.path, line: task.task.line, store: store) }
                         .contextMenu {
                             Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+                            StatusMenu(task: task, model: model)
+                            Button("Cancel Task…") { model.taskCancel = TaskCancel(task: task) }
                             PostponeMenu(task: task)
                             Button("Open the Note") { model.open(task.path, line: task.task.line, store: store) }
                         }
@@ -212,7 +214,7 @@ struct TaskRow: View {
                 store.toggleTask(path: task.path, line: task.task.line, status: task.task.status)
             } label: {
                 // The phone's squares: open, and in progress with a dot.
-                Image(systemName: task.task.status == "/" ? "square.inset.filled" : "square")
+                Image(systemName: store.index.statuses.type(task.task.status) == .inProgress ? "square.inset.filled" : "square")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(color)
             }
@@ -225,10 +227,14 @@ struct TaskRow: View {
             .accessibilityHint("Completes the task")
             Button(action: open) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.plain(task.task.text))
-                        .lineLimit(2)
-                        .multilineTextAlignment(TextDirection.startsRtl(task.task.text) ? .trailing : .leading)
-                        .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(task.task.text) ? .trailing : .leading)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(Self.plain(task.task.text))
+                            .lineLimit(2)
+                            .multilineTextAlignment(TextDirection.startsRtl(task.task.text) ? .trailing : .leading)
+                            .frame(maxWidth: .infinity, alignment: TextDirection.startsRtl(task.task.text) ? .trailing : .leading)
+                        TaskStatusBadge(status: task.task.status)
+                    }
+                    if let reason = task.task.reason { TaskReasonLabel(reason: reason) }
                     HStack(spacing: 4) {
                         Text(Vault.title(of: task.path)).foregroundStyle(Palette.aqua)
                         if !task.task.section.isEmpty { Text("› \(task.task.section)").foregroundStyle(.secondary) }

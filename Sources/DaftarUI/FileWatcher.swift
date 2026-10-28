@@ -4,6 +4,7 @@ import Foundation
 
 /// The vault's files, watched with FSEvents. Reports vault paths, and only
 /// ones the app reads: a `git` run or a `node_modules` install says nothing.
+/// Of `.obsidian` it reports the Tasks plugin's settings, for the statuses.
 final class FileWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private let base: String
@@ -42,7 +43,7 @@ final class FileWatcher: @unchecked Sendable {
         var changed = Set<String>()
         for path in paths where path.hasPrefix(base) {
             let relative = Slugs.normalize(String(path.dropFirst(base.count)))
-            if !relative.isEmpty, Vault.counts(relative) { changed.insert(relative) }
+            if !relative.isEmpty, Vault.counts(relative) || relative == TaskStatuses.file { changed.insert(relative) }
         }
         if !changed.isEmpty { handler(changed) }
     }

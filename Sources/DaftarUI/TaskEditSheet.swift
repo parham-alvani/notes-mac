@@ -20,10 +20,19 @@ struct TaskEditSheet: View {
     @ViewState private var error: String?
     @FocusState private var focused: Bool
 
-    private static let statuses: [(Character, String, String, Color)] = [
-        (" ", "To do", "square", Palette.accent), ("/", "In progress", "square.inset.filled", Palette.purple),
-        ("x", "Done", "checkmark.square.fill", Palette.green), ("-", "Cancelled", "xmark.square.fill", Palette.red),
-    ]
+    @FocusState private var reasonFocused: Bool
+
+    /// Each status's look by its type; a status of the vault's own is drawn
+    /// as the default of its type, with its name.
+    private static func look(_ type: TaskState) -> (symbol: String, color: Color) {
+        switch type {
+        case .todo: ("square", Palette.accent)
+        case .inProgress: ("square.inset.filled", Palette.purple)
+        case .done: ("checkmark.square.fill", Palette.green)
+        case .cancelled: ("xmark.square.fill", Palette.red)
+        case .nonTask: ("minus.square", Palette.muted)
+        }
+    }
     private static let priorities: [(String?, String, String, Color)] = [
         (nil, "None", "minus", Palette.muted), ("⏬", "Lowest", "chevron.down.2", Palette.blue), ("🔽", "Low", "chevron.down", Palette.blue),
         ("🔼", "Medium", "chevron.up", Palette.accent), ("⏫", "High", "chevron.up.2", Palette.red), ("🔺", "Highest", "exclamationmark.2", Palette.red),
@@ -71,13 +80,29 @@ struct TaskEditSheet: View {
             .focused($focused)
             .accessibilityLabel("Task")
         row("Status") {
-            HStack(spacing: 6) {
-                ForEach(Self.statuses, id: \.0) { status, name, symbol, color in
-                    pill(name, symbol, color, on: fields.status == status) { fields.status = status }
+            // Every status of the vault, which may be more than a row holds.
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(store.index.statuses.all, id: \.symbol) { status in
+                        let look = Self.look(status.type)
+                        pill(status.name, look.symbol, look.color, on: fields.status == status.symbol) { choose(status) }
+                            .help("[\(String(status.symbol))]")
+                    }
                 }
             }
+            .scrollIndicators(.never)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Status")
+        }
+        row("Reason") {
+            TextField(store.index.statuses.isClosed(fields.status) ? "Why it was closed" : "Why it is waiting", text: Binding {
+                fields.reason ?? ""
+            } set: {
+                fields.reason = $0.isEmpty ? nil : $0
+            })
+            .textFieldStyle(.roundedBorder)
+            .focused($reasonFocused)
+            .accessibilityLabel("Reason")
         }
         row("Priority") {
             HStack(spacing: 6) {
@@ -118,6 +143,19 @@ struct TaskEditSheet: View {
                 }
             }
         }
+    }
+
+    /// A new status takes the old reason away, unless one was written here
+    /// already; cancelling asks for the reason in its field.
+    private func choose(_ status: TaskStatus) {
+        guard status.symbol != fields.status else { return }
+        fields.status = status.symbol
+        if status.symbol == before?.status, fields.reason == nil {
+            fields.reason = before?.reason
+        } else if fields.reason == before?.reason {
+            fields.reason = nil
+        }
+        if status.type == .cancelled { reasonFocused = true }
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
@@ -218,5 +256,107 @@ struct PostponeMenu: View {
                 }
             }
         }
+    }
+}
+
+/// "Status": every status of the vault's Tasks plugin by its name and
+/// symbol. A cancelled one asks for the reason first.
+struct StatusMenu: View {
+    var task: VaultTask
+    var model: WindowModel
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        Menu("Status") {
+            ForEach(store.index.statuses.all, id: \.symbol) { status in
+                Toggle(isOn: Binding { task.task.status == status.symbol } set: { _ in choose(status) }) {
+                    Text("\(status.name)  [\(String(status.symbol))]")
+                }
+            }
+        }
+    }
+
+    private func choose(_ status: TaskStatus) {
+        guard status.symbol != task.task.status else { return }
+        if status.type == .cancelled {
+            model.taskCancel = TaskCancel(task: task, status: status.symbol)
+        } else {
+            withMotion(.snappy) { _ = store.setTaskStatus(task, to: status.symbol) }
+        }
+    }
+}
+
+/// A task to cancel, and the cancelled status it takes.
+struct TaskCancel: Identifiable {
+    var task: VaultTask
+    var status: Character = "-"
+    var id: String { task.id }
+}
+
+/// Asks why a task is cancelled before it is: one field, Return cancels the
+/// task (without a reason when it is empty), Escape leaves it as it was.
+struct CancelTaskSheet: View {
+    var request: TaskCancel
+    @Environment(VaultStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @ViewState private var reason = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Cancel Task").font(.title3.weight(.semibold))
+            Text(TaskRow.plain(request.task.task.text)).foregroundStyle(.secondary).lineLimit(2)
+            TextField("Why? (optional)", text: $reason)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .accessibilityLabel("Reason")
+            HStack {
+                Spacer()
+                Button("Don't Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(.glass)
+                Button("Cancel Task") {
+                    withMotion(.snappy) { _ = store.setTaskStatus(request.task, to: request.status, reason: reason) }
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction).buttonStyle(.glassProminent).tint(Palette.red)
+            }
+        }
+        .padding(24)
+        .frame(width: 440)
+        .onAppear {
+            reason = request.task.task.reason ?? ""
+            focused = true
+        }
+    }
+}
+
+/// A status that is not one of the four defaults, by its name: "In Review".
+struct TaskStatusBadge: View {
+    var status: Character
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        let found = store.index.statuses.status(status)
+        if !found.isDefault {
+            Text(found.name)
+                .font(.caption2.weight(.semibold)).foregroundStyle(Palette.purple)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Palette.purple.opacity(0.14), in: Capsule())
+                .lineLimit(1).fixedSize()
+        }
+    }
+}
+
+/// A task's reason under its text, muted, after a speech balloon.
+struct TaskReasonLabel: View {
+    var reason: String
+
+    var body: some View {
+        Label {
+            Text(TaskRow.plain(reason))
+        } icon: {
+            Image(systemName: "text.bubble").accessibilityHidden(true)
+        }
+        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        .accessibilityLabel("Reason: \(TaskRow.plain(reason))")
     }
 }

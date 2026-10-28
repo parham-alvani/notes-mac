@@ -70,6 +70,88 @@ public enum TaskMetadata {
     }
 }
 
+/// The `[reason:: …]` field of a task: why it was cancelled, or why it is
+/// waiting. A Dataview inline field in the description, after the text and
+/// before the signifiers, which the Tasks plugin keeps as part of the text.
+/// The rules are Daftar's on Linux and Android.
+public enum TaskReason {
+    nonisolated(unsafe) private static let key = /(?i)reason[ \t]*::/
+
+    /// The first field in [description]: where it is, and its value, nil
+    /// when empty. The value ends at the `]` that closes the field, so
+    /// `[[links]]` in it stay whole.
+    static func find(_ description: String) -> (range: Range<String.Index>, value: String?)? {
+        guard description.hasMark("::") else { return nil }
+        var from = description.startIndex
+        while let open = description[from...].firstIndex(of: "[") {
+            let after = description.index(after: open)
+            if let found = description[after...].prefixMatch(of: key) {
+                var depth = 1
+                var at = found.range.upperBound
+                while at < description.endIndex {
+                    let character = description[at]
+                    if character == "[" { depth += 1 }
+                    if character == "]" {
+                        depth -= 1
+                        if depth == 0 {
+                            let value = description[found.range.upperBound..<at].trimmingCharacters(in: .whitespaces)
+                            return (open..<description.index(after: at), value.isEmpty ? nil : value)
+                        }
+                    }
+                    at = description.index(after: at)
+                }
+            }
+            from = after
+        }
+        return nil
+    }
+
+    /// [description] as the apps show it, without the field (the spaces
+    /// around it folded into one), and the reason.
+    public static func split(_ description: String) -> (text: String, reason: String?) {
+        guard let found = find(description) else { return (description, nil) }
+        let text = joined(String(description[..<found.range.lowerBound]), String(description[found.range.upperBound...]))
+        return (text.trimmingCharacters(in: .whitespaces), found.value)
+    }
+
+    /// A task's body with its field taken out, the signifiers as they were.
+    /// The description is a prefix of the body, so the field is found there
+    /// and cut from the body at the same place.
+    static func removed(from body: String) -> String {
+        let description = TaskMetadata.split(body).text
+        guard let found = find(description) else { return body }
+        let start = description.utf8.distance(from: description.startIndex, to: found.range.lowerBound)
+        let end = description.utf8.distance(from: description.startIndex, to: found.range.upperBound)
+        let bytes = Array(body.utf8)
+        return joined(String(decoding: bytes[..<start], as: UTF8.self), String(decoding: bytes[end...], as: UTF8.self))
+    }
+
+    private static func joined(_ before: String, _ after: String) -> String {
+        var before = Substring(before), after = Substring(after)
+        while before.last?.isWhitespace ?? false { before.removeLast() }
+        while after.first?.isWhitespace ?? false { after.removeFirst() }
+        return before.isEmpty || after.isEmpty ? String(before) + String(after) : String(before) + " " + String(after)
+    }
+
+    /// [value] as it is written: trimmed, on one line, its square brackets
+    /// turned round when they do not balance, so the field still closes
+    /// where it should. Nil when blank: no field.
+    public static func written(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let line = String(value.map { $0.isNewline || $0 == "\t" ? " " : $0 }).trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty else { return nil }
+        var depth = 0
+        for character in line {
+            if character == "[" { depth += 1 }
+            if character == "]" { depth -= 1 }
+            if depth < 0 { break }
+        }
+        return depth == 0 ? line : String(line.map { $0 == "[" ? "(" : $0 == "]" ? ")" : $0 })
+    }
+
+    static func field(_ value: String) -> String { "[reason:: \(value)]" }
+}
+
 /// One task as it is written in the file, and the edits the app makes to it.
 ///
 /// The rules are Daftar's on Android (`TaskLine.kt`): the done date goes on
@@ -78,8 +160,6 @@ public enum TaskMetadata {
 public enum TaskLine {
     /// `- [ ] `, `* [x] `, `1. [/] `, and the same inside a quote or callout.
     nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+)\[([^\]\n])\]\s*(.*)$/
-
-    public static let closed: Set<Character> = ["x", "X", "-"]
 
     private static let done = "✅"
     private static let cancelledMark = "❌"
@@ -94,13 +174,14 @@ public enum TaskLine {
         guard raw.hasMark("["), let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
         let body = match.3.hasMark("^") ? String(match.3).replacing(blockId, with: "") : String(match.3)
         let split = TaskMetadata.split(body)
+        let described = TaskReason.split(split.text)
         func date(_ emoji: String) -> String? {
             split.meta.first { $0.emoji == emoji }?.value.nilIfEmpty
         }
         let prefix = match.1
         let indent = prefix.prefix { $0 == " " || $0 == "\t" || $0 == ">" }
         return ParsedTask(
-            line: line, status: status, text: split.text, section: section,
+            line: line, status: status, text: described.text, reason: described.reason, section: section,
             created: date("➕"), scheduled: date("⏳"), due: date("📅"), start: date("🛫"),
             done: date(done), cancelled: date(cancelledMark), recurring: date(recur),
             priority: split.meta.first { TaskMetadata.symbols[$0.emoji] == "priority" }?.emoji,
@@ -109,8 +190,9 @@ public enum TaskLine {
 
     /// The line after a click on its checkbox: an open task is completed, and
     /// a closed one is opened again without its done or cancelled date. More
-    /// than one line when a repeating task leaves its next occurrence.
-    public static func toggled(_ raw: String, today: String) -> [String]? {
+    /// than one line when a repeating task leaves its next occurrence. The
+    /// reason went with the old status, so no line keeps it.
+    public static func toggled(_ raw: String, today: String, statuses: TaskStatuses = .current) -> [String]? {
         guard let match = raw.wholeMatch(of: pattern), let status = match.2.first else { return nil }
         let prefix = String(match.1)
         // The block id `^abc` stays the line's last word, on the line it named.
@@ -120,7 +202,8 @@ public enum TaskLine {
             id = " " + found.1
             body = String(body[..<found.range.lowerBound])
         }
-        if closed.contains(status) {
+        body = TaskReason.removed(from: body)
+        if statuses.isClosed(status) {
             let text = body.replacing(/[ \t]*(?:✅|❌)[ \t]*\d{4}-\d{2}-\d{2}/, with: "")
             return [prefix + "[ ] " + text + id]
         }
@@ -290,6 +373,8 @@ extension String {
 public struct TaskFields: Sendable, Equatable {
     public var status: Character = " "
     public var text = ""
+    /// The `[reason:: …]` field's value; nil for none.
+    public var reason: String?
     /// The priority's emoji, 🔺 ⏫ 🔼 🔽 or ⏬; nil for none.
     public var priority: String?
     public var recurring: String?
@@ -314,7 +399,9 @@ extension TaskLine {
         let split = TaskMetadata.split(String(match.3))
         var fields = TaskFields()
         fields.status = status
-        fields.text = split.text
+        let described = TaskReason.split(split.text)
+        fields.text = described.text
+        fields.reason = described.reason
         for meta in split.meta {
             let value = meta.value.isEmpty ? nil : meta.value
             switch meta.emoji {
@@ -337,6 +424,7 @@ extension TaskLine {
     public static func edited(_ raw: String, _ fields: TaskFields) -> String? {
         guard let match = raw.wholeMatch(of: line) else { return nil }
         var parts = [fields.text.trimmingCharacters(in: .whitespaces)]
+        if let reason = TaskReason.written(fields.reason) { parts.append(TaskReason.field(reason)) }
         if let priority = fields.priority { parts.append(priority) }
         if let rule = fields.recurring?.trimmingCharacters(in: .whitespaces), !rule.isEmpty { parts.append("🔁 " + rule) }
         let afterRule = ["🏁", "⛔", "🆔"]
@@ -348,5 +436,40 @@ extension TaskLine {
         }
         for meta in fields.other where !afterRule.contains(meta.emoji) { parts.append("\(meta.emoji) \(meta.value)") }
         return String(match.1) + "[\(fields.status)] " + parts.filter { !$0.isEmpty }.joined(separator: " ") + (match.4.map(String.init) ?? "")
+    }
+}
+
+extension TaskLine {
+    /// The lines [raw] becomes when its status is set to [status], from a
+    /// status menu or a board column. To a done status from an open one it
+    /// is the tick, recurrence and all; else the ✅ and ❌ dates follow the
+    /// new status's type. The old reason goes, unless [reason] gives a new
+    /// one. Nil when nothing changes.
+    public static func settingStatus(_ raw: String, to status: Character, reason: String? = nil, today: Day,
+                                     statuses: TaskStatuses = .current) -> [String]? {
+        guard var fields = TaskLine.fields(raw) else { return nil }
+        let reason = TaskReason.written(reason)
+        if status == fields.status {
+            guard let reason, reason != fields.reason else { return nil }
+            fields.reason = reason
+            return edited(raw, fields).map { [$0] }
+        }
+        let was = statuses.type(fields.status), now = statuses.type(status)
+        if now == .done, !was.isFinished {
+            guard var lines = toggled(raw, today: today.description, statuses: statuses) else { return nil }
+            // The completed copy is the last line; it takes the status chosen.
+            let last = lines.count - 1
+            if status != "x" || reason != nil, var done = TaskLine.fields(lines[last]) {
+                done.status = status
+                done.reason = reason
+                lines[last] = edited(lines[last], done) ?? lines[last]
+            }
+            return lines
+        }
+        fields.status = status
+        fields.done = now == .done ? (was == .done ? fields.done : today.description) : nil
+        fields.cancelled = now == .cancelled ? (was == .cancelled ? fields.cancelled : today.description) : nil
+        fields.reason = reason
+        return edited(raw, fields).map { [$0] }
     }
 }
