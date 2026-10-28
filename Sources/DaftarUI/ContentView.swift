@@ -239,12 +239,27 @@ struct TabbedWindow: NSViewRepresentable {
             guard let window = view.window else { return }
             window.tabbingMode = .preferred
             window.tabbingIdentifier = "daftar.main"
+            TabbedWindow.join(window)
             coordinator.watch(window)
         }
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) { context.coordinator.model = model }
+
+    /// The Daftar window last in front, which a new window joins as a tab.
+    @MainActor private static weak var lastKey: NSWindow?
+
+    /// The tabbing mode is set only once the window is on screen, too late
+    /// for AppKit to make it a tab: on macOS 27 ⌘T opened a window, in full
+    /// screen a Space of its own. So the window joins the tabs of the one
+    /// last in front; the order of `NSApp.orderedWindows` across Spaces
+    /// named a tab behind the full screen one.
+    static func join(_ window: NSWindow) {
+        guard (window.tabbedWindows?.count ?? 1) <= 1, let front = lastKey, front !== window, front.isVisible else { return }
+        front.addTabbedWindow(window, ordered: .above)
+        window.makeKeyAndOrderFront(nil)
+    }
 
     @MainActor
     final class Coordinator {
@@ -254,9 +269,13 @@ struct TabbedWindow: NSViewRepresentable {
         func watch(_ window: NSWindow) {
             // The first window counts as in front until another one is.
             if window.isKeyWindow || ActiveWindow.shared.model == nil { ActiveWindow.shared.model = model }
+            if window.isKeyWindow || TabbedWindow.lastKey == nil { TabbedWindow.lastKey = window }
             token = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) {
-                [weak self] _ in
-                MainActor.assumeIsolated { ActiveWindow.shared.model = self?.model }
+                [weak self, weak window] _ in
+                MainActor.assumeIsolated {
+                    ActiveWindow.shared.model = self?.model
+                    TabbedWindow.lastKey = window
+                }
             }
         }
 
