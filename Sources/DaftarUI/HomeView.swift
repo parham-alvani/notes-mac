@@ -186,8 +186,15 @@ struct HomeView: View {
 
     private func quoteCard(_ quote: Beautitab.Quote) -> some View {
         VStack(spacing: 6) {
-            Text("“\(quote.text)”").font(.title3).italic()
-            if !quote.author.isEmpty { Text("— " + quote.author).font(.callout).foregroundStyle(.secondary) }
+            // Each line in its own direction: in a left-to-right line, the
+            // marks of a Persian quote land at the wrong ends. Persian has
+            // no italic, so it stays upright.
+            Text(quote.quoted).font(.title3).italic(!quote.isRtl)
+                .environment(\.layoutDirection, quote.isRtl ? .rightToLeft : .leftToRight)
+            if !quote.author.isEmpty {
+                Text("— " + quote.author).font(.callout).foregroundStyle(.secondary)
+                    .environment(\.layoutDirection, TextDirection.startsRtl(quote.author) ? .rightToLeft : .leftToRight)
+            }
         }
         .multilineTextAlignment(.center)
         .padding(18)

@@ -41,6 +41,17 @@ import Testing
         #expect(!empty.showQuote)
     }
 
+    @Test func aQuoteTakesTheMarksOfItsScript() {
+        let persian = Beautitab.Quote(text: "خورشید درست وقتی از دست می رود ….")
+        #expect(persian.isRtl)
+        #expect(persian.quoted == "«خورشید درست وقتی از دست می رود ….»")
+        let english = Beautitab.Quote(text: "Less, but better.")
+        #expect(!english.isRtl)
+        #expect(english.quoted == "“Less, but better.”")
+        // The first letter decides, as in a note's lines.
+        #expect(Beautitab.Quote(text: "Git یعنی").quoted == "“Git یعنی”")
+    }
+
     @Test func theGreetingFollowsTheHour() {
         #expect(Home.greeting("", hour: 6) == "Good morning")
         #expect(Home.greeting("", hour: 12) == "Good afternoon")

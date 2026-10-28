@@ -13,6 +13,14 @@ public struct Beautitab: Sendable, Equatable {
             self.text = text
             self.author = author
         }
+
+        /// True when the quote reads right to left, by its first strong letter.
+        public var isRtl: Bool { TextDirection.startsRtl(text) }
+
+        /// The text in its own script's quotation marks: «…» for Persian,
+        /// “…” for the rest. In a line of the text's own direction, the
+        /// opening mark is at the side where the reading starts.
+        public var quoted: String { isRtl ? "«\(text)»" : "“\(text)”" }
     }
 
     public var showTime = true
