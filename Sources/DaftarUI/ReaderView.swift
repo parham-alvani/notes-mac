@@ -384,7 +384,8 @@ extension ReaderView.Coordinator {
     func runQuery(_ source: String, in path: String) -> [String: Any] {
         let index = parent.store.index
         let query = TasksQuery.parse(source, file: path)
-        let found = query.run(index.tasksInOrder, today: .today()) { QueryTask($0) }
+        let statuses = index.statuses
+        let found = query.run(index.tasksInOrder, today: .today()) { QueryTask($0, statuses: statuses) }
         var links: [String: String] = [:]
         let tasks: [[String: Any]] = found.map { task in
             for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
@@ -392,8 +393,13 @@ extension ReaderView.Coordinator {
             }
             var row: [String: Any] = [
                 "path": task.path, "line": task.task.line, "status": String(task.task.status),
-                "text": task.task.text, "title": Vault.title(of: task.path), "groups": query.groups(of: QueryTask(task)),
+                "text": task.task.text, "title": Vault.title(of: task.path), "groups": query.groups(of: QueryTask(task, statuses: statuses)),
+                "closed": statuses.isClosed(task.task.status),
             ]
+            // A status of the vault's own is named; the reason follows the text.
+            let status = statuses.status(task.task.status)
+            if !status.isDefault { row["statusName"] = status.name }
+            row["reason"] = task.task.reason
             row["due"] = task.task.due
             row["scheduled"] = task.task.scheduled
             row["done"] = task.task.done

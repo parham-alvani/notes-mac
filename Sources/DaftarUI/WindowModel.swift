@@ -197,6 +197,8 @@ final class WindowModel {
     }
     /// The task whose edit form is open.
     var taskEdit: TaskRef?
+    /// The task being cancelled, while its reason is asked for.
+    var taskCancel: TaskCancel?
     /// After an extract: puts the new note's link where the selection was.
     @ObservationIgnored var extractReplace: ((String) -> Void)?
     var inspector = true

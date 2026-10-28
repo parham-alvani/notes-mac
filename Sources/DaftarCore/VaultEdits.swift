@@ -14,29 +14,40 @@ public enum VaultEdits {
 
     /// Ticks or opens the task on [line] of [text]. [status] is what the view
     /// showed, which the line must still hold.
-    public static func toggleTask(in text: String, line: Int, status: Character, today: Day) throws -> String {
+    public static func toggleTask(in text: String, line: Int, status: Character, today: Day, statuses: TaskStatuses = .current) throws -> String {
         var lines = text.components(separatedBy: "\n")
         guard line >= 0, line < lines.count else { throw Failure.taskMoved }
         let raw = lines[line]
         let crlf = raw.hasSuffix("\r")
         let clean = crlf ? String(raw.dropLast()) : raw
         guard let task = TaskLine.parse(clean, line: line, section: ""), task.status == status,
-            let replacement = TaskLine.toggled(clean, today: today.description)
+            let replacement = TaskLine.toggled(clean, today: today.description, statuses: statuses)
         else { throw Failure.taskMoved }
         lines.replaceSubrange(line...line, with: replacement.map { crlf ? $0 + "\r" : $0 })
         return lines.joined(separator: "\n")
     }
 
     /// The task on [line] of [text] written from [fields]. [before] is the
-    /// task the form was opened on, which the line must still hold.
-    public static func editTask(in text: String, line: Int, before: TaskFields, fields: TaskFields) throws -> String {
+    /// task the form was opened on, which the line must still hold. A new
+    /// status is set as a status menu sets it (`TaskLine.settingStatus`),
+    /// with the form's reason.
+    public static func editTask(in text: String, line: Int, before: TaskFields, fields: TaskFields, today: Day = .today(),
+                                statuses: TaskStatuses = .current) throws -> String {
         var lines = text.components(separatedBy: "\n")
         guard line >= 0, line < lines.count else { throw Failure.taskMoved }
         let raw = lines[line]
         let crlf = raw.hasSuffix("\r")
         let clean = crlf ? String(raw.dropLast()) : raw
-        guard TaskLine.fields(clean) == before, let replacement = TaskLine.edited(clean, fields) else { throw Failure.taskMoved }
-        lines[line] = crlf ? replacement + "\r" : replacement
+        var kept = fields
+        kept.status = before.status
+        guard TaskLine.fields(clean) == before, let written = TaskLine.edited(clean, kept) else { throw Failure.taskMoved }
+        var replacement = [written]
+        if fields.status != before.status,
+            let changed = TaskLine.settingStatus(written, to: fields.status, reason: fields.reason, today: today, statuses: statuses)
+        {
+            replacement = changed
+        }
+        lines.replaceSubrange(line...line, with: replacement.map { crlf ? $0 + "\r" : $0 })
         return lines.joined(separator: "\n")
     }
 

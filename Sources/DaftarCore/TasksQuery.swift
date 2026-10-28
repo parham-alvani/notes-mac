@@ -1,28 +1,37 @@
 import Foundation
 
-/// The four states the Tasks plugin knows a task by.
-public enum TaskState: Sendable, Equatable {
-    case todo, inProgress, done, cancelled
+/// The types the Tasks plugin gives a status: what it means, whatever its
+/// symbol and name.
+public enum TaskState: Sendable, Equatable, Hashable {
+    case todo, inProgress, done, cancelled, nonTask
 
+    /// The type of [status] among the four defaults.
     public init(status: Character) {
-        self = switch status {
-        case "x", "X": .done
-        case "-": .cancelled
-        case "/": .inProgress
-        // The plugin treats a status it does not know as still to do.
-        default: .todo
+        self = TaskStatuses.defaults.type(status)
+    }
+
+    /// The plugin's own word: `TODO`, `IN_PROGRESS`, `DONE`, `CANCELLED`, `NON_TASK`.
+    public init?(type: String) {
+        switch type {
+        case "TODO": self = .todo
+        case "IN_PROGRESS": self = .inProgress
+        case "DONE": self = .done
+        case "CANCELLED": self = .cancelled
+        case "NON_TASK": self = .nonTask
+        default: return nil
         }
     }
 
-    /// Ticked or cancelled: no longer to be done.
-    public var isFinished: Bool { self == .done || self == .cancelled }
+    /// Ticked, cancelled, or not a task: no longer to be done.
+    public var isFinished: Bool { self == .done || self == .cancelled || self == .nonTask }
 
-    var type: String {
+    public var type: String {
         switch self {
         case .todo: "TODO"
         case .inProgress: "IN_PROGRESS"
         case .done: "DONE"
         case .cancelled: "CANCELLED"
+        case .nonTask: "NON_TASK"
         }
     }
 
@@ -32,14 +41,29 @@ public enum TaskState: Sendable, Equatable {
         case .inProgress: "In Progress"
         case .done: "Done"
         case .cancelled: "Cancelled"
+        case .nonTask: "Non-task"
+        }
+    }
+
+    /// The symbol a status of this type has among the defaults.
+    var symbol: Character {
+        switch self {
+        case .todo: " "
+        case .inProgress: "/"
+        case .done: "x"
+        case .cancelled: "-"
+        case .nonTask: "~"
         }
     }
 }
 
 /// One task as a ` ```tasks ` query sees it.
 public struct QueryTask: Sendable, Equatable {
+    /// The description, without its reason.
     public var text: String
-    public var state: TaskState
+    /// The status from the vault's settings: `[r]` is "In Review", in progress.
+    public var status: TaskStatus
+    public var reason: String?
     /// The note's path inside the vault, `Folder/Note.md`.
     public var path: String
     /// The heading above the task.
@@ -49,9 +73,12 @@ public struct QueryTask: Sendable, Equatable {
     public var done: String?
     public var recurring: String?
 
-    public init(_ task: VaultTask) {
+    public var state: TaskState { status.type }
+
+    public init(_ task: VaultTask, statuses: TaskStatuses = .current) {
         text = task.task.text
-        state = TaskState(status: task.task.status)
+        status = statuses.status(task.task.status)
+        reason = task.task.reason
         path = task.path
         section = task.task.section
         due = task.task.due
@@ -61,9 +88,10 @@ public struct QueryTask: Sendable, Equatable {
     }
 
     public init(text: String, state: TaskState, path: String, section: String = "", due: String? = nil,
-                scheduled: String? = nil, done: String? = nil, recurring: String? = nil) {
+                scheduled: String? = nil, done: String? = nil, recurring: String? = nil, reason: String? = nil, status: TaskStatus? = nil) {
         self.text = text
-        self.state = state
+        self.status = status ?? TaskStatus(symbol: state.symbol, name: state.name, next: " ", type: state)
+        self.reason = reason
         self.path = path
         self.section = section
         self.due = due
@@ -232,17 +260,31 @@ public struct TasksQuery: Sendable {
         case "not done": return { task, _ in !task.state.isFinished }
         case "is recurring": return { task, _ in task.recurring != nil }
         case "is not recurring": return { task, _ in task.recurring == nil }
+        case "has reason": return { task, _ in task.reason != nil }
+        case "no reason": return { task, _ in task.reason == nil }
         default: break
         }
-        if let match = text.wholeMatch(of: /(?i)status\.type is( not)? (todo|in[_ ]progress|done|cancelled)/) {
-            let wanted: TaskState = switch match.2.lowercased().replacingOccurrences(of: " ", with: "_") {
-            case "todo": .todo
-            case "in_progress": .inProgress
-            case "done": .done
-            default: .cancelled
-            }
+        if let match = text.wholeMatch(of: /(?i)status\.type is( not)? (todo|in[_ ]progress|done|cancelled|non[_ ]task)/) {
+            let wanted = TaskState(type: match.2.uppercased().replacingOccurrences(of: " ", with: "_")) ?? .todo
             let negate = match.1 != nil
             return { task, _ in (task.state == wanted) != negate }
+        }
+        if let match = text.wholeMatch(of: /(?i)status\.name (is not|is|includes|does not include)\s+(.+)/) {
+            let relation = match.1.lowercased()
+            let value = String(match.2).trimmingCharacters(in: .whitespaces)
+            return { task, _ in
+                switch relation {
+                case "is": task.status.name.caseInsensitiveCompare(value) == .orderedSame
+                case "is not": task.status.name.caseInsensitiveCompare(value) != .orderedSame
+                case "includes": task.status.name.localizedCaseInsensitiveContains(value)
+                default: !task.status.name.localizedCaseInsensitiveContains(value)
+                }
+            }
+        }
+        if let match = text.wholeMatch(of: /(?i)reason (includes|does not include)\s+(.+)/) {
+            let negate = match.1.lowercased().hasPrefix("does not")
+            let value = String(match.2).trimmingCharacters(in: .whitespaces)
+            return { task, _ in (task.reason ?? "").localizedCaseInsensitiveContains(value) != negate }
         }
         if let match = text.wholeMatch(of: /(?i)(has|no) (due|scheduled|done|happens) date/), let field = dateField(String(match.2)) {
             let wantsOne = match.1.lowercased() == "has"

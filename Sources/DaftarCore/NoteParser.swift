@@ -38,8 +38,11 @@ public struct Link: Sendable, Equatable, Hashable {
 public struct ParsedTask: Sendable, Equatable, Hashable {
     public var line: Int
     public var status: Character
-    /// The sentence, without the Tasks plugin's trailing emoji.
+    /// The sentence, without the Tasks plugin's trailing emoji and without
+    /// its `[reason:: …]` field.
     public var text: String
+    /// Why it was cancelled or is waiting: the `[reason:: …]` field.
+    public var reason: String?
     /// The nearest heading above it, which in this vault is the project.
     public var section: String
     public var created: String?
@@ -53,8 +56,10 @@ public struct ParsedTask: Sendable, Equatable, Hashable {
     /// Indented under another item.
     public var nested: Bool
 
-    /// Still to do: open or in progress.
-    public var isOpen: Bool { !TaskLine.closed.contains(status) }
+    /// Still to do: open or in progress, by the vault's statuses.
+    public var isOpen: Bool { isOpen(in: .current) }
+
+    public func isOpen(in statuses: TaskStatuses) -> Bool { !statuses.isClosed(status) }
 
     /// The day the task belongs to: due, else scheduled.
     public var day: String? { due ?? scheduled }

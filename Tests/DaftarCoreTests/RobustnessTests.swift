@@ -88,6 +88,23 @@ import Testing
         }
     }
 
+    @Test func reasonsAndStatusesFromAnyText() {
+        var random = Seeded(state: 21)
+        let raw = "- [ ] Task 📅 2026-10-26 ^abc"
+        for _ in 0..<2000 {
+            let value = Self.text(&random, pieces: 5)
+            _ = TaskReason.split(Self.text(&random, pieces: 6) + " [reason:: " + value)
+            _ = TaskStatuses(json: Data(Self.text(&random, pieces: 8).utf8))
+            // Any reason written reads back as written, and leaves the rest as it was.
+            guard var fields = TaskLine.fields(raw) else { continue }
+            fields.reason = value
+            let edited = TaskLine.edited(raw, fields) ?? ""
+            let back = TaskLine.fields(edited)
+            #expect(back?.reason == TaskReason.written(value), "\(value)")
+            #expect(back?.text == "Task" && back?.due == "2026-10-26" && edited.hasSuffix(" ^abc"), "\(value)")
+        }
+    }
+
     @Test func datesAndRulesFromAnyText() {
         var random = Seeded(state: 4)
         for _ in 0..<3000 {

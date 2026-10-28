@@ -71,6 +71,7 @@ struct ContentView: View {
         .sheet(item: $model.taskEdit) { task in
             TaskEditSheet(task: task)
         }
+        .sheet(item: $model.taskCancel) { CancelTaskSheet(request: $0) }
         .sheet(item: $model.fileAction) { action in
             FileActionSheet(action: action, model: model)
         }

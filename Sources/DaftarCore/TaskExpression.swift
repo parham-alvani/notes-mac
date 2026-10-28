@@ -50,7 +50,9 @@ public struct TaskExpression: Sendable {
     static func property(_ path: String) -> Node? {
         switch path {
         case "status.type": { .string($0.state.type) }
-        case "status.name": { .string($0.state.name) }
+        case "status.name": { .string($0.status.name) }
+        case "status.symbol": { .string(String($0.status.symbol)) }
+        case "reason": { $0.reason.map(Value.string) ?? .null }
         case "description": { .string($0.text) }
         case "heading": { $0.section.trimmingCharacters(in: .whitespaces).isEmpty ? .null : .string($0.section) }
         case "hasHeading": { .bool(!$0.section.trimmingCharacters(in: .whitespaces).isEmpty) }
