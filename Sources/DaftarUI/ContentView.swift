@@ -241,12 +241,15 @@ struct TabbedWindow: NSViewRepresentable {
             // A window that is to be a tab stays unseen until it is one,
             // or it shows as a window first. It joins once SwiftUI has
             // put it on screen: joined before, it kept a frame of its own.
-            let hidden = TabbedWindow.willJoin(window)
-            if hidden { window.alphaValue = 0 }
+            // It joins the window in front now, which it can replace as
+            // the one in front before then.
+            let front = TabbedWindow.front(for: window)
+            if front != nil { window.alphaValue = 0 }
+            coordinator.watch(window)
             DispatchQueue.main.async {
-                TabbedWindow.join(window)
-                if hidden { window.alphaValue = 1 }
-                coordinator.watch(window)
+                guard let front else { return }
+                TabbedWindow.join(window, to: front)
+                window.alphaValue = 1
             }
         }
         return view
@@ -273,16 +276,17 @@ struct TabbedWindow: NSViewRepresentable {
     /// a window, in full screen a Space of its own. So the window joins the
     /// tabs of the one last in front; the order of `NSApp.orderedWindows`
     /// across Spaces named a tab behind the full screen one.
-    static func join(_ window: NSWindow) {
-        guard willJoin(window), let front = lastKey else { return }
+    static func join(_ window: NSWindow, to front: NSWindow) {
+        guard (window.tabbedWindows?.count ?? 1) <= 1, front.isVisible else { return }
         front.addTabbedWindow(window, ordered: .above)
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// True when [window] is alone and another window is there to join.
-    static func willJoin(_ window: NSWindow) -> Bool {
-        guard (window.tabbedWindows?.count ?? 1) <= 1, let front = lastKey else { return false }
-        return front !== window && front.isVisible
+    /// The window [window] joins as a tab: the one last in front, when
+    /// [window] is alone and that one is on screen.
+    static func front(for window: NSWindow) -> NSWindow? {
+        guard (window.tabbedWindows?.count ?? 1) <= 1, let front = lastKey, front !== window, front.isVisible else { return nil }
+        return front
     }
 
     @MainActor
