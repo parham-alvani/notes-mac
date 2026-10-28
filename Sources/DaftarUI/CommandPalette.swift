@@ -280,7 +280,9 @@ struct CommandPaletteView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 2) {
-                        ForEach(Array(results.enumerated()), id: \.element.command.id) { index, result in
+                        // A row is its place in the list, as `.id(index)` below says: with a
+                        // second identity, the result, macOS 27 left old rows on screen.
+                        ForEach(Array(results.enumerated()), id: \.offset) { index, result in
                             row(result.command, positions: result.positions, chosen: index == selected)
                                 .onTapGesture { selected = index; run(results) }
                                 .accessibilityRow(

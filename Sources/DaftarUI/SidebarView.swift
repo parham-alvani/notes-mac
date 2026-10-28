@@ -762,7 +762,9 @@ struct QuickOpenView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(Array(results.enumerated()), id: \.element) { index, row in
+                            // A row is its place in the list, as `.id(index)` below says: with a
+                            // second identity, the result, macOS 27 left old rows on screen.
+                            ForEach(Array(results.enumerated()), id: \.offset) { index, row in
                                 let chosen = index == selected
                                 let (title, folder, marks) = labels(row)
                                 HStack(spacing: 10) {
