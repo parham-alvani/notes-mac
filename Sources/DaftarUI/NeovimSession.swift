@@ -18,6 +18,9 @@ final class NeovimSession {
     private var mirror = BufferMirror(lines: [""])
     private var listen: Task<Void, Never>?
     private var saveSoon: Task<Void, Never>?
+    /// What was typed or pasted before Neovim ran, sent once it does: a note
+    /// opened and typed into at once loses nothing.
+    private var waiting: [(method: String, params: [MessagePackValue])] = []
     private(set) var state = State.starting
     private(set) var mode = "n"
     /// The command line or the last message, for the bar under the text.
@@ -79,13 +82,7 @@ final class NeovimSession {
             ]])
             let channel = try await client.request("nvim_get_api_info").arrayValue?.first?.intValue ?? 0
             try await client.request("nvim_exec_lua", ["vim.cmd.edit(vim.fn.fnameescape(...))", [.string(path)]])
-            let lines = try await client.request("nvim_buf_get_lines", [0, 0, -1, false]).arrayValue?.compactMap(\.stringValue) ?? []
-            let eol = try await client.request("nvim_get_option_value", ["eol", [:]]).boolValue ?? true
-            mirror = BufferMirror(lines: lines, endsWithNewline: eol)
-            if let view, view.string != mirror.text {
-                view.applyRemote(NSRange(location: 0, length: (view.string as NSString).length), mirror.text)
-            }
-            try await client.request("nvim_buf_attach", [0, false, [:]])
+            try await takeBuffer()
             try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel))]])
             // Normal mode's keys on the Persian layout too, unless the person's config sets a langmap.
             let langmap = Self.keyboardLangmap()
@@ -97,6 +94,8 @@ final class NeovimSession {
                 startOffset = nil
                 go(to: offset)
             }
+            for (method, params) in waiting { client.notify(method, params) }
+            waiting = []
         } catch {
             state = .failed(String(describing: error))
             status = "Neovim did not start: \(error)"
@@ -148,6 +147,19 @@ final class NeovimSession {
         }
     }
 
+    /// Listens to the buffer's lines, and takes all of them: the view shows
+    /// the buffer as it is now. The lines are read after the attach, so an
+    /// edit between the two is in them, and every event after them follows.
+    private func takeBuffer() async throws {
+        try await client.request("nvim_buf_attach", [0, false, [:]])
+        let lines = try await client.request("nvim_buf_get_lines", [0, 0, -1, false]).arrayValue?.compactMap(\.stringValue) ?? []
+        let eol = try await client.request("nvim_get_option_value", ["eol", [:]]).boolValue ?? true
+        mirror = BufferMirror(lines: lines, endsWithNewline: eol)
+        if let view, view.string != mirror.text {
+            view.applyRemote(NSRange(location: 0, length: (view.string as NSString).length), mirror.text)
+        }
+    }
+
     /// The autocommands that tell the view where the cursor is and what mode
     /// Neovim is in, and that it wrote the file.
     private static let setup = """
@@ -179,6 +191,15 @@ final class NeovimSession {
             view?.applyRemote(edit.range, edit.text)
             onRemoteEdit?()
             scheduleSave()
+        case "nvim_buf_detach_event":
+            // Neovim read the file again -- a sync, a pull, another app --
+            // and stopped sending the buffer's lines: the view takes the
+            // buffer anew, or it stays as it was while Neovim edits.
+            guard case .running = state else { return }
+            Task {
+                try? await takeBuffer()
+                onRemoteEdit?()
+            }
         case "daftar_cursor":
             guard note.params.count >= 5, let row = note.params[1].intValue, let col = note.params[2].intValue else { return }
             let wasInserting = !isNormal
@@ -273,13 +294,20 @@ final class NeovimSession {
     // MARK: To Neovim
 
     func input(_ keys: String) {
-        guard case .running = state else { return }
-        client.notify("nvim_input", [.string(keys)])
+        send("nvim_input", [.string(keys)])
     }
 
     func paste(_ text: String) {
-        guard case .running = state else { return }
-        client.notify("nvim_paste", [.string(text), true, -1])
+        send("nvim_paste", [.string(text), true, -1])
+    }
+
+    /// Now, or once Neovim runs.
+    private func send(_ method: String, _ params: [MessagePackValue]) {
+        switch state {
+        case .running: client.notify(method, params)
+        case .starting: waiting.append((method, params))
+        case .failed, .ended: break
+        }
     }
 
     /// A click in the view moves Neovim's cursor there.
