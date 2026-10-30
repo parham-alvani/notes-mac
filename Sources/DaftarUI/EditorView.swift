@@ -18,6 +18,8 @@ struct EditorView: NSViewRepresentable {
     var onHeadingsRenamed: ((HeadingRename.Change) -> Void)?
     /// The outline asked for a heading.
     var jump: EditorJump?
+    /// Neovim quit on its own -- `:wq`, `:q`, `ZZ` -- and the pane reads again.
+    var onQuit: (() -> Void)?
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
@@ -34,6 +36,7 @@ struct EditorView: NSViewRepresentable {
         if let line { context.coordinator.go(toLine: line) }
         context.coordinator.onExtract = onExtract
         context.coordinator.onHeadingsRenamed = onHeadingsRenamed
+        context.coordinator.onQuit = onQuit
         context.coordinator.lastJump = jump
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return container
@@ -44,6 +47,7 @@ struct EditorView: NSViewRepresentable {
         controller.onExtract = onExtract
         controller.onCursor = onCursor
         controller.onHeadingsRenamed = onHeadingsRenamed
+        controller.onQuit = onQuit
         if controller.path != path {
             controller.saveNow()
             controller.load(path)
@@ -93,6 +97,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
     var onHeadingsRenamed: ((HeadingRename.Change) -> Void)?
+    var onQuit: (() -> Void)?
     /// The headings at the last look, to find one renamed; the start of the
     /// heading line the cursor is on; the outline's last jump.
     var headingBaseline: [Heading] = []
@@ -229,7 +234,16 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let session else { return container?.setStatus(nil, mode: nil) ?? () }
         switch session.state {
         case .failed(let message): container?.setStatus(message, mode: "NEOVIM")
-        case .ended: container?.setStatus("Neovim ended. Open the note again to start it.", mode: "NEOVIM")
+        case .ended:
+            // `:wq`, `:q` and `ZZ` mean "done" to a Vim hand: the note is
+            // read again, and the next edit starts a new Neovim. Neovim
+            // wrote what `:w` asked for; nothing is written after it.
+            if let onQuit {
+                stopVim(writing: false)
+                onQuit()
+                return
+            }
+            container?.setStatus("Neovim ended. Open the note again to start it.", mode: "NEOVIM")
         case .starting: container?.setStatus("Starting Neovim…", mode: "NEOVIM")
         case .running: container?.setStatus(session.status, mode: session.modeName)
         }

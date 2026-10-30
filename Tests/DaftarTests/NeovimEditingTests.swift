@@ -179,4 +179,15 @@ import Testing
         await settle(session, "item 10\n", "ctrl-a")
         await session.stop()
     }
+
+    @Test func quittingNeovimGoesBackToReading() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}:wq\r")
+        #expect(await eventually { quit == 1 })
+        #expect(file() == "ab\n")
+        #expect(controller.session == nil)
+        _ = session
+    }
 }
