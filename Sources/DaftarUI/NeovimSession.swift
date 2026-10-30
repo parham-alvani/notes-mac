@@ -177,9 +177,31 @@ final class NeovimSession {
         end
         vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'ModeChanged', 'BufEnter' }, { group = group, callback = send })
         -- zz, <C-e>, <C-d> and the rest move the window: the view follows.
-        vim.api.nvim_create_autocmd('WinScrolled', { group = group, callback = function()
-          vim.rpcnotify(chan, 'daftar_scroll', vim.fn.line('w0'))
-        end })
+        -- Neovim's lines are not the view's (a heading or code is another
+        -- height), so a window that moved for any other key -- j, u, G, a
+        -- search -- is not followed: the view keeps the cursor in sight by
+        -- itself, and does not jump to where Neovim's top is.
+        local scrolls = { ['\\5'] = true, ['\\25'] = true, ['\\4'] = true, ['\\21'] = true, ['\\6'] = true, ['\\2'] = true }
+        -- zz, zt and zb say where the cursor's line goes, and the view puts
+        -- it there by its own lines; the others move by Neovim's window.
+        local zs = { z = 'middle', ['.'] = 'middle', t = 'top', ['\\r'] = 'top', b = 'bottom', ['-'] = 'bottom' }
+        local function follow(place)
+          vim.schedule(function() vim.rpcnotify(chan, 'daftar_scroll', vim.fn.line('w0'), place or '') end)
+        end
+        local last = ''
+        vim.on_key(function(_, typed)
+          if typed == nil or typed == '' then return end
+          local mode = vim.api.nvim_get_mode().mode:sub(1, 1)
+          if mode == 'i' or mode == 'R' or mode == 'c' then
+            last = ''
+          elseif last == 'z' and zs[typed] then
+            last = ''
+            follow(zs[typed])
+          else
+            last = typed
+            if scrolls[typed] then follow() end
+          end
+        end, vim.api.nvim_create_namespace('daftar'))
         vim.o.autoread = true
         send()
         """
@@ -232,7 +254,11 @@ final class NeovimSession {
             onChange?()
         case "daftar_scroll":
             guard let top = note.params.first?.intValue else { return }
-            view?.follow(top: mirror.offset(row: top, byteColumn: 0))
+            if note.params.count > 1, let place = NoteTextView.Place(rawValue: note.params[1].stringValue ?? "") {
+                view?.place(place)
+            } else {
+                view?.follow(top: mirror.offset(row: top, byteColumn: 0))
+            }
         case "redraw":
             redraw(note.params)
         default:

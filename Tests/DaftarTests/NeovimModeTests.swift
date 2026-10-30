@@ -121,6 +121,44 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// An edit and its undo keep the view where it is, with the cursor in
+    /// sight. On screen the view jumped after them -- to Neovim's window, or
+    /// where TextKit's layout scrolled it; a window off screen does neither,
+    /// so this holds what stays still, and the jump itself is checked in the app.
+    @Test func anEditAndItsUndoKeepTheViewWhereItIs() async throws {
+        let sections = (1...40).map {
+            "## Section \($0)\n\nParagraph \($0) is a long line of prose that wraps on the screen more than once, so the layout has work to do.\n\n```python\ndef f\($0)(x):\n    return x * 2\n```\n"
+        }
+        let text = sections.joined(separator: "\n")
+        try text.write(to: root.appending(path: "Code.md"), atomically: true, encoding: .utf8)
+        // In a window on screen, far off it: TextKit lays out the viewport
+        // only for a window that shows.
+        window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        controller.load("Code.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        let target = (text as NSString).range(of: "    return x * 2", options: [], range: NSRange(location: (text as NSString).range(of: "def f20(").location, length: 200)).location + 4
+        for key in ["/", "f", "2", "0", "(", "\r", "j", "z", "z"] { press(key) }
+        #expect(await eventually { view.selectedRange().location == target })
+        try await Task.sleep(for: .milliseconds(600))
+        let before = clip.bounds.origin.y
+        for key in ["o", "x", "y", "\u{1B}"] { press(key) }
+        #expect(await eventually { view.string.contains("    xy\n```") })
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(abs(clip.bounds.origin.y - before) < 2)
+        press("u")
+        #expect(await eventually { view.string == text })
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(abs(clip.bounds.origin.y - before) < 2)
+        // The cursor is on screen.
+        let cursor = try #require(view.lineRect(at: view.selectedRange().location))
+        #expect(cursor.minY >= clip.bounds.minY && cursor.maxY <= clip.bounds.maxY)
+        await session.stop()
+    }
+
     @Test func visualBlockSelectsAColumnOnEachRow() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)

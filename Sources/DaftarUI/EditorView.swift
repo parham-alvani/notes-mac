@@ -552,6 +552,89 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         return [.font: Fonts.text(size: fontSize), .foregroundColor: NSPalette.text, .paragraphStyle: paragraph]
     }
 
+    /// A table's lines in the code font, so that the columns a formatter
+    /// padded line up, with the pipes faint. Not in a code block.
+    private func lineUpTables(in range: NSRange, of storage: NSTextStorage, text: NSString, mono: NSFont) {
+        text.enumerateSubstrings(in: text.lineRange(for: range), options: [.byLines, .substringNotRequired]) { _, line, _, _ in
+            guard line.length > 1, storage.attribute(NoteTextView.codeBlock, at: line.location, effectiveRange: nil) == nil else { return }
+            var at = line.location
+            while at < NSMaxRange(line), [32, 9].contains(text.character(at: at)) { at += 1 }
+            guard at < NSMaxRange(line), text.character(at: at) == 124,
+                text.range(of: "|", options: .literal, range: NSRange(location: at + 1, length: NSMaxRange(line) - at - 1)).location != NSNotFound
+            else { return }
+            storage.addAttribute(.font, value: mono, range: line)
+            var from = line.location
+            while from < NSMaxRange(line) {
+                let pipe = text.range(of: "|", options: .literal, range: NSRange(location: from, length: NSMaxRange(line) - from))
+                guard pipe.location != NSNotFound else { break }
+                storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: pipe)
+                from = NSMaxRange(pipe)
+            }
+        }
+    }
+
+    /// The colours of a code line, by the language its fence names; when
+    /// the fence is above what is being styled, it is found once.
+    private func colourCode(_ r: NSRange, in storage: NSTextStorage, text: NSString, language: inout String?) {
+        if language == nil {
+            // Up from the line to its fence.
+            var start = text.lineRange(for: NSRange(location: r.location, length: 0)).location
+            var found = ""
+            var lines = 0
+            while start > 0, lines < 5000 {
+                let above = text.lineRange(for: NSRange(location: start - 1, length: 0))
+                let line = text.substring(with: above).trimmingCharacters(in: CharacterSet(charactersIn: "> \t\n"))
+                if line.hasPrefix("```") || line.hasPrefix("~~~") {
+                    found = line.trimmingCharacters(in: CharacterSet(charactersIn: "`~ ")).split(separator: " ").first.map(String.init) ?? ""
+                    break
+                }
+                start = above.location
+                lines += 1
+            }
+            language = found
+        }
+        let colours: [CodeTokens.Kind: NSColor] = [
+            .comment: NSPalette.faint, .string: NSPalette.named("chartreuse"), .number: NSPalette.named("purple"), .keyword: NSPalette.named("pink"),
+        ]
+        for token in CodeTokens.tokens(in: text.substring(with: r), language: language ?? "") {
+            let at = NSRange(location: r.location + token.range.location, length: token.range.length)
+            guard NSMaxRange(at) <= storage.length, let colour = colours[token.kind] else { continue }
+            storage.addAttribute(.foregroundColor, value: colour, range: at)
+        }
+    }
+
+    /// A quote's line, marked for its bar; a callout's, for its panel in
+    /// the callout's colour. A callout is a quote whose first line is `> [!kind]`.
+    private func markQuote(_ line: NSRange, in storage: NSTextStorage, text: NSString) {
+        var first = line
+        var lines = 0
+        while first.location > 0, lines < 2000 {
+            let above = text.lineRange(for: NSRange(location: first.location - 1, length: 0))
+            guard text.substring(with: above).drop(while: { $0 == " " || $0 == "\t" }).hasPrefix(">") else { break }
+            first = above
+            lines += 1
+        }
+        let head = text.substring(with: first)
+        if let kind = head.firstMatch(of: /^\s*>\s*\[!([A-Za-z-]+)\]/).map({ String($0.1) }) {
+            let color = NSPalette.calloutColor(kind)
+            storage.addAttributes([NoteTextView.quoteBar: color, NoteTextView.calloutPanel: color], range: line)
+        } else {
+            storage.addAttribute(NoteTextView.quoteBar, value: "quote", range: line)
+        }
+    }
+
+    /// A code block's lines: closer than prose, in from the panel's edge,
+    /// and left to right whatever language a comment is in.
+    private var codeParagraph: NSParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineHeightMultiple = 1.3
+        paragraph.firstLineHeadIndent = 12
+        paragraph.headIndent = 12
+        paragraph.tailIndent = -12
+        paragraph.baseWritingDirection = .leftToRight
+        return paragraph
+    }
+
     private func style(_ storage: NSTextStorage, range: NSRange) {
         guard range.length > 0 || storage.length == 0 else { return }
         storage.setAttributes(base, range: range)
@@ -569,6 +652,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         let spans = MarkdownHighlighter.spans(in: text, range: range).enumerated()
             .sorted { (rank($0.element.kind), $0.offset) < (rank($1.element.kind), $1.offset) }.map(\.element)
         let highlights = spans.filter { $0.kind == .highlight }.map(\.range)
+        // The language of the code block being styled, from its fence.
+        var language: String?
         for span in spans {
             let r = span.range
             guard NSMaxRange(r) <= storage.length else { continue }
@@ -598,13 +683,18 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             case .code:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.raw, .backgroundColor: NSPalette.panel], range: r)
             case .codeBlock:
-                storage.addAttributes([.font: mono, .backgroundColor: NSPalette.panel], range: r)
+                storage.addAttribute(.font, value: mono, range: r)
+                // The whole lines with their breaks: a block is one run, one panel.
+                storage.addAttributes([.paragraphStyle: codeParagraph, NoteTextView.codeBlock: true], range: text.lineRange(for: r))
+                colourCode(r, in: storage, text: text, language: &language)
             case .fence:
                 // The fence line in its language's colour, as the reader's label.
-                let language = text.substring(with: r).trimmingCharacters(in: CharacterSet(charactersIn: "`~> \t\n"))
+                let name = text.substring(with: r).trimmingCharacters(in: CharacterSet(charactersIn: "`~> \t\n"))
                     .split(separator: " ").first.map(String.init) ?? ""
-                let color = NSPalette.named(NSPalette.languageColor(language))
-                storage.addAttributes([.font: mono, .foregroundColor: color, .backgroundColor: NSPalette.panel], range: r)
+                language = name
+                let color = NSPalette.named(NSPalette.languageColor(name))
+                storage.addAttributes([.font: mono, .foregroundColor: color], range: r)
+                storage.addAttributes([.paragraphStyle: codeParagraph, NoteTextView.codeBlock: true], range: text.lineRange(for: r))
             case .frontMatter:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.muted], range: r)
             case .link:
@@ -642,23 +732,34 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
                     .font: Fonts.text(size: fontSize, weight: .bold),
                 ], range: r)
             case .quote:
-                storage.addAttributes([.foregroundColor: NSPalette.quote, .backgroundColor: NSPalette.named("orange", alpha: 0.07)], range: r)
+                // A bar beside the quote, as Obsidian draws it; a callout's
+                // lines in its panel. No strip behind each line's letters.
+                storage.addAttribute(.foregroundColor, value: NSPalette.quote, range: r)
+                markQuote(text.lineRange(for: r), in: storage, text: text)
             case .calloutTitle:
                 let title = text.substring(with: r)
                 let kind = title.firstMatch(of: /\[!([A-Za-z-]+)\]/).map { String($0.1) } ?? "note"
                 let color = NSPalette.calloutColor(kind)
-                storage.addAttributes([
-                    .font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.named(color),
-                    .backgroundColor: NSPalette.named(color, alpha: 0.12),
-                ], range: r)
+                storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.named(color)], range: r)
+                markQuote(text.lineRange(for: r), in: storage, text: text)
             case .comment, .rule:
                 storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: r)
             case .math:
-                storage.addAttributes([.font: mono, .foregroundColor: NSPalette.purple, .backgroundColor: NSPalette.named("purple", alpha: 0.08)], range: r)
+                let line = text.lineRange(for: r)
+                var content = 0
+                text.getLineStart(nil, end: nil, contentsEnd: &content, for: line)
+                if r.location == line.location, NSMaxRange(r) >= content {
+                    // A `$$` block's line: a panel, as code has.
+                    storage.addAttributes([.font: mono, .foregroundColor: NSPalette.purple], range: r)
+                    storage.addAttributes([.paragraphStyle: codeParagraph, NoteTextView.codeBlock: true], range: line)
+                } else {
+                    storage.addAttributes([.font: mono, .foregroundColor: NSPalette.purple, .backgroundColor: NSPalette.named("purple", alpha: 0.08)], range: r)
+                }
             case .metadata:
                 storage.addAttributes([.foregroundColor: NSPalette.muted, .font: Fonts.text(size: fontSize * 0.85)], range: r)
             }
         }
+        lineUpTables(in: range, of: storage, text: text, mono: mono)
         alignByText(storage, range: range, text: text)
         if store.settings.livePreview { hideMarks(spans, in: storage) }
         collapseFrontMatter(storage, range: range)
@@ -849,7 +950,70 @@ final class NoteTextView: NSTextView {
     /// An edit Neovim made, applied as it is: no undo, no autosave.
     func applyRemote(_ range: NSRange, _ text: String) {
         guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return }
+        holdScroll(editing: range, with: (text as NSString).length)
         storage.replaceCharacters(in: range, with: text)
+        redrawPanels()
+    }
+
+    /// A quote's bar and a block's panel span lines the edit did not touch:
+    /// the background on screen is drawn again, not only the edited line's.
+    func redrawPanels() { setNeedsDisplay(visibleRect, avoidAdditionalLayout: true) }
+
+    // MARK: The scroll through an edit
+
+    /// The first letter on screen, how far below the top of the view it
+    /// was, and where the view was then: through the layout an edit brings,
+    /// that letter stays where it was on screen.
+    private var anchor: (offset: Int, y: CGFloat, origin: CGFloat)?
+    private var anchorUntil = Date.distantPast
+
+    /// Notes the first letter on screen, before [range] becomes [length]
+    /// letters, and moves it by the edit when the edit is above it.
+    func holdScroll(editing range: NSRange, with length: Int) {
+        guard let clip = enclosingScrollView?.contentView else { return }
+        if Date() >= anchorUntil || anchor == nil { anchor = topLetter(at: clip.bounds.origin.y) }
+        if var held = anchor, range.location < held.offset {
+            held.offset = max(range.location + length, held.offset + length - range.length)
+            anchor = held
+        }
+        anchorUntil = Date(timeIntervalSinceNow: 0.5)
+    }
+
+    private func topLetter(at y: CGFloat) -> (offset: Int, y: CGFloat, origin: CGFloat)? {
+        let offset = characterIndexForInsertion(at: NSPoint(x: textContainerOrigin.x + 4, y: y + 1))
+        guard offset != NSNotFound, let line = lineRect(at: offset) else { return nil }
+        return (offset, line.minY - y, y)
+    }
+
+    /// The view never edits its own text while Neovim owns it.
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        if vimActive { return false }
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        holdScroll(editing: affectedCharRange, with: ((replacementString ?? "") as NSString).length)
+        DispatchQueue.main.async { [weak self] in self?.redrawPanels() }
+        return true
+    }
+
+    /// After an edit, TextKit lays the lines above the screen out again,
+    /// from estimates, and scrolls the view on its own: an undo in Neovim
+    /// moved the view by a screen, or the text under it by a hundred
+    /// points. The letter that was first on screen goes back to its place.
+    /// A scroll by a person, or the editor's own to keep the cursor in
+    /// sight, drops or renews the anchor first.
+    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
+        let entry = enclosingScrollView?.contentView.bounds.origin.y
+        super.textViewportLayoutControllerDidLayout(controller)
+        guard let held = anchor, Date() < anchorUntil, let scroll = enclosingScrollView, let entry else { return }
+        let clip = scroll.contentView
+        // Scrolled since by someone else -- a person, the text view to show
+        // the caret: that place stands.
+        guard abs(entry - held.origin) < 0.5 else { anchor = nil; return }
+        guard let line = lineRect(at: held.offset) else { return }
+        let y = max(0, min(line.minY - held.y, max(0, frame.height - clip.bounds.height)))
+        anchor?.origin = y
+        guard abs(clip.bounds.origin.y - y) > 0.5 else { return }
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
+        scroll.reflectScrolledClipView(clip)
     }
 
     func showSelection(_ range: NSRange) {
@@ -884,9 +1048,18 @@ final class NoteTextView: NSTextView {
     private var neovimTop: Int?
     private var scrollPending = false
 
-    /// Neovim's window moved: `zz`, `<C-e>`, `<C-d>`.
+    /// Neovim's window moved: `<C-e>`, `<C-d>`.
     func follow(top offset: Int) {
         neovimTop = offset
+        scrollSoon()
+    }
+
+    /// Where `zz`, `zt` and `zb` put the cursor's line in the view.
+    enum Place: String { case top, middle, bottom }
+    private var placing: Place?
+
+    func place(_ place: Place) {
+        placing = place
         scrollSoon()
     }
 
@@ -908,15 +1081,29 @@ final class NoteTextView: NSTextView {
         var y = clip.bounds.origin.y
         if let top = neovimTop, let line = lineRect(at: top) { y = line.minY - textContainerOrigin.y }
         neovimTop = nil
+        if let placing, let cursor = lineRect(at: selectedRange().location) {
+            let margin = min(cursor.height * 2, height / 4)
+            switch placing {
+            case .top: y = cursor.minY - margin
+            case .middle: y = cursor.midY - height / 2
+            case .bottom: y = cursor.maxY + margin - height
+            }
+        }
+        placing = nil
         // Whatever Neovim's window says, the cursor stays on screen: the view
         // fits fewer lines than Neovim thinks, under a heading.
         if let cursor = lineRect(at: selectedRange().location) {
+            // A jump of more than a screen -- G, a search -- puts the line in
+            // the middle, as Vim does, not at the edge.
+            if cursor.maxY < y - height || cursor.minY > y + height * 2 { y = cursor.midY - height / 2 }
             let margin = min(cursor.height * 2, height / 4)
             if cursor.minY - margin < y { y = cursor.minY - margin } else if cursor.maxY + margin > y + height { y = cursor.maxY + margin - height }
         }
         y = max(0, min(y, max(0, frame.height - height)))
         guard abs(y - clip.bounds.origin.y) > 0.5 else { return }
         let target = NSPoint(x: clip.bounds.origin.x, y: y)
+        // The editor's own scroll is where an edit's layout keeps the view.
+        if anchor != nil, Date() < anchorUntil { anchor = topLetter(at: y) }
         // A short glide within two screens; a jump, as `G`, goes at once.
         // A window not on screen runs no animation: it would never get there.
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || abs(y - clip.bounds.origin.y) > height * 2 || window?.isVisible != true {
@@ -937,10 +1124,6 @@ final class NoteTextView: NSTextView {
         }
     }
 
-    /// The view never edits its own text while Neovim owns it.
-    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        vimActive ? false : super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
-    }
 
     override func keyDown(with event: NSEvent) {
         guard let vim, vimActive else {
@@ -1017,9 +1200,76 @@ final class NoteTextView: NSTextView {
         tintedLine = now
     }
 
+    /// The lines of a fenced code block, marked by the styling: the view
+    /// draws one panel behind them, as the reader and Obsidian do, not a
+    /// strip behind each line's letters.
+    static let codeBlock = NSAttributedString.Key("DaftarCodeBlock")
+    /// A quote's lines, with the name of the bar's colour: a name, so the
+    /// lines of one quote are one run (two colours made alike are not equal).
+    static let quoteBar = NSAttributedString.Key("DaftarQuoteBar")
+    /// A callout's lines, with the name of its panel's colour.
+    static let calloutPanel = NSAttributedString.Key("DaftarCalloutPanel")
+
+    /// The panels of the code blocks in [rect].
+    private func drawCodePanels(in rect: NSRect) {
+        guard let storage = textStorage, storage.length > 0, let layout = textLayoutManager, let content = layout.textContentManager,
+            let viewport = layout.textViewportLayoutController.viewportRange
+        else { return }
+        let start = content.offset(from: content.documentRange.location, to: viewport.location)
+        let end = content.offset(from: content.documentRange.location, to: viewport.endLocation)
+        let visible = NSRange(location: max(0, start), length: max(0, min(storage.length, end) - max(0, start)))
+        // The whole lines of the blocks that reach into the viewport.
+        let lines = (storage.string as NSString).lineRange(for: visible)
+        let left = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0) - 2
+        let right = textContainerOrigin.x + (textContainer?.size.width ?? bounds.width) - (textContainer?.lineFragmentPadding ?? 0) + 2
+        /// The rect of a run of whole lines, from the first's top to the last's bottom.
+        func box(_ range: NSRange) -> NSRect? {
+            guard let first = lineRect(at: range.location), let last = lineRect(at: max(range.location, NSMaxRange(range) - 1)) else { return nil }
+            return NSRect(x: left, y: first.minY - 2, width: right - left, height: last.maxY - first.minY + 4)
+        }
+        let text = storage.string as NSString
+        /// The runs of [key], one per block: a line break left out of a run,
+        /// as a line just added has it, does not split the block.
+        func blocks(_ key: NSAttributedString.Key) -> [(String, NSRange)] {
+            var out: [(String, NSRange)] = []
+            storage.enumerateAttribute(key, in: lines, options: []) { value, range, _ in
+                guard let value else { return }
+                let name = value as? String ?? "\(value)"
+                if let last = out.last, last.0 == name, NSMaxRange(last.1) <= range.location,
+                    text.substring(with: NSRange(location: NSMaxRange(last.1), length: range.location - NSMaxRange(last.1))).allSatisfy({ $0 == "\n" }),
+                    range.location - NSMaxRange(last.1) <= 1
+                {
+                    out[out.count - 1].1 = NSUnionRange(last.1, range)
+                } else {
+                    out.append((name, range))
+                }
+            }
+            return out
+        }
+        for (name, range) in blocks(Self.calloutPanel) {
+            guard let panel = box(range), panel.intersects(rect) else { continue }
+            NSPalette.named(name, alpha: 0.1).setFill()
+            NSBezierPath(roundedRect: panel, xRadius: 6, yRadius: 6).fill()
+        }
+        for (_, range) in blocks(Self.codeBlock) {
+            guard let panel = box(range), panel.intersects(rect) else { continue }
+            NSPalette.panel.setFill()
+            NSBezierPath(roundedRect: panel, xRadius: 6, yRadius: 6).fill()
+        }
+        for (name, range) in blocks(Self.quoteBar) {
+            guard let panel = box(range) else { continue }
+            let colour = name == "quote" ? NSPalette.named("orange", alpha: 0.6) : NSPalette.named(name)
+            let bar = NSRect(x: panel.minX - 10, y: panel.minY + 4, width: 3, height: panel.height - 8)
+            guard bar.intersects(rect) else { continue }
+            colour.setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
+        }
+    }
+
     /// The line that holds the cursor, tinted, with a thin accent bar.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
+        drawCodePanels(in: rect)
         guard selectedRange().length == 0, let line = cursorLineRect() else { return }
         // Where the tint is, as drawn: the next move clears this rect, even
         // when live preview moved the lines since.
