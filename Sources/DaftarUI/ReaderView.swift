@@ -23,6 +23,10 @@ struct ReaderRequest: Equatable {
 struct ReaderView: NSViewRepresentable {
     var request: ReaderRequest?
     var store: VaultStore
+    /// The store's revision, read where the view is made: a change of it
+    /// is what calls `updateNSView` when a note changes on disk. Read only
+    /// inside `updateNSView`, it did not on macOS 27.
+    var revision = 0
     var onOpen: (_ path: String, _ anchor: String?, _ newWindow: Bool) -> Void
     /// ⌥-click on a link: the note opens in the other pane.
     var onOpenBeside: ((_ path: String, _ anchor: String?) -> Void)?

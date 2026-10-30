@@ -250,7 +250,7 @@ struct NotePaneView: View {
             .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model, onClose: onClose) }
         } else if pane.request != nil {
             ReaderView(
-                request: pane.request, store: store,
+                request: pane.request, store: store, revision: store.revision,
                 onOpen: { path, anchor, newWindow in
                     if newWindow {
                         openWindow(value: TabRequest(path: path))
