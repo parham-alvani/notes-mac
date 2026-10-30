@@ -30,7 +30,7 @@ final class CaretOverlay: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let textView else { return }
-        textView.insertionPointColor.setFill()
+        NSPalette.accent.setFill()
         for rect in textView.extraCaretRects() where rect.intersects(dirtyRect) { rect.fill() }
     }
 }
@@ -95,7 +95,7 @@ extension NoteTextView {
     func extraCaretRects() -> [NSRect] {
         guard hasManyCursors else { return [] }
         let own = selectedRanges.map(\.rangeValue)
-        return extras.cursors.filter { $0.length == 0 && !own.contains($0) }.compactMap { caretRect(at: $0.location) }
+        return extras.cursors.filter { $0.length == 0 && !own.contains($0) }.compactMap { letterCaret(at: $0.location) }
     }
 
     func caretRect(at offset: Int) -> NSRect? {

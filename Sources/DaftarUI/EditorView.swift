@@ -983,6 +983,7 @@ final class NoteTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         if resigned {
+            fitCaret()
             controller?.checkHeadings()
             controller?.saveNow()
         }
@@ -991,7 +992,10 @@ final class NoteTextView: NSTextView {
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became { controller?.catchUp() }
+        if became {
+            controller?.catchUp()
+            DispatchQueue.main.async { [weak self] in self?.fitCaret() }
+        }
         return became
     }
 
@@ -1028,6 +1032,7 @@ final class NoteTextView: NSTextView {
             DispatchQueue.main.async { [weak self] in
                 self?.lineToDraw = nil
                 self?.setNeedsDisplay(line.insetBy(dx: 0, dy: -1))
+                self?.fitCaret()
             }
         }
         NSPalette.named("orange", alpha: 0.07).setFill()
@@ -1065,35 +1070,72 @@ final class NoteTextView: NSTextView {
     }
 
     /// Normal mode draws a block over the character, as Neovim does.
+    /// An `m` of the body text: the view's own font is its first letter's,
+    /// and live preview shrinks a heading's `#` away from the cursor.
     private var blockWidth: CGFloat {
-        let font = self.font ?? NSFont.systemFont(ofSize: 14)
+        let font = Fonts.text(size: CGFloat(controller?.store.settings.textSize ?? 14))
         return ("m" as NSString).size(withAttributes: [.font: font]).width
     }
 
     private var showsBlock: Bool { vimActive && vim?.isNormal == true && selectedRange().length == 0 }
 
-    /// The view draws its caret in its own indicator view, not in
-    /// `drawInsertionPoint`, and shows it again after each move: in normal
-    /// mode it is clear, and the block is drawn under the text with the
-    /// cursor's line.
+    /// The view's own caret is as high as the line, and a line is 1.6 times
+    /// its letters with the room above them: the caret stood above the text.
+    /// It is clear, and this one is drawn at the letters' height instead; in
+    /// normal mode the block is drawn under the text with the cursor's line.
+    private lazy var caret: NSTextInsertionIndicator = {
+        let caret = NSTextInsertionIndicator(frame: .zero)
+        caret.color = NSPalette.accent
+        caret.displayMode = .hidden
+        addSubview(caret)
+        return caret
+    }()
+
     func showCaretStyle() {
-        let color = showsBlock ? NSColor.clear : NSPalette.accent
-        if insertionPointColor != color { insertionPointColor = color }
+        if insertionPointColor != .clear { insertionPointColor = .clear }
+        fitCaret()
+    }
+
+    /// The caret at [offset], as high as the letters there and on their
+    /// baseline: a line is 1.6 times its letters, with the room above them,
+    /// and a caret as high as the line stands above the text.
+    func letterCaret(at offset: Int) -> NSRect? {
+        guard let caret = caretRect(at: offset) else { return nil }
+        let text = string as NSString
+        let at = offset < text.length ? offset : offset - 1
+        let font = (at >= 0 && at < text.length ? textStorage?.attribute(.font, at: at, effectiveRange: nil) as? NSFont : nil) ?? self.font
+        guard let font else { return caret }
+        let height = min(caret.height, ceil(font.ascender - font.descender))
+        return NSRect(x: caret.minX, y: caret.maxY - height, width: caret.width, height: height)
+    }
+
+    override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+        super.updateInsertionPointStateAndRestartTimer(restartFlag)
+        fitCaret()
+    }
+
+    /// The caret where the cursor is, while the view has the keys and
+    /// nothing is selected.
+    func fitCaret() {
+        let shown = window?.isKeyWindow == true && window?.firstResponder === self && selectedRange().length == 0 && !showsBlock
+        guard shown, let fitted = letterCaret(at: selectedRange().location) else {
+            if caret.displayMode != .hidden { caret.displayMode = .hidden }
+            return
+        }
+        let frame = NSRect(x: fitted.minX, y: fitted.minY, width: 0, height: fitted.height)
+        if caret.frame != frame { caret.frame = frame }
+        if caret.displayMode != .automatic { caret.displayMode = .automatic }
     }
 
     /// The block over the character at the cursor: as wide as it is, or as
     /// an `m` at the end of a line. A Persian character is to the left.
     private func blockRect() -> NSRect? {
         let offset = selectedRange().location
-        guard let caret = caretRect(at: offset) else { return nil }
+        guard let caret = letterCaret(at: offset) else { return nil }
         let text = string as NSString
-        // As high as the glyphs, on the line's baseline: the line's own
-        // height has the space between lines above them.
-        let font = (offset < text.length ? textStorage?.attribute(.font, at: offset, effectiveRange: nil) as? NSFont : nil) ?? self.font
-        let height = min(caret.height, ceil((font?.ascender ?? caret.height) - (font?.descender ?? 0)))
-        var block = NSRect(x: caret.minX + 0.5, y: caret.maxY - height, width: blockWidth, height: height)
+        var block = NSRect(x: caret.minX + 0.5, y: caret.minY, width: blockWidth, height: caret.height)
         if offset < text.length, text.character(at: offset) != 0x0A,
-            let next = caretRect(at: offset + (text.rangeOfComposedCharacterSequence(at: offset).length)),
+            let next = letterCaret(at: offset + (text.rangeOfComposedCharacterSequence(at: offset).length)),
             abs(next.minY - caret.minY) < 1, abs(next.minX - caret.minX) > 1
         {
             block.origin.x = min(caret.minX, next.minX) + 0.5
@@ -1134,7 +1176,8 @@ final class NoteTextView: NSTextView {
         view.smartInsertDeleteEnabled = false
         view.drawsBackground = true
         view.backgroundColor = NSPalette.background
-        view.insertionPointColor = NSPalette.accent
+        // NoteTextView draws its own caret, at the letters' height.
+        view.insertionPointColor = .clear
         view.selectedTextAttributes = [.backgroundColor: NSPalette.selection]
         view.textContainerInset = NSSize(width: 40, height: 28)
         scroll.documentView = view
