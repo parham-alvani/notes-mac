@@ -35,7 +35,28 @@ jobs:
         run: test "v$(cat VERSION)" = "${GITHUB_REF_NAME}"
       - run: just app
       - run: ditto -c -k --keepParent build/Daftar.app "Daftar-$(cat VERSION).zip"
-      - uses: softprops/action-gh-release@v3
-        with:
-          files: Daftar-*.zip
-          generate_release_notes: true
+      # GitHub fails a call now and then for some minutes: 0.9.0's upload
+      # stopped half way and left an empty draft. Each call is tried again,
+      # and the release stays a draft until its zip is there and checked.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          retry() {
+            for wait in 10 20 40 80 0; do
+              "$@" && return 0
+              [ "$wait" -eq 0 ] && return 1
+              echo "::warning::'$1 $2 $3' failed; trying again in ${wait}s"
+              sleep "$wait"
+            done
+          }
+          zip="Daftar-$(cat VERSION).zip"
+          tag="$GITHUB_REF_NAME"
+          # A create that made the release and then failed is not made twice.
+          draft() { gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --draft --verify-tag --title "$tag" --generate-notes; }
+          retry draft
+          retry gh release upload "$tag" "$zip" --clobber
+          # What is on the release is what was built.
+          want=$(shasum -a 256 "$zip" | cut -d' ' -f1)
+          retry sh -c "gh release view '$tag' --json assets -q '.assets[] | select(.name == \"$zip\") | .digest' | grep -qx 'sha256:$want'"
+          retry gh release edit "$tag" --draft=false --latest
