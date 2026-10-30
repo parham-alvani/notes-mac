@@ -38,7 +38,7 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.onHeadingsRenamed = onHeadingsRenamed
         context.coordinator.onQuit = onQuit
         context.coordinator.lastJump = jump
-        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
+        view.focusWhenShown = true
         return container
     }
 
@@ -251,6 +251,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // again when the mode changes, not the whole page at every key.
         if session.modeName != shownMode {
             shownMode = session.modeName
+            view?.showCaretStyle()
             view?.redrawCursorLine()
         }
     }
@@ -822,10 +823,26 @@ final class NoteTextView: NSTextView {
     /// What the open `[[` or `#` completion offers, and what each row writes.
     var completion = CompletionState()
     /// Neovim mode: the keys go here, and the text changes only when Neovim says.
-    weak var vim: NeovimSession?
+    weak var vim: NeovimSession? {
+        didSet { showCaretStyle() }
+    }
     /// The many cursors, and what focus and typewriter mode did (`EditorCursors.swift`).
     let extras = EditorExtras()
     private var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
+    /// A new editor takes the keys once it is in its window: SwiftUI may put
+    /// it there after the next turn of the run loop, and the keys typed
+    /// until then went nowhere.
+    var focusWhenShown = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard focusWhenShown, let window else { return }
+        focusWhenShown = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window === window else { return }
+            window.makeFirstResponder(self)
+        }
+    }
 
     // MARK: Neovim mode
 
@@ -905,14 +922,18 @@ final class NoteTextView: NSTextView {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || abs(y - clip.bounds.origin.y) > height * 2 || window?.isVisible != true {
             clip.setBoundsOrigin(target)
             scroll.reflectScrolledClipView(clip)
+            redrawCursorLine()
             return
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             clip.animator().setBoundsOrigin(target)
-        } completionHandler: {
+        } completionHandler: { [weak self] in
             scroll.reflectScrolledClipView(clip)
+            // The clip copies what was drawn while it moves: the cursor's
+            // line, drawn in the same moment, is drawn again where it is.
+            self?.redrawCursorLine()
         }
     }
 
@@ -975,6 +996,7 @@ final class NoteTextView: NSTextView {
     }
 
     private var tintedLine: NSRect?
+    private var lineToDraw: NSRect?
 
     func redrawCursorLine() {
         if let line = cursorLineRect() { setNeedsDisplay(line.insetBy(dx: 0, dy: -1)) }
@@ -983,7 +1005,9 @@ final class NoteTextView: NSTextView {
     /// The cursor's line before and after a move, drawn again.
     func cursorLineMoved() {
         let now = selectedRange().length == 0 ? cursorLineRect() : nil
-        guard now != tintedLine else { return }
+        showCaretStyle()
+        // The block moves along the line, so Neovim's line is drawn again.
+        guard now != tintedLine || vimActive else { return }
         if let tintedLine { setNeedsDisplay(tintedLine.insetBy(dx: 0, dy: -1)) }
         if let now { setNeedsDisplay(now.insetBy(dx: 0, dy: -1)) }
         tintedLine = now
@@ -993,10 +1017,27 @@ final class NoteTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         guard selectedRange().length == 0, let line = cursorLineRect() else { return }
+        // Where the tint is, as drawn: the next move clears this rect, even
+        // when live preview moved the lines since.
+        tintedLine = tintedLine.map { $0.union(line) } ?? line
+        // Live preview laid the lines out again after the move: the line is
+        // somewhere this draw does not reach, so it is drawn once more there.
+        let shown = line.intersection(visibleRect)
+        if !shown.isEmpty, !rect.contains(shown), lineToDraw != line {
+            lineToDraw = line
+            DispatchQueue.main.async { [weak self] in
+                self?.lineToDraw = nil
+                self?.setNeedsDisplay(line.insetBy(dx: 0, dy: -1))
+            }
+        }
         NSPalette.named("orange", alpha: 0.07).setFill()
         line.fill(using: .sourceOver)
         NSPalette.named("orange", alpha: 0.8).setFill()
         NSRect(x: line.minX, y: line.minY + 2, width: 2.5, height: max(0, line.height - 4)).fill(using: .sourceOver)
+        if showsBlock, let block = blockRect() {
+            NSPalette.accent.withAlphaComponent(0.45).setFill()
+            block.fill(using: .sourceOver)
+        }
     }
 
     private func cursorLineRect() -> NSRect? { lineRect(at: selectedRange().location) }
@@ -1029,16 +1070,36 @@ final class NoteTextView: NSTextView {
         return ("m" as NSString).size(withAttributes: [.font: font]).width
     }
 
-    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        guard vimActive, vim?.isNormal == true else { return super.drawInsertionPoint(in: rect, color: color, turnedOn: flag) }
-        var block = rect
-        block.size.width = blockWidth
-        if flag {
-            color.withAlphaComponent(0.45).setFill()
-            block.fill(using: .sourceOver)
-        } else {
-            setNeedsDisplay(block, avoidAdditionalLayout: true)
+    private var showsBlock: Bool { vimActive && vim?.isNormal == true && selectedRange().length == 0 }
+
+    /// The view draws its caret in its own indicator view, not in
+    /// `drawInsertionPoint`, and shows it again after each move: in normal
+    /// mode it is clear, and the block is drawn under the text with the
+    /// cursor's line.
+    func showCaretStyle() {
+        let color = showsBlock ? NSColor.clear : NSPalette.accent
+        if insertionPointColor != color { insertionPointColor = color }
+    }
+
+    /// The block over the character at the cursor: as wide as it is, or as
+    /// an `m` at the end of a line. A Persian character is to the left.
+    private func blockRect() -> NSRect? {
+        let offset = selectedRange().location
+        guard let caret = caretRect(at: offset) else { return nil }
+        let text = string as NSString
+        // As high as the glyphs, on the line's baseline: the line's own
+        // height has the space between lines above them.
+        let font = (offset < text.length ? textStorage?.attribute(.font, at: offset, effectiveRange: nil) as? NSFont : nil) ?? self.font
+        let height = min(caret.height, ceil((font?.ascender ?? caret.height) - (font?.descender ?? 0)))
+        var block = NSRect(x: caret.minX + 0.5, y: caret.maxY - height, width: blockWidth, height: height)
+        if offset < text.length, text.character(at: offset) != 0x0A,
+            let next = caretRect(at: offset + (text.rangeOfComposedCharacterSequence(at: offset).length)),
+            abs(next.minY - caret.minY) < 1, abs(next.minX - caret.minX) > 1
+        {
+            block.origin.x = min(caret.minX, next.minX) + 0.5
+            block.size.width = abs(next.minX - caret.minX)
         }
+        return block
     }
 
     override func setNeedsDisplay(_ invalidRect: NSRect, avoidAdditionalLayout flag: Bool) {
