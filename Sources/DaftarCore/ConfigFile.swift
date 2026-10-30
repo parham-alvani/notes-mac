@@ -291,6 +291,9 @@ public struct ConfigFile: Sendable, Equatable {
         # PNG, JPEG, HEIC or WebP file. Empty is no picture. The rest of the
         # page follows Obsidian's Beautitab plugin settings in the vault.
         image = ""
+        # What a new tab (⌘T) opens: "home" is the home page, as Obsidian's
+        # new tab is empty; "note" is the note the window shows.
+        new_tab = "home"
 
         [files]
         # Files for AI agents and other tools, by name, in any folder. They

@@ -334,6 +334,14 @@ struct HomeSettings: View {
             } footer: {
                 Text("The picture fills the page a window or a pane shows with no note open. PNG, JPEG, HEIC or WebP. A picture in the vault is kept as its path in the vault. The time, the greeting, the lists and the quotes follow the Beautitab plugin's settings in the vault.")
             }
+            Section {
+                Picker("New tab opens", selection: $settings.newTab) {
+                    Text("The home page").tag(AppSettings.NewTab.home)
+                    Text("The same note").tag(AppSettings.NewTab.note)
+                }
+            } footer: {
+                Text("What ⌘T opens. Open in New Tab, from the sidebar or a link, always opens that note.")
+            }
         }
         .formStyle(.grouped)
     }

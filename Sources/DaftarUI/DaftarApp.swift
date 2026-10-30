@@ -555,7 +555,10 @@ struct FileCommands: Commands {
             Button("Today's Scratchpad") { window?.openScratchpad(store: store) }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(window == nil || store.root == nil)
-            Button("New Tab") { openWindow(value: TabRequest(path: window?.showsPage == true ? nil : window?.path)) }
+            Button("New Tab") {
+                let note = store.settings.newTab == .note && window?.showsPage != true ? window?.path : nil
+                openWindow(value: TabRequest(path: note))
+            }
                 .keyboardShortcut("t")
             Button("New Window") { openWindow(id: "main") }
                 .keyboardShortcut("n", modifiers: [.command, .option])

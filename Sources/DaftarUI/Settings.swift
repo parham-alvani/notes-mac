@@ -58,12 +58,19 @@ final class AppSettings {
     var scratchpadFolder: String { didSet { write("scratchpad.folder", .string(scratchpadFolder)) } }
     /// The home page's picture, as the file has it: absolute, `~` or in the vault; empty is none.
     var homeImage: String { didSet { write("home.image", .string(homeImage)) } }
+    /// What ⌘T opens: the home page, or the note the window shows.
+    var newTab: NewTab { didSet { write("home.new_tab", .string(newTab.rawValue)) } }
     /// Files for AI agents, by name in any folder, kept out of the lists as Obsidian's excluded files are.
     var hiddenNames: [String] { didSet { write("files.hidden", .strings(hiddenNames)) } }
     /// The hidden and the excluded files show in the lists anyway.
     var showHidden: Bool { didSet { write("files.show_hidden", .bool(showHidden)) } }
 
     static let defaultHiddenNames = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", "CLAUDE.local.md"]
+
+    enum NewTab: String, CaseIterable, Identifiable {
+        case home, note
+        var id: String { rawValue }
+    }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
@@ -121,6 +128,7 @@ final class AppSettings {
         captureHeading = ""
         scratchpadFolder = "Scratchpad"
         homeImage = ""
+        newTab = .home
         hiddenNames = Self.defaultHiddenNames
         showHidden = false
         load()
@@ -170,6 +178,7 @@ final class AppSettings {
         captureHeading = file.string("capture.heading") ?? ""
         scratchpadFolder = file.string("scratchpad.folder") ?? "Scratchpad"
         homeImage = file.string("home.image") ?? ""
+        newTab = file.string("home.new_tab").flatMap(NewTab.init(rawValue:)) ?? .home
         hiddenNames = file.strings("files.hidden") ?? Self.defaultHiddenNames
         showHidden = file.bool("files.show_hidden") ?? false
     }

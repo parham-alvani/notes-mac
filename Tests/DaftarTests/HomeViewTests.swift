@@ -119,6 +119,19 @@ import UniformTypeIdentifiers
         #expect(AppSettings(url: settings.url).homeImage == "~/.config/daftar/home.webp")
     }
 
+    @Test func aNewTabOpensWhatTheSettingSays() throws {
+        let settings = store.settings
+        #expect(settings.newTab == .home)
+        #expect(ConfigFile(text: ConfigFile.template).string("home.new_tab") == "home")
+        settings.newTab = .note
+        let file = ConfigFile(text: try String(contentsOf: settings.url, encoding: .utf8))
+        #expect(file.string("home.new_tab") == "note")
+        #expect(AppSettings(url: settings.url).newTab == .note)
+        // A value the app does not know is the home page.
+        try Data("[home]\nnew_tab = \"elsewhere\"\n".utf8).write(to: settings.url)
+        #expect(AppSettings(url: settings.url).newTab == .home)
+    }
+
     @Test func beautitabIsReadWithTheVault() {
         #expect(store.beautitab.greetingText == "Hello, Tester.")
         #expect(store.beautitab.twentyFourHour == true && store.beautitab.showQuote)
