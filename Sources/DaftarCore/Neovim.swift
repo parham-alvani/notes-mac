@@ -303,6 +303,21 @@ public enum VimKeys {
         return "<\(prefix)\(key)>"
     }
 
+    /// Which ⌥ keys are Meta (`<M-…>`) to Neovim, as Neovide's
+    /// `input_macos_option_key_is_meta`; the others type ⌥'s letters (`å`, `€`).
+    public enum OptionKey: String, CaseIterable, Sendable {
+        case none, left, right, both
+
+        public func isMeta(left: Bool, right: Bool) -> Bool {
+            switch self {
+            case .none: false
+            case .left: left
+            case .right: right
+            case .both: left || right
+            }
+        }
+    }
+
     /// Return, Escape, the arrows and the other keys that type no text.
     public static func isSpecial(_ characters: String) -> Bool {
         characters.unicodeScalars.first.map { special[$0.value] != nil } ?? false

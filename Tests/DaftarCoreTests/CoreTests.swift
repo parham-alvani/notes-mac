@@ -418,6 +418,10 @@ import Testing
         #expect(file.string("appearance.code_font") == "SF Mono")
         #expect(file.bool("git.pull_on_launch") == true)
         #expect(file.string("notifications.digest_time") == "09:00")
+        #expect(file.bool("editor.cursor_trail") == true)
+        #expect(file.string("editor.cursor_effect") == "none")
+        #expect(file.string("editor.option_as_meta") == "none")
+        #expect(file.bool("editor.blur_panels") == true)
     }
 
     @Test func setKeepsCommentsAndOrder() {

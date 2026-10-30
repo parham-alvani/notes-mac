@@ -319,6 +319,45 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// ⌥ is Meta only with `option_as_meta` set: unmapped in Insert mode,
+    /// Neovim takes `<M-x>` as Escape and `x`, which deletes a letter.
+    @Test func optionIsMetaWhenTheSettingSaysSo() async throws {
+        store.settings.optionAsMeta = .both
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        press("i")
+        #expect(await eventually { !session.isNormal })
+        press("x", .option)
+        #expect(await eventually { view.string == "irst line\nسلام دنیا\n" })
+        // Off, ⌥ types its letter: here the made-up event's own `x`.
+        store.settings.optionAsMeta = .none
+        press("i")
+        #expect(await eventually { !session.isNormal })
+        press("x", .option)
+        #expect(await eventually { view.string == "xirst line\nسلام دنیا\n" })
+        await session.stop()
+    }
+
+    /// The menu and the command line blur the note behind them, or not.
+    @Test func panelsBlurTheNoteBehindThem() async throws {
+        let menu = NeovimMenu()
+        menu.setFrameSize(NSSize(width: 200, height: 100))
+        let blur = try #require(menu.subviews.first as? NSVisualEffectView)
+        #expect(blur.frame == menu.bounds && blur.blendingMode == .withinWindow)
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        #expect(blur.isHidden == reduced)
+        #expect(menu.fill.alphaComponent < 1 || reduced)
+        menu.blurred = false
+        #expect(blur.isHidden && menu.fill.alphaComponent == 1)
+        // The setting reaches the menu Neovim shows.
+        store.settings.blurPanels = false
+        view.vim = nil
+        view.showNeovimMenu([NeovimMenu.Item(word: "a", detail: "")], selected: -1, forCommandLine: false)
+        #expect(view.extras.menu?.blurred == false)
+        view.hideNeovimMenu()
+    }
+
     @Test func controlKeysAndVisualSelection() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)

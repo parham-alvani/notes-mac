@@ -232,7 +232,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     private func showStatus() {
         updateCounts()
-        container?.setCommandLine(session?.state == .running ? session?.commandLine : nil)
+        container?.setCommandLine(session?.state == .running ? session?.commandLine : nil, blurred: store.settings.blurPanels)
         guard let session else { return container?.setStatus(nil, mode: nil) ?? () }
         switch session.state {
         case .failed(let message): container?.setStatus(message, mode: "NEOVIM")
@@ -1121,16 +1121,23 @@ final class NoteTextView: NSTextView {
         let target = NSPoint(x: clip.bounds.origin.x, y: y)
         // The editor's own scroll is where an edit's layout keeps the view.
         if anchor != nil, Date() < anchorUntil { anchor = topLetter(at: y) }
-        // A short glide within two screens; a jump, as `G`, goes at once.
-        // A window not on screen runs no animation: it would never get there.
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || abs(y - clip.bounds.origin.y) > height * 2 || window?.isVisible != true {
+        // A short glide. A window not on screen runs no animation: it would
+        // never get there.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || window?.isVisible != true {
             clip.setBoundsOrigin(target)
             scroll.reflectScrolledClipView(clip)
             redrawCursorLine()
             return
         }
+        // A jump of more than two screens, as `G`, starts a screen short of
+        // the place and glides the rest, as Neovide's far scrolls do.
+        let far = abs(y - clip.bounds.origin.y) > height * 2
+        if far {
+            clip.setBoundsOrigin(NSPoint(x: target.x, y: y > clip.bounds.origin.y ? y - height : y + height))
+            scroll.reflectScrolledClipView(clip)
+        }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
+            context.duration = far ? 0.2 : 0.15
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             clip.animator().setBoundsOrigin(target)
         } completionHandler: { [weak self] in
@@ -1156,8 +1163,17 @@ final class NoteTextView: NSTextView {
         if flags.contains(.shift) { modifiers.insert(.shift) }
         if flags.contains(.control) { modifiers.insert(.control) }
         if flags.contains(.command) { modifiers.insert(.command) }
+        // ⌥ as Meta, by the side the setting names. The left and the right
+        // key are bits under AppKit's flags; an event with neither, as a
+        // made-up one, counts as both.
+        if flags.contains(.option) {
+            let device = event.modifierFlags.rawValue
+            let left = device & 0x20 != 0, right = device & 0x40 != 0
+            let setting = controller?.store.settings.optionAsMeta ?? VimKeys.OptionKey.none
+            if setting.isMeta(left: left || !right, right: right || !left) { modifiers.insert(.option) }
+        }
         let raw = event.charactersIgnoringModifiers ?? ""
-        if flags.contains(.control) || flags.contains(.command) || VimKeys.isSpecial(raw) {
+        if modifiers.contains(.option) || flags.contains(.control) || flags.contains(.command) || VimKeys.isSpecial(raw) {
             if let keys = VimKeys.notation(characters: raw, modifiers: modifiers) { vim.input(keys) }
             return
         }
@@ -1973,14 +1989,14 @@ final class EditorContainer: NSView {
 
     /// Neovim's command line, floating near the top of the editor while it
     /// is open, as Neovide setups show it; nil hides it.
-    func setCommandLine(_ line: NeovimSession.CommandLine?) {
+    func setCommandLine(_ line: NeovimSession.CommandLine?, blurred: Bool = true) {
         guard let line else {
             commandPanel?.removeFromSuperview()
             commandPanel = nil
             return
         }
         let panel = commandPanel ?? {
-            let panel = CommandLinePanel(frame: .zero)
+            let panel = CommandLinePanel()
             panel.translatesAutoresizingMaskIntoConstraints = false
             addSubview(panel, positioned: .above, relativeTo: scroll)
             let wide = panel.widthAnchor.constraint(equalTo: scroll.widthAnchor, multiplier: 0.8)
@@ -1995,6 +2011,7 @@ final class EditorContainer: NSView {
             commandPanel = panel
             return panel
         }()
+        panel.blurred = blurred
         panel.line = line
     }
 

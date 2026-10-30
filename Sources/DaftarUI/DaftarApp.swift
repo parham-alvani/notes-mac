@@ -468,6 +468,25 @@ private struct EditorSettings: View {
             } footer: {
                 Text("Your Neovim owns the buffer and writes the file; the editor shows it, with its colours, images and right-to-left text. Your config sees g:daftar = 1. ⌘ shortcuts stay with the app.")
             }
+            Section {
+                Toggle("Slide the cursor", isOn: $settings.animateCursor)
+                Toggle("Leave a trail behind it", isOn: $settings.cursorTrail)
+                    .disabled(!settings.animateCursor)
+                Picker("Cursor effect", selection: $settings.cursorEffect) {
+                    ForEach(AppSettings.CursorEffect.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Option key as Meta", selection: $settings.optionAsMeta) {
+                    Text("Neither").tag(VimKeys.OptionKey.none)
+                    Text("Left").tag(VimKeys.OptionKey.left)
+                    Text("Right").tag(VimKeys.OptionKey.right)
+                    Text("Both").tag(VimKeys.OptionKey.both)
+                }
+                Toggle("Blur the note behind the menu and the command line", isOn: $settings.blurPanels)
+            } header: {
+                Text("Neovim")
+            } footer: {
+                Text("As in Neovide. An Option key that is Meta sends <M-x> to Neovim and no longer types å or €. Reduce Motion stops the slide and the effects.")
+            }
         }
         .formStyle(.grouped)
     }

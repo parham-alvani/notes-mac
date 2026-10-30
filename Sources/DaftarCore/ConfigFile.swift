@@ -241,6 +241,18 @@ public struct ConfigFile: Sendable, Equatable {
         # Neovim mode: the cursor slides to where it goes, as in Neovide.
         # "Reduce motion" in macOS turns the slide off too.
         animate_cursor = true
+        # The sliding cursor leaves a trail: its front corners go first and
+        # its back corners follow, as Neovide's cursor does.
+        cursor_trail = true
+        # Particles where the cursor goes, as Neovide's vfx_mode: "none",
+        # "railgun", "torpedo", "pixiedust", "sonicboom" or "ripple".
+        cursor_effect = "none"
+        # Which Option keys Neovim gets as Meta (<M-x>): "none", "left",
+        # "right" or "both". The others still type å, €, and the rest.
+        option_as_meta = "none"
+        # Neovim's completion menu and command line blur the note behind
+        # them. "Reduce transparency" in macOS makes them solid.
+        blur_panels = true
         # Edit with your own Neovim: it owns the buffer and the file, and the
         # editor shows it. Needs `nvim` (brew install neovim).
         vim_mode = false

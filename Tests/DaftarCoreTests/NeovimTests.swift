@@ -96,6 +96,16 @@ import Testing
         #expect(VimKeys.escape("a<b") == "a<LT>b")
     }
 
+    @Test func optionIsMetaOnTheSidesTheSettingNames() {
+        #expect(VimKeys.notation(characters: "x", modifiers: [.option]) == "<M-x>")
+        #expect(VimKeys.notation(characters: "\u{F702}", modifiers: [.option]) == "<M-Left>")
+        #expect(!VimKeys.OptionKey.none.isMeta(left: true, right: true))
+        #expect(VimKeys.OptionKey.left.isMeta(left: true, right: false))
+        #expect(!VimKeys.OptionKey.left.isMeta(left: false, right: true))
+        #expect(VimKeys.OptionKey.right.isMeta(left: false, right: true))
+        #expect(VimKeys.OptionKey.both.isMeta(left: false, right: true))
+    }
+
     @Test func aSecondLayoutMapsToTheLatinKeys() {
         let pairs: [(Character, Character)] = [("ض", "q"), ("ت", "j"), ("ئ", "m"), ("و", ","), ("ج", "["), ("ت", "x"), ("'", "q"), ("ق", " ")]
         #expect(VimKeys.langmap(pairs) == "ضq,تj,ئm,و\\,,ج[")

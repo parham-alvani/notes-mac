@@ -48,6 +48,14 @@ final class AppSettings {
     var spellCheck: Bool { didSet { write("editor.spell_check", .bool(spellCheck)) } }
     /// Neovim mode: the cursor slides to where it goes, as Neovide's does.
     var animateCursor: Bool { didSet { write("editor.animate_cursor", .bool(animateCursor)) } }
+    /// The sliding cursor stretches: its front corners go first, its back ones follow.
+    var cursorTrail: Bool { didSet { write("editor.cursor_trail", .bool(cursorTrail)) } }
+    /// Particles where the Neovim cursor goes, as Neovide's `vfx_mode`.
+    var cursorEffect: CursorEffect { didSet { write("editor.cursor_effect", .string(cursorEffect.rawValue)) } }
+    /// Which ⌥ keys Neovim gets as Meta.
+    var optionAsMeta: VimKeys.OptionKey { didSet { write("editor.option_as_meta", .string(optionAsMeta.rawValue)) } }
+    /// Neovim's completion menu and command line show the note blurred behind them.
+    var blurPanels: Bool { didSet { write("editor.blur_panels", .bool(blurPanels)) } }
     var nvimPath: String { didSet { write("editor.nvim", .string(nvimPath)) } }
     var nvimConfig: String { didSet { write("editor.nvim_config", .string(nvimConfig)) } }
     var terminalFontSize: Int { didSet { write("terminal.font_size", .int(terminalFontSize)) } }
@@ -68,6 +76,12 @@ final class AppSettings {
     var showHidden: Bool { didSet { write("files.show_hidden", .bool(showHidden)) } }
 
     static let defaultHiddenNames = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", "CLAUDE.local.md"]
+
+    enum CursorEffect: String, CaseIterable, Identifiable {
+        case none, railgun, torpedo, pixiedust, sonicboom, ripple
+        var id: String { rawValue }
+        var title: String { self == .none ? "None" : rawValue.capitalized }
+    }
 
     enum NewTab: String, CaseIterable, Identifiable {
         case home, note
@@ -124,6 +138,10 @@ final class AppSettings {
         focusMode = false
         spellCheck = true
         animateCursor = true
+        cursorTrail = true
+        cursorEffect = .none
+        optionAsMeta = .none
+        blurPanels = true
         nvimPath = ""
         nvimConfig = "user"
         captureHotkey = "ctrl+opt+n"
@@ -174,6 +192,10 @@ final class AppSettings {
         focusMode = file.bool("editor.focus") ?? false
         spellCheck = file.bool("editor.spell_check") ?? true
         animateCursor = file.bool("editor.animate_cursor") ?? true
+        cursorTrail = file.bool("editor.cursor_trail") ?? true
+        cursorEffect = file.string("editor.cursor_effect").flatMap(CursorEffect.init(rawValue:)) ?? CursorEffect.none
+        optionAsMeta = file.string("editor.option_as_meta").flatMap(VimKeys.OptionKey.init(rawValue:)) ?? VimKeys.OptionKey.none
+        blurPanels = file.bool("editor.blur_panels") ?? true
         nvimPath = file.string("editor.nvim") ?? ""
         nvimConfig = file.string("editor.nvim_config") ?? "user"
         terminalFontSize = file.int("terminal.font_size") ?? 13
