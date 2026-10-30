@@ -2,7 +2,7 @@ import Foundation
 
 /// What the app remembers of each note it showed, kept across launches:
 /// the source line of the reading cursor, so a note opens where it was
-/// left; the sections folded shut; and when the note was last read, so a
+/// left; the sections folded shut; the outline's closed headings; and when the note was last read, so a
 /// note changed by a pull since then can say so. The notes read last are
 /// kept, up to [limit]; a move or a rename takes its entry along.
 public struct ReadingPlaces: Sendable, Equatable {
@@ -12,6 +12,8 @@ public struct ReadingPlaces: Sendable, Equatable {
         public var line: Int?
         /// Each folded heading as `level:text`, which an edit above it does not move.
         public var folds: [String]?
+        /// Each heading closed in the outline, as `level:text` too.
+        public var closed: [String]?
         /// When the note was last on screen.
         public var read: Date?
     }
@@ -28,6 +30,8 @@ public struct ReadingPlaces: Sendable, Equatable {
 
     public func folds(_ path: String) -> [String] { entries[path]?.folds ?? [] }
 
+    public func closed(_ path: String) -> [String] { entries[path]?.closed ?? [] }
+
     public func lastRead(_ path: String) -> Date? { entries[path]?.read }
 
     /// The notes read last, newest first, up to [limit].
@@ -43,6 +47,10 @@ public struct ReadingPlaces: Sendable, Equatable {
 
     public mutating func setFolds(_ path: String, _ folds: [String]) {
         update(path) { $0.folds = folds.isEmpty ? nil : folds }
+    }
+
+    public mutating func setClosed(_ path: String, _ closed: [String]) {
+        update(path) { $0.closed = closed.isEmpty ? nil : closed }
     }
 
     public mutating func markRead(_ path: String, at date: Date = Date()) {
@@ -92,12 +100,14 @@ public struct ReadingPlaces: Sendable, Equatable {
         var path: String
         var line: Int?
         var folds: [String]?
+        var closed: [String]?
         var read: Date?
     }
 
-    /// `{"notes": [{"path": "Folder/Note.md", "line": 12, "folds": ["2:Plan"], "read": …}, …]}`, read first to read last.
+    /// `{"notes": [{"path": "Folder/Note.md", "line": 12, "folds": ["2:Plan"], "closed": ["1:Notes"], "read": …}, …]}`,
+    /// read first to read last.
     public var data: Data {
-        let notes = order.compactMap { path in entries[path].map { Note(path: path, line: $0.line, folds: $0.folds, read: $0.read) } }
+        let notes = order.compactMap { path in entries[path].map { Note(path: path, line: $0.line, folds: $0.folds, closed: $0.closed, read: $0.read) } }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(File(notes: notes))) ?? Data()
@@ -112,7 +122,7 @@ public struct ReadingPlaces: Sendable, Equatable {
             for (path, line) in entry { set(path, line: line) }
         }
         for note in file.notes ?? [] {
-            update(note.path) { $0 = Entry(line: note.line, folds: note.folds, read: note.read) }
+            update(note.path) { $0 = Entry(line: note.line, folds: note.folds, closed: note.closed, read: note.read) }
         }
     }
 }

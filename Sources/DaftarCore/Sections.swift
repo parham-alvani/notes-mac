@@ -56,6 +56,75 @@ public enum Sections {
         headings.lastIndex { $0.line <= line }
     }
 
+    /// How the outline names heading [heading] to keep it closed: `level:text`,
+    /// as the reader's folds, which an edit above it does not move.
+    public static func key(_ heading: Heading) -> String { "\(heading.level):\(heading.text)" }
+
+    /// True when headings come under heading [index]: the next one is deeper.
+    public static func hasChildren(_ index: Int, in headings: [Heading]) -> Bool {
+        headings.indices.contains(index + 1) && headings[index + 1].level > headings[index].level
+    }
+
+    /// The headings the outline shows, in order, when those in [closed]
+    /// (by `key`) are closed: the headings under a closed one are left out.
+    public static func visible(_ headings: [Heading], closed: Set<String>) -> [Int] {
+        var shown: [Int] = []
+        var under: Int?
+        for (index, heading) in headings.enumerated() {
+            if let level = under {
+                if heading.level > level { continue }
+                under = nil
+            }
+            shown.append(index)
+            if closed.contains(key(heading)), hasChildren(index, in: headings) { under = heading.level }
+        }
+        return shown
+    }
+
+    /// The heading the outline marks for heading [index]: itself, or the
+    /// closed heading it is under. [visible] is what `visible` gave.
+    public static func shown(_ index: Int, visible: [Int]) -> Int? {
+        visible.last { $0 <= index }
+    }
+
+    /// The headings right under heading [index]: those of the highest
+    /// level in its section. Empty when it has none.
+    public static func children(of index: Int, in headings: [Heading]) -> [Int] {
+        guard hasChildren(index, in: headings) else { return [] }
+        let level = headings[index].level
+        let below = headings[(index + 1)...].prefix { $0.level > level }
+        let top = below.map(\.level).min()!
+        return below.indices.filter { headings[$0].level == top }
+    }
+
+    /// The text with the headings right under heading [index] in the order
+    /// of their names, as Finder orders them, each with its section. The
+    /// text before the first of them stays first. Nil when they are in
+    /// order already or there are fewer than two.
+    public static func sortChildren(_ text: String, heading index: Int) -> String? {
+        let start = headings(in: text)
+        guard start.indices.contains(index) else { return nil }
+        let names = children(of: index, in: start).map { start[$0].text }
+        let sorted = names.enumerated().sorted {
+            let order = $0.element.localizedStandardCompare($1.element)
+            return order == .orderedSame ? $0.offset < $1.offset : order == .orderedAscending
+        }.map(\.offset)
+        guard names.count > 1, sorted != Array(names.indices) else { return nil }
+        var text = text
+        // Where each section is now, by its first place.
+        var places = Array(names.indices)
+        for (position, wanted) in sorted.enumerated() {
+            let at = places.firstIndex(of: wanted)!
+            guard at != position else { continue }
+            let now = headings(in: text)
+            let child = children(of: index, in: now)[at]
+            guard let moved = move(text, heading: child, to: position) else { return nil }
+            text = moved.text
+            places.insert(places.remove(at: at), at: position)
+        }
+        return text
+    }
+
     /// The headings of heading [index]'s level under the same parent, in
     /// order, [index] among them.
     public static func siblings(of index: Int, in headings: [Heading]) -> [Int] {

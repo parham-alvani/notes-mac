@@ -34,6 +34,72 @@ import Testing
         #expect(headings == NoteParser.parse(Self.note).headings)
     }
 
+    @Test func aClosedHeadingHidesTheHeadingsUnderIt() {
+        let headings = Sections.headings(in: """
+            # A
+            ## A1
+            ### A1a
+            ## A2
+            # B
+            ## B1
+            # C
+            """)
+        #expect(Sections.hasChildren(0, in: headings) && Sections.hasChildren(1, in: headings))
+        #expect(!Sections.hasChildren(2, in: headings) && !Sections.hasChildren(6, in: headings))
+        #expect(Sections.visible(headings, closed: []) == Array(0..<7))
+        #expect(Sections.visible(headings, closed: ["1:A"]) == [0, 4, 5, 6])
+        #expect(Sections.visible(headings, closed: ["2:A1"]) == [0, 1, 3, 4, 5, 6])
+        // A heading closed under a closed one stays closed when that opens.
+        #expect(Sections.visible(headings, closed: ["1:A", "2:A1", "1:B"]) == [0, 4, 6])
+        // A heading with nothing under it has nothing to hide.
+        #expect(Sections.visible(headings, closed: ["1:C", "3:A1a"]) == Array(0..<7))
+        // The section inside a closed heading marks that heading.
+        let visible = Sections.visible(headings, closed: ["1:A"])
+        #expect(Sections.shown(2, visible: visible) == 0)
+        #expect(Sections.shown(5, visible: visible) == 5)
+        #expect(Sections.key(headings[1]) == "2:A1")
+    }
+
+    @Test func theHeadingsUnderOneAreSortedWithTheirSections() throws {
+        let text = """
+            # Plants
+
+            Intro stays first.
+
+            ## Tomato
+
+            Red.
+
+            ### Cherry tomato
+
+            ## apple
+
+            Green.
+
+            ## Bean 10
+
+            ## Bean 9
+            Tall.
+
+            # Kitchen
+
+            ## Zucchini
+            """
+        let headings = Sections.headings(in: text)
+        #expect(Sections.children(of: 0, in: headings).map { headings[$0].text } == ["Tomato", "apple", "Bean 10", "Bean 9"])
+        let sorted = try #require(Sections.sortChildren(text, heading: 0))
+        #expect(Sections.headings(in: sorted).map(\.text) == ["Plants", "apple", "Bean 9", "Bean 10", "Tomato", "Cherry tomato", "Kitchen", "Zucchini"])
+        #expect(sorted.hasPrefix("# Plants\n\nIntro stays first.\n\n## apple\n\nGreen.\n"))
+        #expect(sorted.contains("## Tomato\n\nRed.\n\n### Cherry tomato\n"))
+        #expect(sorted.contains("## Bean 9\nTall.\n"))
+        // Every line is still there, once.
+        #expect(sorted.split(separator: "\n", omittingEmptySubsequences: true).sorted() == text.split(separator: "\n", omittingEmptySubsequences: true).sorted())
+        #expect(Sections.sortChildren(sorted, heading: 0) == nil)
+        // One heading under it, or none: nothing to sort.
+        #expect(Sections.sortChildren(text, heading: 6) == nil)
+        #expect(Sections.sortChildren(text, heading: 7) == nil)
+    }
+
     @Test func aSectionRunsToTheNextHeadingOfItsLevel() {
         let headings = Sections.headings(in: Self.note)
         let count = Sections.lines(Self.note).lines.count

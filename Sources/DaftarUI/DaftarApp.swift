@@ -586,6 +586,8 @@ struct FileCommands: Commands {
             Button("Move Section Down") { window?.moveSection(up: false, store: store) }
                 .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 .disabled(window?.showsText != true)
+            Button("Sort Headings Under This") { window?.sortHeadings(store: store) }
+                .disabled(window?.showsText != true)
             Divider()
             Button("Export as PDF…") { window?.exportPDF() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

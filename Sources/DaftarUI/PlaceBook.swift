@@ -4,7 +4,7 @@ import Foundation
 import Observation
 
 /// What the app remembers of the notes of one vault (`ReadingPlaces`): the
-/// reading places, folds and read times, shared by every
+/// reading places, folds, the outline's closed headings and read times, shared by every
 /// window and written to a file a second after the last change, and when
 /// the app quits. Without a [directory] they live only as long as the app.
 @MainActor @Observable
@@ -12,6 +12,8 @@ final class PlaceBook {
     /// Grows when a note is read, so the marks of updated notes follow;
     /// the cursor's moves are not watched.
     private(set) var reads = 0
+    /// Grows when a heading is closed or opened in an outline.
+    private(set) var outlines = 0
     @ObservationIgnored private var places = ReadingPlaces()
     @ObservationIgnored private var file: URL?
     @ObservationIgnored private var save: Task<Void, Never>?
@@ -42,6 +44,19 @@ final class PlaceBook {
     func setFolds(_ path: String, _ folds: [String]) {
         guard places.folds(path) != folds else { return }
         places.setFolds(path, folds)
+        later()
+    }
+
+    func closed(_ path: String) -> Set<String> {
+        _ = outlines
+        _ = reads
+        return Set(places.closed(path))
+    }
+
+    func setClosed(_ path: String, _ closed: Set<String>) {
+        guard Set(places.closed(path)) != closed else { return }
+        places.setClosed(path, closed.sorted())
+        outlines += 1
         later()
     }
 

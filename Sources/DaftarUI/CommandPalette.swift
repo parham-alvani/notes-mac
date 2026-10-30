@@ -167,6 +167,9 @@ enum PaletteCommands {
                 PaletteCommand(id: "section-down", title: "Move Section Down", group: "Note", symbol: "arrow.down.to.line", color: Palette.aqua, shortcut: "⌥⌘↓") {
                     model.moveSection(up: false, store: store)
                 },
+                PaletteCommand(id: "sort-headings", title: "Sort Headings Under This", group: "Note", symbol: "textformat.abc", color: Palette.aqua) {
+                    model.sortHeadings(store: store)
+                },
                 PaletteCommand(id: "rename", title: "Rename", group: "Note", symbol: "character.cursor.ibeam", color: Palette.blue, shortcut: "⌘R") {
                     model.fileAction = .rename(note)
                 },

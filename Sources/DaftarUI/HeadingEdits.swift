@@ -70,6 +70,19 @@ extension VaultStore {
         return summary
     }
 
+    /// The headings right under heading [index] in the order of their names.
+    @discardableResult
+    func sortSections(_ path: String, under index: Int) -> Bool {
+        guard let text = text(of: path), let sorted = Sections.sortChildren(text, heading: index) else { return false }
+        do {
+            try write(sorted, to: path)
+            return true
+        } catch {
+            notice = "\(Vault.title(of: path)) could not be written: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     /// The section of heading [index] of [path] at place [position] among
     /// its siblings, in the file. False when it did not move.
     @discardableResult
@@ -117,6 +130,32 @@ extension WindowModel {
         let siblings = Sections.siblings(of: index, in: headings)
         let at = siblings.firstIndex(of: index)! + (up ? -1 : 1)
         if !store.moveSection(path, heading: index, to: at) { NSSound.beep() }
+    }
+
+    /// "Sort Headings Under This": the headings right under [heading], or
+    /// under the heading the cursor is in, in the order of their names. The
+    /// editor's text is saved first, and it takes the sorted text from the
+    /// file.
+    func sortHeadings(under heading: Heading? = nil, store: VaultStore) {
+        guard let path, !showsPage else { return }
+        let line = focused.cursorLine ?? 0
+        Task {
+            await store.flushEditors()
+            let text = store.text(of: path) ?? ""
+            let headings = Sections.headings(in: text)
+            let found = heading.map { headings.firstIndex(of: $0) } ?? Sections.heading(at: line, in: headings)
+            guard let index = found else {
+                store.notice = "Put the cursor in a section to sort the headings under it."
+                return
+            }
+            if Sections.children(of: index, in: headings).count < 2 {
+                store.notice = "“\(headings[index].text)” has fewer than two headings right under it."
+            } else if Sections.sortChildren(text, heading: index) == nil {
+                store.notice = "The headings under “\(headings[index].text)” are in order already."
+            } else {
+                store.sortSections(path, under: index)
+            }
+        }
     }
 
     /// A heading dropped on another of its level in the outline: its

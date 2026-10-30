@@ -42,6 +42,20 @@ import Testing
         #expect(ReadingPlaces(data: places.data) == places)
     }
 
+    @Test func theOutlinesClosedHeadingsComeBackApartFromTheFolds() {
+        var places = ReadingPlaces()
+        places.setFolds("Plan.md", ["2:Done"])
+        places.setClosed("Plan.md", ["1:Notes", "2:Ideas"])
+        let back = ReadingPlaces(data: places.data)
+        #expect(back.closed("Plan.md") == ["1:Notes", "2:Ideas"])
+        #expect(back.folds("Plan.md") == ["2:Done"])
+        places.setClosed("Plan.md", [])
+        #expect(places.closed("Plan.md").isEmpty && places.folds("Plan.md") == ["2:Done"])
+        places.setClosed("Plan.md", ["1:Notes"])
+        places.moved(["Plan.md": "Roadmap.md"])
+        #expect(places.closed("Roadmap.md") == ["1:Notes"])
+    }
+
     @Test func foldsAndReadTimesComeBack() {
         var places = ReadingPlaces()
         places.setFolds("Plan.md", ["2:Done", "3:Old ideas"])
