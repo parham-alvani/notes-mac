@@ -38,7 +38,11 @@ final class NeovimSession {
         self.path = path
         self.root = root
         self.view = view
+        textSize = CGFloat(settings.textSize)
     }
+
+    /// The size of the note's body text, which the grid is measured in.
+    private let textSize: CGFloat
 
     /// `nvim_config`: "user" is your init.lua, "clean" is none, and any
     /// other value is a Lua or Vim file to start with instead, as `-u`.
@@ -326,11 +330,19 @@ final class NeovimSession {
     /// Rows and columns the view shows, so `<C-d>`, `zz` and `H`/`L` move by
     /// what is on screen.
     private func size() -> (Int, Int) {
-        guard let view, let font = view.font else { return (40, 100) }
+        // The body's font: the view's own is its first letter's, and live
+        // preview shrinks a heading's `#` away from the cursor.
+        guard let view else { return (40, 100) }
+        let font = Fonts.text(size: textSize)
         let line = font.ascender - font.descender + font.leading
-        let width = ("M" as NSString).size(withAttributes: [.font: font]).width
+        // A line of prose holds as many letters as Neovim's columns: the
+        // average letter, not the widest.
+        let alphabet = "abcdefghijklmnopqrstuvwxyz " as NSString
+        let width = alphabet.size(withAttributes: [.font: font]).width / CGFloat(alphabet.length)
+        // The scroll view's clip is what shows; the view's visible rect is
+        // the whole note until the view is on screen.
         let grid = VimGrid.size(
-            height: view.visibleRect.height, width: Double(view.textContainer?.size.width ?? 600),
+            height: Double(view.enclosingScrollView?.contentView.bounds.height ?? view.visibleRect.height), width: Double(view.textContainer?.size.width ?? 600),
             lineHeight: line * 1.6, letterWidth: width)
         return (grid.rows, grid.cols)
     }
