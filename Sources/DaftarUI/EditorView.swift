@@ -931,7 +931,7 @@ final class NoteTextView: NSTextView {
     }
     /// The many cursors, and what focus and typewriter mode did (`EditorCursors.swift`).
     let extras = EditorExtras()
-    private var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
+    var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
     /// A new editor takes the keys once it is in its window: SwiftUI may put
     /// it there after the next turn of the run loop, and the keys typed
     /// until then went nowhere.
@@ -1306,10 +1306,6 @@ final class NoteTextView: NSTextView {
         line.fill(using: .sourceOver)
         NSPalette.named("orange", alpha: 0.8).setFill()
         NSRect(x: line.minX, y: line.minY + 2, width: 2.5, height: max(0, line.height - 4)).fill(using: .sourceOver)
-        if showsBlock, let block = blockRect() {
-            NSPalette.accent.withAlphaComponent(0.45).setFill()
-            block.fill(using: .sourceOver)
-        }
     }
 
     private func cursorLineRect() -> NSRect? { lineRect(at: selectedRange().location) }
@@ -1344,7 +1340,7 @@ final class NoteTextView: NSTextView {
         return ("m" as NSString).size(withAttributes: [.font: font]).width
     }
 
-    private var showsBlock: Bool { vimActive && vim?.isNormal == true && selectedRange().length == 0 }
+    var showsBlock: Bool { vimActive && vim?.isNormal == true && selectedRange().length == 0 }
 
     /// The view's own caret is as high as the line, and a line is 1.6 times
     /// its letters with the room above them: the caret stood above the text.
@@ -1384,7 +1380,9 @@ final class NoteTextView: NSTextView {
     /// The caret where the cursor is, while the view has the keys and
     /// nothing is selected.
     func fitCaret() {
-        let shown = window?.isKeyWindow == true && window?.firstResponder === self && selectedRange().length == 0 && !showsBlock
+        // In Neovim mode the cursor is NeovimCursor's, block or bar.
+        moveNeovimCursor()
+        let shown = window?.isKeyWindow == true && window?.firstResponder === self && selectedRange().length == 0 && !vimActive
         guard shown, let fitted = letterCaret(at: selectedRange().location) else {
             if caret.displayMode != .hidden { caret.displayMode = .hidden }
             return
@@ -1396,7 +1394,7 @@ final class NoteTextView: NSTextView {
 
     /// The block over the character at the cursor: as wide as it is, or as
     /// an `m` at the end of a line. A Persian character is to the left.
-    private func blockRect() -> NSRect? {
+    func blockRect() -> NSRect? {
         let offset = selectedRange().location
         guard let caret = letterCaret(at: offset) else { return nil }
         let text = string as NSString

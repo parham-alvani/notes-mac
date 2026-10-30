@@ -191,3 +191,80 @@ final class CommandLinePanel: NSView {
         NSGraphicsContext.restoreGraphicsState()
     }
 }
+
+/// Neovim mode's cursor: a block in normal mode, a bar while typing, that
+/// slides to where it goes, as Neovide's does. It is behind the text, so
+/// the letter under the block reads; without the keys it is an outline.
+final class NeovimCursor: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 2
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    private var look: (block: Bool, focused: Bool)?
+
+    func style(block: Bool, focused: Bool) {
+        guard look.map({ $0 != (block, focused) }) ?? true else { return }
+        look = (block, focused)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let accent = NSPalette.accent
+            layer?.backgroundColor = focused ? accent.withAlphaComponent(block ? 0.55 : 1).cgColor : NSColor.clear.cgColor
+            layer?.borderColor = accent.cgColor
+            layer?.borderWidth = focused ? 0 : 1
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        if let look { self.look = nil; style(block: look.block, focused: look.focused) }
+    }
+}
+
+extension NoteTextView {
+    /// Where Neovim's cursor is: the block over the letter in normal mode,
+    /// a bar at the letters' height while typing; none over a selection.
+    func moveNeovimCursor() {
+        let visual = vim.map { $0.mode.first == "v" || $0.mode.first == "V" || $0.mode == "\u{16}" } ?? false
+        guard vimActive, let vim, !visual, selectedRange().length == 0 else {
+            extras.neovimCursor?.removeFromSuperview()
+            extras.neovimCursor = nil
+            return
+        }
+        let target: NSRect
+        if vim.isNormal {
+            guard let block = blockRect() else { return }
+            target = block
+        } else {
+            guard let caret = letterCaret(at: selectedRange().location) else { return }
+            target = NSRect(x: caret.minX, y: caret.minY, width: 2, height: caret.height)
+        }
+        let cursor = extras.neovimCursor ?? {
+            let cursor = NeovimCursor(frame: .zero)
+            // Behind the text, over the editor's own background and tint.
+            addSubview(cursor, positioned: .below, relativeTo: nil)
+            extras.neovimCursor = cursor
+            return cursor
+        }()
+        cursor.style(block: vim.isNormal, focused: window?.isKeyWindow == true && window?.firstResponder === self)
+        guard cursor.frame != target else { return }
+        // A jump of a screen or more, or a first place, is at once.
+        let near = cursor.frame != .zero && abs(cursor.frame.midY - target.midY) < visibleRect.height
+        if near, controller?.store.settings.animateCursor ?? true, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            window?.isVisible == true
+        {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.09
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                cursor.animator().frame = target
+            }
+        } else {
+            cursor.frame = target
+        }
+    }
+}

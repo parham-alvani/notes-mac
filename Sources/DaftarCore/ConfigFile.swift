@@ -238,6 +238,9 @@ public struct ConfigFile: Sendable, Equatable {
         # dictionary, so Persian lines are not marked. Code, links, tags and
         # the front matter are never marked.
         spell_check = true
+        # Neovim mode: the cursor slides to where it goes, as in Neovide.
+        # "Reduce motion" in macOS turns the slide off too.
+        animate_cursor = true
         # Edit with your own Neovim: it owns the buffer and the file, and the
         # editor shows it. Needs `nvim` (brew install neovim).
         vim_mode = false

@@ -212,6 +212,30 @@ let hasNeovim = NeovimClient.locate() != nil
         #expect(CommandLinePanel.offset(of: 99, in: "ab") == 2)
     }
 
+    /// The cursor is a block over the letter in normal mode, a bar at the
+    /// letters' height while typing, and none over a visual selection.
+    @Test func theCursorIsABlockABarOrNone() async throws {
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        press("w")
+        #expect(await eventually { view.selectedRange().location == 6 })
+        #expect(await eventually { view.extras.neovimCursor?.frame == view.blockRect() })
+        let block = try #require(view.extras.neovimCursor?.frame)
+        // As wide as its letter, an `l` here: more than the bar.
+        #expect(block.width > 2)
+        press("i")
+        #expect(await eventually { view.extras.neovimCursor?.frame.width == 2 })
+        #expect(view.extras.neovimCursor?.frame.minX == view.letterCaret(at: 6)?.minX)
+        press("\u{1B}")
+        press("v")
+        #expect(await eventually { view.extras.neovimCursor == nil })
+        press("\u{1B}")
+        #expect(await eventually { view.extras.neovimCursor != nil })
+        controller.stopVim()
+        #expect(view.extras.neovimCursor == nil)
+    }
+
     @Test func visualBlockSelectsAColumnOnEachRow() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)
