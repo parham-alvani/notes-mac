@@ -1000,9 +1000,24 @@ final class NoteTextView: NSTextView {
     /// points. The letter that was first on screen goes back to its place.
     /// A scroll by a person, or the editor's own to keep the cursor in
     /// sight, drops or renews the anchor first.
-    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
-        let entry = enclosingScrollView?.contentView.bounds.origin.y
-        super.textViewportLayoutControllerDidLayout(controller)
+    ///
+    /// NSTextView has the method from its viewport controller, but the SDK
+    /// of some Xcode versions does not show it, and others do: it is added to
+    /// this class at run time, once, and NSTextView's own runs first.
+    static let viewportHook: Void = {
+        let selector = NSSelectorFromString("textViewportLayoutControllerDidLayout:")
+        guard let method = class_getInstanceMethod(NSTextView.self, selector) else { return }
+        typealias DidLayout = @convention(c) (AnyObject, Selector, AnyObject) -> Void
+        let own = unsafeBitCast(method_getImplementation(method), to: DidLayout.self)
+        let hook: @convention(block) (NoteTextView, AnyObject) -> Void = { view, controller in
+            let entry = view.enclosingScrollView?.contentView.bounds.origin.y
+            own(view, selector, controller)
+            view.keepAnchor(from: entry)
+        }
+        class_addMethod(NoteTextView.self, selector, imp_implementationWithBlock(hook), method_getTypeEncoding(method))
+    }()
+
+    private func keepAnchor(from entry: CGFloat?) {
         guard let held = anchor, Date() < anchorUntil, let scroll = enclosingScrollView, let entry else { return }
         let clip = scroll.contentView
         // Scrolled since by someone else -- a person, the text view to show
@@ -1405,6 +1420,7 @@ final class NoteTextView: NSTextView {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = true
         scroll.backgroundColor = NSPalette.background
+        _ = NoteTextView.viewportHook
         let view = NoteTextView(usingTextLayoutManager: true)
         view.autoresizingMask = [.width]
         view.isVerticallyResizable = true
