@@ -92,35 +92,55 @@ extension EditorController {
             items = LinkCompletion.tags(store.index.tags, matching: text.substring(with: range))
         case .link:
             guard let query = LinkCompletion.query(in: text, at: NSMaxRange(range))?.query else { break }
-            switch query {
-            case .note(let typed):
-                let notes = store.quickOpen(typed, recent: [], limit: 30).map { path in
-                    LinkCompletion.Note(name: store.linkName(of: path, from: source), aliases: store.index.notes[path]?.parsed.aliases ?? [])
-                }
-                items = LinkCompletion.notes(notes, matching: typed)
-            case .heading(let note, let typed):
-                guard let target = target(of: note) else { break }
-                // This note as it is typed, not as it was last saved.
-                let headings = target == source ? NoteParser.parse(view.string).headings : store.index.notes[target]?.parsed.headings ?? []
-                items = LinkCompletion.headings(headings, matching: typed, note: note)
-            case .block(let note, let typed):
-                guard let target = target(of: note), Vault.isNote(target) else { break }
-                let body = target == source ? view.string : store.text(of: target) ?? ""
-                var taken = BlockRefs.ids(in: body)
-                for block in LinkCompletion.blocks(BlockRefs.blocks(in: body), matching: typed) {
-                    let label = LinkCompletion.label(of: block)
-                    let id = block.id ?? BlockRefs.newId(taken: taken)
-                    taken.insert(id)
-                    items.append(LinkCompletion.Item(label: label, insert: "\(note)#^\(id)"))
-                    if block.id == nil { blocks[label] = CompletionState.NewBlock(path: target, line: block.start, text: block.text, id: id) }
-                }
-            }
+            (items, blocks) = linkItems(query, body: view.string, newIds: true)
         case nil:
             break
         }
         view.completion.open = true
         view.completion.choices = Dictionary(items.map { ($0.label, CompletionState.Choice(insert: $0.insert, block: blocks[$0.label])) }) { first, _ in first }
         return items.map(\.label)
+    }
+
+    /// The rows for a link typed after `[[`, the plain editor's and
+    /// Neovim's alike; [body] is this note as it is typed. A block with no
+    /// id gets one when it is chosen, which only [newIds] offers.
+    func linkItems(_ query: LinkCompletion.Query, body: String, newIds: Bool) -> ([LinkCompletion.Item], [String: CompletionState.NewBlock]) {
+        let source = path ?? ""
+        var items: [LinkCompletion.Item] = []
+        var blocks: [String: CompletionState.NewBlock] = [:]
+        switch query {
+        case .note(let typed):
+            let notes = store.quickOpen(typed, recent: [], limit: 30).map { path in
+                LinkCompletion.Note(name: store.linkName(of: path, from: source), aliases: store.index.notes[path]?.parsed.aliases ?? [])
+            }
+            items = LinkCompletion.notes(notes, matching: typed)
+        case .heading(let note, let typed):
+            guard let target = target(of: note) else { break }
+            // This note as it is typed, not as it was last saved.
+            let headings = target == source ? NoteParser.parse(body).headings : store.index.notes[target]?.parsed.headings ?? []
+            items = LinkCompletion.headings(headings, matching: typed, note: note)
+        case .block(let note, let typed):
+            guard let target = target(of: note), Vault.isNote(target) else { break }
+            let text = target == source ? body : store.text(of: target) ?? ""
+            var taken = BlockRefs.ids(in: text)
+            for block in LinkCompletion.blocks(BlockRefs.blocks(in: text), matching: typed) where newIds || block.id != nil {
+                let label = LinkCompletion.label(of: block)
+                let id = block.id ?? BlockRefs.newId(taken: taken)
+                taken.insert(id)
+                items.append(LinkCompletion.Item(label: label, insert: "\(note)#^\(id)"))
+                if block.id == nil { blocks[label] = CompletionState.NewBlock(path: target, line: block.start, text: block.text, id: id) }
+            }
+        }
+        return (items, blocks)
+    }
+
+    /// Neovim's `[[` and `#` completion: what is typed from `[[`, or from
+    /// the `#` of a tag, to the cursor, and the rows as label and text to
+    /// write. A block offered has an id already: giving one writes a file.
+    func neovimCompletions(link typed: String?, tag: String?, body: String) -> [LinkCompletion.Item] {
+        if let tag { return LinkCompletion.tags(store.index.tags, matching: tag) }
+        guard let typed, let query = LinkCompletion.query(in: typed as NSString, at: (typed as NSString).length)?.query else { return [] }
+        return linkItems(query, body: body, newIds: false).0
     }
 
     /// The note a link's note part names: this one when it is empty.

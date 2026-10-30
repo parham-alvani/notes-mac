@@ -212,6 +212,36 @@ let hasNeovim = NeovimClient.locate() != nil
         #expect(CommandLinePanel.offset(of: 99, in: "ab") == 2)
     }
 
+    /// `[[` and `#` in Neovim offer the vault's notes, headings and tags,
+    /// as the plain editor does; Neovim asks Daftar for the rows.
+    @Test func linksAndTagsCompleteInNeovim() async throws {
+        try "# Alpha\n\n## Roots\n\n## Leaves\n".write(to: root.appending(path: "Alpha.md"), atomically: true, encoding: .utf8)
+        try "Beta grows. #garden\n".write(to: root.appending(path: "Beta.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        func type(_ keys: String) { for key in keys { press(String(key)) } }
+        // As the person's config has it: nothing chosen until <C-n>.
+        type(":set completeopt=menu,menuone,noselect\r")
+        type("Go[[Al")
+        #expect(await eventually { view.extras.menu?.items.first?.word == "Alpha" })
+        press("n", .control)
+        #expect(await eventually { view.string.hasSuffix("\n[[Alpha]]\n") })
+        // A heading of the note, after its #, in by its level as in the plain editor.
+        type("\u{1B}o[[Alpha#Ro")
+        #expect(await eventually { view.extras.menu?.items.contains { $0.word.trimmingCharacters(in: .whitespaces) == "Roots" } == true })
+        press("n", .control)
+        #expect(await eventually { view.string.hasSuffix("\n[[Alpha#Roots]]\n") })
+        // A tag, at the start of a word.
+        type("\u{1B}o#gar")
+        #expect(await eventually { view.extras.menu?.items.first?.word.contains("garden") == true })
+        press("n", .control)
+        #expect(await eventually { view.string.hasSuffix("\n#garden\n") })
+        type("\u{1B}")
+        await session.stop()
+    }
+
     /// Enter, o and O go on with a list, a numbered list, a task list and a
     /// quote; Enter on an empty item ends the list.
     @Test func listsGoOnInNeovim() async throws {

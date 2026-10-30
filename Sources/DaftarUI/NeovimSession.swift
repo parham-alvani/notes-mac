@@ -82,6 +82,9 @@ final class NeovimSession {
 
     func start() async {
         do {
+            client.onRequest = { [weak self] method, params in
+                await self?.answer(method, params) ?? .nil
+            }
             try client.start()
             listen = Task { [weak self, client] in
                 for await note in client.notifications {
@@ -98,6 +101,7 @@ final class NeovimSession {
             try await takeBuffer()
             try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel))]])
             try await client.request("nvim_exec_lua", [.string(Self.lists), []])
+            try await client.request("nvim_exec_lua", [.string(Self.links), [.int(Int64(channel))]])
             // Normal mode's keys on the Persian layout too, unless the person's config sets a langmap.
             let langmap = Self.keyboardLangmap()
             if !langmap.isEmpty {
@@ -192,8 +196,9 @@ final class NeovimSession {
           marker = rest:match('^> ')
           if marker then return indent, marker, marker end
         end
+        -- The key goes first, before what is typed after it and waits.
         local function plain(keys)
-          vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'n', false)
+          vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'ni', false)
         end
         local function enter()
           local row, col = unpack(vim.api.nvim_win_get_cursor(0))
@@ -231,6 +236,67 @@ final class NeovimSession {
         })
         if vim.bo.filetype == 'markdown' then map(0) end
         """
+
+    /// `[[` and `#` offer the vault's notes, headings and tags as the plain
+    /// editor does: Neovim asks Daftar for the rows (`daftar_complete`), as
+    /// `completefunc`, from the moment `[[` or a tag's `#` is typed. A
+    /// person's own completefunc wins.
+    static let links = """
+        local chan = ...
+        local kind
+        function _G.daftar_complete(findstart, base)
+          local line = vim.api.nvim_get_current_line()
+          local col = vim.api.nvim_win_get_cursor(0)[2]
+          local before = line:sub(1, col)
+          if findstart == 1 then
+            local open = before:match('.*()%[%[')
+            if open and not before:sub(open + 2):find('%]%]') and not before:sub(open + 2):find('|', 1, true) then
+              kind = 'link'
+              return open + 1
+            end
+            local hash = before:match('.*()#[^%s#]*$')
+            if hash and (hash == 1 or before:sub(hash - 1, hash - 1):match('%s')) then
+              kind = 'tag'
+              return hash
+            end
+            return -3
+          end
+          local rows = vim.rpcrequest(chan, 'daftar_complete', kind, kind == 'link' and ('[[' .. base) or base)
+          local close = kind == 'link' and line:sub(col + 1, col + 2) ~= ']]'
+          local words = {}
+          for _, row in ipairs(rows or {}) do
+            table.insert(words, { word = row[2] .. (close and ']]' or ''), abbr = row[1], menu = kind == 'link' and 'link' or 'tag', dup = 1 })
+          end
+          return { words = words, refresh = 'always' }
+        end
+        local function trigger()
+          if vim.fn.pumvisible() == 1 or vim.bo.completefunc ~= 'v:lua.daftar_complete' then return end
+          local before = vim.api.nvim_get_current_line():sub(1, vim.api.nvim_win_get_cursor(0)[2])
+          if before:match('%[%[[^%]|]*$') or before:match('^#[^%s#]+$') or before:match('%s#[^%s#]+$') then
+            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-x><C-u>', true, false, true), 'ni', false)
+          end
+        end
+        local function use(buffer)
+          if vim.bo[buffer].completefunc ~= '' and vim.bo[buffer].completefunc ~= 'v:lua.daftar_complete' then return end
+          vim.bo[buffer].completefunc = 'v:lua.daftar_complete'
+          vim.api.nvim_create_autocmd('TextChangedI', { group = vim.api.nvim_create_augroup('daftar_links_' .. buffer, { clear = true }), buffer = buffer, callback = trigger })
+        end
+        vim.api.nvim_create_autocmd('FileType', {
+          group = vim.api.nvim_create_augroup('daftar_links', { clear = true }),
+          pattern = 'markdown',
+          callback = function(event) use(event.buf) end,
+        })
+        if vim.bo.filetype == 'markdown' then use(vim.api.nvim_get_current_buf()) end
+        """
+
+    /// Neovim's questions to Daftar: the rows of `[[` and `#` completion.
+    private func answer(_ method: String, _ params: [MessagePackValue]) -> MessagePackValue {
+        guard method == "daftar_complete", params.count > 1, let kind = params[0].stringValue, let typed = params[1].stringValue,
+            let controller = view?.controller
+        else { return .array([]) }
+        let items = controller.neovimCompletions(link: kind == "link" ? typed : nil, tag: kind == "tag" ? typed : nil, body: view?.string ?? "")
+        return .array(items.map { .array([.string($0.label), .string($0.insert)]) })
+    }
 
     private static let setup = """
         local chan = ...

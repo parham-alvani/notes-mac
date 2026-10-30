@@ -18,11 +18,17 @@ public final class NeovimClient: @unchecked Sendable {
     private let input = Pipe()
     private let output = Pipe()
     private let lock = NSLock()
+    /// Writes come from the main actor and from answers to Neovim at once:
+    /// one message goes whole before the next.
+    private let writing = NSLock()
     private var nextId: UInt64 = 1
     private var pending: [UInt64: CheckedContinuation<MessagePackValue, any Error>] = [:]
     private var stream = MessagePack.Stream()
     private let continuation: AsyncStream<Notification>.Continuation
     public let notifications: AsyncStream<Notification>
+    /// Answers Neovim's `rpcrequest`, by method and params; Neovim waits
+    /// for it. Set before [start]; without it each request gets nil.
+    public var onRequest: (@Sendable (String, [MessagePackValue]) async -> MessagePackValue)?
 
     /// [arguments] come after `--embed`; [directory] is where it runs.
     public init(executable: URL, arguments: [String] = [], directory: URL? = nil, environment: [String: String]? = nil) {
@@ -88,7 +94,7 @@ public final class NeovimClient: @unchecked Sendable {
     private func send(_ message: MessagePackValue) {
         let data = MessagePack.encode(message)
         do {
-            try input.fileHandleForWriting.write(contentsOf: data)
+            try writing.withLock { try input.fileHandleForWriting.write(contentsOf: data) }
         } catch {
             closed()
         }
@@ -111,9 +117,19 @@ public final class NeovimClient: @unchecked Sendable {
             case 2 where parts.count == 3:
                 continuation.yield(Notification(method: parts[1].stringValue ?? "", params: parts[2].arrayValue ?? []))
             case 0 where parts.count == 4:
-                // Neovim asking us something (rpcrequest): there is nothing
-                // here to answer with, so it gets an empty reply, not a hang.
-                send(.array([.uint(1), parts[1], .nil, .nil]))
+                // Neovim asking us something (rpcrequest), and waiting: an
+                // answer, or an empty one, never a hang.
+                let id = parts[1]
+                guard let onRequest else {
+                    send(.array([.uint(1), id, .nil, .nil]))
+                    continue
+                }
+                let method = parts[2].stringValue ?? ""
+                let params = parts[3].arrayValue ?? []
+                Task { [weak self] in
+                    let answer = await onRequest(method, params)
+                    self?.send(.array([.uint(1), id, .nil, answer]))
+                }
             default:
                 break
             }
