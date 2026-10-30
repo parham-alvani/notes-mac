@@ -232,6 +232,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     private func showStatus() {
         updateCounts()
+        container?.setCommandLine(session?.state == .running ? session?.commandLine : nil)
         guard let session else { return container?.setStatus(nil, mode: nil) ?? () }
         switch session.state {
         case .failed(let message): container?.setStatus(message, mode: "NEOVIM")
@@ -1971,6 +1972,35 @@ final class EditorContainer: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// Neovim's command line, floating near the top of the editor while it
+    /// is open, as Neovide setups show it; nil hides it.
+    func setCommandLine(_ line: NeovimSession.CommandLine?) {
+        guard let line else {
+            commandPanel?.removeFromSuperview()
+            commandPanel = nil
+            return
+        }
+        let panel = commandPanel ?? {
+            let panel = CommandLinePanel(frame: .zero)
+            panel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(panel, positioned: .above, relativeTo: scroll)
+            let wide = panel.widthAnchor.constraint(equalTo: scroll.widthAnchor, multiplier: 0.8)
+            wide.priority = .defaultHigh
+            NSLayoutConstraint.activate([
+                panel.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 28),
+                panel.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+                wide,
+                panel.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+                panel.heightAnchor.constraint(equalToConstant: 38),
+            ])
+            commandPanel = panel
+            return panel
+        }()
+        panel.line = line
+    }
+
+    private(set) var commandPanel: CommandLinePanel?
 
     /// Nil hides the mode: the editor is not in Neovim mode.
     func setStatus(_ text: String?, mode name: String?) {

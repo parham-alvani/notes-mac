@@ -25,6 +25,15 @@ final class NeovimSession {
     private(set) var mode = "n"
     /// The command line or the last message, for the bar under the text.
     private(set) var status = ""
+    /// The command line while one is open: `:`, `/` or `?` and a prompt,
+    /// what is typed, and where its cursor is, in UTF-8 bytes.
+    struct CommandLine: Equatable {
+        var prefix: String
+        var text: String
+        var position: Int
+    }
+
+    private(set) var commandLine: CommandLine?
     var onChange: (() -> Void)?
     var onRemoteEdit: (() -> Void)?
 
@@ -289,13 +298,20 @@ final class NeovimSession {
             for args in items.dropFirst().compactMap(\.arrayValue) {
                 switch name {
                 case "cmdline_show":
+                    // [content, pos, firstc, prompt, indent, level]
                     let content = Self.text(args.first)
+                    let position = args.count > 1 ? args[1].intValue ?? content.utf8.count : content.utf8.count
                     let firstc = args.count > 2 ? args[2].stringValue ?? "" : ""
                     let prompt = args.count > 3 ? args[3].stringValue ?? "" : ""
-                    status = firstc + prompt + content
+                    commandLine = CommandLine(prefix: firstc + prompt, text: content, position: position)
+                    status = ""
+                    changed = true
+                case "cmdline_pos":
+                    if let position = args.first?.intValue { commandLine?.position = position }
                     changed = true
                 case "cmdline_hide":
-                    status = ""
+                    commandLine = nil
+                    view?.hideNeovimMenu()
                     changed = true
                 case "msg_show":
                     let text = Self.text(args.count > 1 ? args[1] : nil)

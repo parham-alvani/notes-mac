@@ -120,7 +120,13 @@ extension NoteTextView {
         let size = menu.frame.size
         let visible = visibleRect
         if forCommandLine {
-            menu.setFrameOrigin(NSPoint(x: visible.minX + 12, y: visible.maxY - size.height - 6))
+            // Under the floating command line, at its left edge.
+            if let panel = controller?.container?.commandPanel {
+                let rect = convert(panel.bounds, from: panel)
+                menu.setFrameOrigin(NSPoint(x: max(visible.minX + 4, rect.minX + 8), y: rect.maxY + 4))
+            } else {
+                menu.setFrameOrigin(NSPoint(x: visible.minX + 12, y: visible.maxY - size.height - 6))
+            }
             return
         }
         let text = string as NSString
@@ -138,5 +144,50 @@ extension NoteTextView {
         }
         origin.x = max(visible.minX + 4, min(origin.x, visible.maxX - size.width - 4))
         menu.setFrameOrigin(origin)
+    }
+}
+
+/// Neovim's command line -- `:`, `/`, `?`, an `input()` prompt -- as a
+/// panel floating near the top of the editor, with its own cursor.
+final class CommandLinePanel: NSView {
+    var line = NeovimSession.CommandLine(prefix: ":", text: "", position: 0) {
+        didSet { if line != oldValue { needsDisplay = true } }
+    }
+
+    override var isFlipped: Bool { true }
+
+    private var font: NSFont { Fonts.code(size: 14) }
+
+    /// What a cursor at UTF-8 byte [position] of [text] is before, in UTF-16.
+    static func offset(of position: Int, in text: String) -> Int {
+        let bytes = Array(text.utf8.prefix(max(0, position)))
+        return (String(decoding: bytes, as: UTF8.self) as NSString).length
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let panel = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 9, yRadius: 9)
+        NSPalette.panel.setFill()
+        panel.fill()
+        NSPalette.named("orange", alpha: 0.6).setStroke()
+        panel.lineWidth = 1
+        panel.stroke()
+        let prefix = NSAttributedString(string: line.prefix, attributes: [.font: font, .foregroundColor: NSPalette.accent])
+        let text = NSAttributedString(string: line.text, attributes: [.font: font, .foregroundColor: NSPalette.text])
+        let height = text.size().height == 0 ? prefix.size().height : text.size().height
+        let y = bounds.midY - height / 2
+        prefix.draw(at: NSPoint(x: 14, y: y))
+        let start = 14 + prefix.size().width + 6
+        // The end of a long line in sight: the text slides left past the edge.
+        let before = NSAttributedString(
+            string: (line.text as NSString).substring(to: min((line.text as NSString).length, Self.offset(of: line.position, in: line.text))),
+            attributes: [.font: font])
+        let room = bounds.width - start - 16
+        let shift = max(0, before.size().width - room)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: NSRect(x: start, y: 0, width: max(0, room + 4), height: bounds.height)).addClip()
+        text.draw(at: NSPoint(x: start - shift, y: y))
+        NSPalette.accent.setFill()
+        NSRect(x: start - shift + before.size().width, y: y + 1, width: 2, height: height - 2).fill()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }

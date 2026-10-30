@@ -182,6 +182,36 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// The command line floats over the editor while it is open, with what
+    /// is typed and its cursor; the status bar keeps the message after it.
+    @Test func theCommandLineFloatsOverTheEditor() async throws {
+        let container = try #require(window.contentView as? EditorContainer)
+        controller.container = container
+        controller.load("Note.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        for key in [":", "e", "c", "h", "o", " ", "'", "س", "ل", "ا", "م", "'"] { press(key) }
+        #expect(await eventually { container.commandPanel?.line.text == "echo 'سلام'" })
+        #expect(container.commandPanel?.line.prefix == ":")
+        // At the end: the bytes of the line, Persian letters two each.
+        #expect(container.commandPanel?.line.position == "echo 'سلام'".utf8.count)
+        press("\r")
+        #expect(await eventually { container.commandPanel == nil })
+        #expect(await eventually { session.status == "سلام" })
+        press("/")
+        #expect(await eventually { container.commandPanel?.line.prefix == "/" })
+        press("\u{1B}")
+        #expect(await eventually { container.commandPanel == nil })
+        await session.stop()
+    }
+
+    @Test func aCommandLineCursorIsCountedInLetters() {
+        #expect(CommandLinePanel.offset(of: 0, in: "سلام") == 0)
+        #expect(CommandLinePanel.offset(of: 4, in: "سلام") == 2)
+        #expect(CommandLinePanel.offset(of: 6, in: "ab😀") == 4)
+        #expect(CommandLinePanel.offset(of: 99, in: "ab") == 2)
+    }
+
     @Test func visualBlockSelectsAColumnOnEachRow() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)
