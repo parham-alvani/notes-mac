@@ -483,8 +483,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     }
 
     /// The lines that open or close a block, as written. It runs on every
-    /// key, so it looks at each line's first letters, and finds `$$` and
-    /// `%%` with one search each over the whole text.
+    /// key, so it reads no line on its own: it finds `$$` and `%%` anywhere,
+    /// and ```` ``` ````, `~~~` and `---` at a line's start (after spaces and
+    /// `>`), with one search each over the whole text.
     static func structure(of text: NSString) -> [String] {
         let length = text.length
         var marks: [(Int, String)] = []
@@ -498,25 +499,26 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
                 from = NSMaxRange(line)
             }
         }
-        var start = 0
-        while start < length {
-            var end = 0, contents = 0
-            text.getLineStart(nil, end: &end, contentsEnd: &contents, for: NSRange(location: start, length: 0))
-            var at = start
-            while at < contents, [32, 9, 62].contains(text.character(at: at)) { at += 1 }
-            if at < contents {
-                let first = text.character(at: at)
-                // ` ~ -
-                if first == 96 || first == 126 || first == 45 {
+        for needle in ["```", "~~~", "---"] {
+            var from = 0
+            while from < length {
+                let found = text.range(of: needle, options: .literal, range: NSRange(location: from, length: length - from))
+                guard found.location != NSNotFound else { break }
+                var start = 0, end = 0, contents = 0
+                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found.location, length: 0))
+                var at = start
+                while at < contents, [32, 9, 62].contains(text.character(at: at)) { at += 1 }
+                // Only where the line's text begins.
+                if at == found.location {
                     let rest = text.substring(with: NSRange(location: at, length: contents - at))
-                    if rest.hasPrefix("```") || rest.hasPrefix("~~~") {
+                    if needle != "---" {
                         marks.append((start, rest))
-                    } else if rest.hasPrefix("---"), rest.allSatisfy({ $0 == "-" || $0 == " " }) {
+                    } else if rest.allSatisfy({ $0 == "-" || $0 == " " }) {
                         marks.append((start, "---"))
                     }
                 }
+                from = end
             }
-            start = end
         }
         // In the order of the lines; where they are does not count, so a
         // new line above a fence keeps the structure as it was.

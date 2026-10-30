@@ -41,19 +41,46 @@ public enum MarkdownHighlighter {
     }
 
     /// The state the line starting at UTF-16 offset [location] begins in.
+    ///
+    /// It runs on every key, twice, so it does not read every line above:
+    /// past the front matter, only a line with one of `needles` in it can
+    /// start or end a block, and the search jumps from one such line to the
+    /// next.
     public static func blockState(before location: Int, in text: NSString) -> BlockState {
-        var state = BlockState.normal
-        var start = 0
-        var first = true
-        while start < location, start < text.length {
-            let lineRange = text.lineRange(for: NSRange(location: start, length: 0))
-            let line = text.substring(with: lineRange).trimmingCharacters(in: .newlines)
-            state = next(after: line, from: state, firstLine: first)
-            first = false
-            start = NSMaxRange(lineRange)
+        let end = min(location, text.length)
+        guard end > 0 else { return .normal }
+        func line(_ range: NSRange) -> String { text.substring(with: range).trimmingCharacters(in: .newlines) }
+        let firstLine = text.lineRange(for: NSRange(location: 0, length: 0))
+        var state = next(after: line(firstLine), from: .normal, firstLine: true)
+        var start = NSMaxRange(firstLine)
+        // The front matter ends at a line of its own, with no needle in it.
+        while state == .frontMatter, start < end {
+            let range = text.lineRange(for: NSRange(location: start, length: 0))
+            state = next(after: line(range), from: state, firstLine: false)
+            start = NSMaxRange(range)
+        }
+        // Every line that starts before [location] counts, to its end.
+        let limit = NSMaxRange(text.lineRange(for: NSRange(location: end - 1, length: 0)))
+        var found = needles.map { _ in -1 }
+        while start < end {
+            var nearest = NSNotFound
+            for (index, needle) in needles.enumerated() {
+                if found[index] != NSNotFound, found[index] < start {
+                    found[index] = text.range(of: needle, options: .literal, range: NSRange(location: start, length: limit - start)).location
+                }
+                nearest = min(nearest, found[index])
+            }
+            guard nearest != NSNotFound else { break }
+            let range = text.lineRange(for: NSRange(location: nearest, length: 0))
+            state = next(after: line(range), from: state, firstLine: false)
+            start = NSMaxRange(range)
         }
         return state
     }
+
+    /// What a line must hold to start or end a fenced block, a math block
+    /// or a comment.
+    private static let needles = ["```", "~~~", "$$", "%%"]
 
     static func next(after line: String, from state: BlockState, firstLine: Bool) -> BlockState {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
