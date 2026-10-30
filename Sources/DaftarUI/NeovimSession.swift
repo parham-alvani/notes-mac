@@ -97,6 +97,7 @@ final class NeovimSession {
             try await client.request("nvim_exec_lua", ["vim.cmd.edit(vim.fn.fnameescape(...))", [.string(path)]])
             try await takeBuffer()
             try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel))]])
+            try await client.request("nvim_exec_lua", [.string(Self.lists), []])
             // Normal mode's keys on the Persian layout too, unless the person's config sets a langmap.
             let langmap = Self.keyboardLangmap()
             if !langmap.isEmpty {
@@ -175,6 +176,62 @@ final class NeovimSession {
 
     /// The autocommands that tell the view where the cursor is and what mode
     /// Neovim is in, and that it wrote the file.
+    /// Lists and tasks go on, as in the plain editor and Obsidian: Enter
+    /// and `o`/`O` start the next item, a number one more, a task open;
+    /// Enter on an empty item ends the list. A person's own mapping of a
+    /// key wins, and the completion menu keeps its Enter.
+    static let lists = """
+        local function item(line)
+          local indent, rest = line:match('^(%s*)(.*)$')
+          local marker = rest:match('^[-*+] %[.%] ')
+          if marker then return indent, marker, marker:sub(1, 2) .. '[ ] ' end
+          marker = rest:match('^[-*+] ')
+          if marker then return indent, marker, marker end
+          local n, sep = rest:match('^(%d+)([.)] )')
+          if n then return indent, n .. sep, (tonumber(n) + 1) .. sep end
+          marker = rest:match('^> ')
+          if marker then return indent, marker, marker end
+        end
+        local function plain(keys)
+          vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'n', false)
+        end
+        local function enter()
+          local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+          local line = vim.api.nvim_get_current_line()
+          local indent, marker, next = item(line)
+          if vim.fn.pumvisible() == 1 or not indent or col < #indent + #marker then return plain('<CR>') end
+          if line == indent .. marker then
+            vim.api.nvim_set_current_line('')
+            vim.api.nvim_win_set_cursor(0, { row, 0 })
+            return
+          end
+          vim.api.nvim_buf_set_lines(0, row - 1, row, true, { line:sub(1, col), indent .. next .. line:sub(col + 1) })
+          vim.api.nvim_win_set_cursor(0, { row + 1, #indent + #next })
+        end
+        local function open(below)
+          local row = vim.api.nvim_win_get_cursor(0)[1]
+          local indent, marker, next = item(vim.api.nvim_get_current_line())
+          if not indent or vim.v.count > 1 then return plain(below and 'o' or 'O') end
+          local new = indent .. (below and next or (marker:match('%[') and marker:sub(1, 2) .. '[ ] ' or marker))
+          local at = below and row or row - 1
+          vim.api.nvim_buf_set_lines(0, at, at, true, { new })
+          vim.api.nvim_win_set_cursor(0, { at + 1, #new })
+          vim.cmd('startinsert!')
+        end
+        local function map(buffer)
+          local function free(mode, key) return vim.fn.maparg(key, mode) == '' end
+          if free('i', '<CR>') then vim.keymap.set('i', '<CR>', enter, { buffer = buffer, desc = 'Daftar: the next list item' }) end
+          if free('n', 'o') then vim.keymap.set('n', 'o', function() open(true) end, { buffer = buffer, desc = 'Daftar: a list item below' }) end
+          if free('n', 'O') then vim.keymap.set('n', 'O', function() open(false) end, { buffer = buffer, desc = 'Daftar: a list item above' }) end
+        end
+        vim.api.nvim_create_autocmd('FileType', {
+          group = vim.api.nvim_create_augroup('daftar_lists', { clear = true }),
+          pattern = 'markdown',
+          callback = function(event) map(event.buf) end,
+        })
+        if vim.bo.filetype == 'markdown' then map(0) end
+        """
+
     private static let setup = """
         local chan = ...
         local group = vim.api.nvim_create_augroup('daftar', { clear = true })

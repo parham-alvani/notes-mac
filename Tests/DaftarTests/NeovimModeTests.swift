@@ -212,6 +212,31 @@ let hasNeovim = NeovimClient.locate() != nil
         #expect(CommandLinePanel.offset(of: 99, in: "ab") == 2)
     }
 
+    /// Enter, o and O go on with a list, a numbered list, a task list and a
+    /// quote; Enter on an empty item ends the list.
+    @Test func listsGoOnInNeovim() async throws {
+        try "- [x] done\n".write(to: root.appending(path: "Lists.md"), atomically: true, encoding: .utf8)
+        controller.load("Lists.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        func type(_ keys: String) { for key in keys { press(String(key)) } }
+        // A task goes on open, whatever the one above is.
+        type("A\rnext\u{1B}")
+        #expect(await eventually { view.string == "- [x] done\n- [ ] next\n" })
+        // Numbers count on; text after the cursor goes to the new item.
+        type("o\u{1B}S3. ab\u{1B}i\r\u{1B}")
+        #expect(await eventually { view.string == "- [x] done\n- [ ] next\n3. a\n4. b\n" })
+        // o below, O above, in the list of the line.
+        type("ok\u{1B}")
+        #expect(await eventually { view.string == "- [x] done\n- [ ] next\n3. a\n4. b\n5. k\n" })
+        type("ggOz\u{1B}")
+        #expect(await eventually { view.string == "- [ ] z\n- [x] done\n- [ ] next\n3. a\n4. b\n5. k\n" })
+        // Enter on an empty item ends the list on that line; a quote goes on too.
+        type("GA\r\r> q\rr\u{1B}")
+        #expect(await eventually { view.string.hasSuffix("5. k\n> q\n> r\n") })
+        await session.stop()
+    }
+
     /// The cursor is a block over the letter in normal mode, a bar at the
     /// letters' height while typing, and none over a visual selection.
     @Test func theCursorIsABlockABarOrNone() async throws {
