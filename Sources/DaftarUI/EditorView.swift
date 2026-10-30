@@ -222,6 +222,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     func stopVim(writing: Bool = true) {
         guard let session else { return }
         self.session = nil
+        view?.hideNeovimMenu()
         view?.vim = nil
         view?.allowsUndo = true
         view?.writingToolsBehavior = .complete

@@ -159,6 +159,29 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// Neovim's completion menu shows under the word, follows `<C-n>`, and
+    /// goes with Esc; Neovim puts the word in.
+    @Test func neovimsCompletionMenuShowsUnderTheWord() async throws {
+        try "carrot cardamom caraway\n\n".write(to: root.appending(path: "Menu.md"), atomically: true, encoding: .utf8)
+        controller.load("Menu.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        for key in ["G", "i", "c", "a", "r"] { press(key) }
+        press("n", .control)
+        #expect(await eventually { view.extras.menu?.items.count == 3 })
+        let menu = try #require(view.extras.menu)
+        #expect(Set(menu.items.map(\.word)) == ["carrot", "cardamom", "caraway"])
+        // `noselect`: nothing is chosen until the next <C-n>.
+        let line = try #require(view.lineRect(at: view.selectedRange().location))
+        #expect(menu.frame.minY >= line.maxY)
+        press("n", .control)
+        #expect(await eventually { menu.selected == 0 })
+        #expect(await eventually { view.string.hasSuffix("\n" + menu.items[0].word + "\n") || view.string.hasSuffix("\n" + menu.items[0].word) })
+        press("\u{1B}")
+        #expect(await eventually { view.extras.menu == nil })
+        await session.stop()
+    }
+
     @Test func visualBlockSelectsAColumnOnEachRow() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)

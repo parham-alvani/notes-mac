@@ -15,6 +15,8 @@ final class EditorExtras {
     /// The cursors are being moved one by one: the scroll and the dimming wait.
     var moving = false
     var overlay: CaretOverlay?
+    /// Neovim's completion menu while it shows (`NeovimMenu.swift`).
+    var menu: NeovimMenu?
     /// The paragraph focus mode keeps bright, and the length of the text then.
     var focused: (NSRange, Int)?
     /// The scroll view's own insets, before typewriter mode added room at the end.

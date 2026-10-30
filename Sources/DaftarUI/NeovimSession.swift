@@ -82,7 +82,7 @@ final class NeovimSession {
             }
             let (rows, cols) = size()
             try await client.request("nvim_ui_attach", [.int(Int64(cols)), .int(Int64(rows)), [
-                "ext_linegrid": true, "ext_cmdline": true, "ext_messages": true, "rgb": true,
+                "ext_linegrid": true, "ext_cmdline": true, "ext_messages": true, "ext_popupmenu": true, "rgb": true,
             ]])
             let channel = try await client.request("nvim_get_api_info").arrayValue?.first?.intValue ?? 0
             try await client.request("nvim_exec_lua", ["vim.cmd.edit(vim.fn.fnameescape(...))", [.string(path)]])
@@ -303,6 +303,21 @@ final class NeovimSession {
                 case "msg_clear":
                     status = ""
                     changed = true
+                case "popupmenu_show":
+                    // [items, selected, row, col, grid]: each item [word, kind, menu, info].
+                    let entries = (args.first?.arrayValue ?? []).compactMap { $0.arrayValue }.map { entry in
+                        let word = entry.first?.stringValue ?? ""
+                        let kind = entry.count > 1 ? entry[1].stringValue ?? "" : ""
+                        let menu = entry.count > 2 ? entry[2].stringValue ?? "" : ""
+                        return NeovimMenu.Item(word: word, detail: [kind, menu].filter { !$0.isEmpty }.joined(separator: " "))
+                    }
+                    let selected = args.count > 1 ? args[1].intValue ?? -1 : -1
+                    let grid = args.count > 4 ? args[4].intValue ?? 1 : 1
+                    view?.showNeovimMenu(entries, selected: selected, forCommandLine: grid == -1)
+                case "popupmenu_select":
+                    view?.selectNeovimMenu(args.first?.intValue ?? -1)
+                case "popupmenu_hide":
+                    view?.hideNeovimMenu()
                 default:
                     break
                 }
