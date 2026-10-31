@@ -21,6 +21,8 @@ final class AppSettings {
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
     var font: String { didSet { write("appearance.font", .string(font)) } }
     var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
+    /// The reading cursor's band on the line being read, in percent of the accent; 0 is none.
+    var readingLine: Int { didSet { write("appearance.reading_line", .int(readingLine)) } }
     var dockBadge: Bool { didSet { write("appearance.dock_badge", .bool(dockBadge)) } }
     var spotlight: Bool { didSet { write("appearance.spotlight", .bool(spotlight)) } }
     var hideMenuBar: Bool { didSet { write("appearance.hide_menu_bar", .bool(hideMenuBar)); applyMenuBar() } }
@@ -118,6 +120,7 @@ final class AppSettings {
         textSize = 14
         font = "SF Pro"
         codeFont = "SF Mono"
+        readingLine = 18
         dockBadge = true
         spotlight = true
         hideMenuBar = false
@@ -173,6 +176,7 @@ final class AppSettings {
         textSize = file.int("appearance.text_size") ?? 14
         font = file.string("appearance.font") ?? "SF Pro"
         codeFont = file.string("appearance.code_font") ?? "SF Mono"
+        readingLine = max(0, min(100, file.int("appearance.reading_line") ?? 18))
         dockBadge = file.bool("appearance.dock_badge") ?? true
         spotlight = file.bool("appearance.spotlight") ?? true
         hideMenuBar = file.bool("appearance.hide_menu_bar") ?? false

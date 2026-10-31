@@ -267,6 +267,20 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// The editor opens on the line the reader was at, and tells the pane
+    /// that line, so the reader comes back to it: never the note's top.
+    @Test func theEditorOpensAtTheReadersLine() async throws {
+        var reported: [Int] = []
+        controller.onCursor = { reported.append($0) }
+        controller.load("Note.md")
+        controller.go(toLine: 1)
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        #expect(await eventually { view.selectedRange().location == 11 })
+        #expect(await eventually { reported.last == 1 })
+        controller.stopVim()
+    }
+
     /// The cursor is a block over the letter in normal mode, a bar at the
     /// letters' height while typing, and none over a visual selection.
     @Test func theCursorIsABlockABarOrNone() async throws {

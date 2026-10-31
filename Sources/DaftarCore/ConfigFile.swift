@@ -213,6 +213,10 @@ public struct ConfigFile: Sendable, Equatable {
         font = "SF Pro"
         # Code and the editor's markup; "SF Mono" is Obsidian's.
         code_font = "SF Mono"
+        # The reader's cursor marks the line being read in a paragraph of
+        # many lines with a band: its strength, in percent of the accent
+        # colour. 0 leaves it out, and j and k go a paragraph at a time.
+        reading_line = 18
         # Count the tasks due today and overdue on the Dock icon.
         dock_badge = true
         # Show the vault's notes in Spotlight. The index is on this Mac only;
