@@ -984,7 +984,8 @@ window.daftar = {
   },
 
   /** Scrolls to the block that holds a file line. */
-  scrollToLine(line) {
+  /** [anchor]: a block link's `^id`, marked a moment; empty for a line alone. */
+  scrollToLine(line, anchor = "") {
     const blocks = [...document.querySelectorAll("#note [data-line]")];
     const target = blocks.filter((b) => Number(b.dataset.line) <= line).pop();
     if (target) folds.reveal(target);

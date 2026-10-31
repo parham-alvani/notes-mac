@@ -30,11 +30,11 @@ import WebKit
         store.openSynchronously(root)
     }
 
-    func page() async throws -> (WKWebView, NSWindow) {
+    func page(line: Int? = nil) async throws -> (WKWebView, NSWindow) {
         var web: WKWebView?
         let lines = self.lines
         let reader = ReaderView(
-            request: ReaderRequest(path: "Long.md"), store: store, onOpen: { _, _, _ in }, onTag: { _ in },
+            request: ReaderRequest(path: "Long.md", line: line), store: store, onOpen: { _, _, _ in }, onTag: { _ in },
             onCursor: { lines.all.append($0) }, onView: { web = $0 })
         let window = NSWindow(contentRect: CGRect(x: -4000, y: -4000, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -108,6 +108,17 @@ import WebKit
         #expect((lines.all.last ?? 0) > 20)
         let top = Double(try await run(web, "parseFloat(document.querySelector('#reading-cursor').style.top) - window.scrollY")) ?? -1
         #expect(top >= 0 && top < 600)
+    }
+
+    /// Back from the editor: the reader opens at the editor's line, not at the top.
+    @Test func theReaderOpensAtTheEditorsLine() async throws {
+        let (web, window) = try await page(line: 100)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(600))
+        let y = Double(try await run(web, "window.scrollY")) ?? 0
+        // Line 100 is far down a page of 60 paragraphs.
+        #expect(y > 500)
+        #expect(try await run(web, "document.querySelector('#reading-cursor').classList.contains('is-on')") == "1")
     }
 
     @Test func noBandWhenTheSettingIsZero() async throws {
