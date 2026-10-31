@@ -30,13 +30,13 @@ import WebKit
         store.openSynchronously(root)
     }
 
-    func page(line: Int? = nil) async throws -> (WKWebView, NSWindow) {
+    func page(line: Int? = nil, width: CGFloat = 800) async throws -> (WKWebView, NSWindow) {
         var web: WKWebView?
         let lines = self.lines
         let reader = ReaderView(
             request: ReaderRequest(path: "Long.md", line: line), store: store, onOpen: { _, _, _ in }, onTag: { _ in },
             onCursor: { lines.all.append($0) }, onView: { web = $0 })
-        let window = NSWindow(contentRect: CGRect(x: -4000, y: -4000, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: CGRect(x: -4000, y: -4000, width: width, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: reader.environment(store))
         window.orderBack(nil)
@@ -119,6 +119,26 @@ import WebKit
         // Line 100 is far down a page of 60 paragraphs.
         #expect(y > 500)
         #expect(try await run(web, "document.querySelector('#reading-cursor').classList.contains('is-on')") == "1")
+    }
+
+    /// `appearance.text_width` is the widest line, 0 the whole window; a
+    /// narrow pane has small margins, as the editor has.
+    @Test func theTextWidthIsASettingAndANarrowPaneHasSmallMargins() async throws {
+        let style = "[getComputedStyle(document.getElementById('note')).maxWidth, getComputedStyle(document.getElementById('note')).paddingLeft].join('|')"
+        var (web, window) = try await page(width: 1400)
+        #expect(try await run(web, style) == "\(14 * 46)px|35px")
+        window.orderOut(nil)
+        store.settings.textWidth = 60
+        (web, window) = try await page(width: 1400)
+        #expect(try await run(web, style) == "\(14 * 60)px|35px")
+        window.orderOut(nil)
+        store.settings.textWidth = 0
+        (web, window) = try await page(width: 1400)
+        #expect(try await run(web, style) == "none|35px")
+        window.orderOut(nil)
+        (web, window) = try await page(width: 600)
+        #expect(try await run(web, style) == "none|16px")
+        window.orderOut(nil)
     }
 
     @Test func noBandWhenTheSettingIsZero() async throws {

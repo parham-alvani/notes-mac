@@ -21,6 +21,8 @@ final class AppSettings {
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
     var font: String { didSet { write("appearance.font", .string(font)) } }
     var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
+    /// The widest line of text, in em of the text size, in the reader and the editor; 0 is the whole window.
+    var textWidth: Int { didSet { write("appearance.text_width", .int(textWidth)) } }
     /// The reading cursor's band on the line being read, in percent of the accent; 0 is none.
     var readingLine: Int { didSet { write("appearance.reading_line", .int(readingLine)) } }
     var dockBadge: Bool { didSet { write("appearance.dock_badge", .bool(dockBadge)) } }
@@ -121,6 +123,7 @@ final class AppSettings {
         font = "SF Pro"
         codeFont = "SF Mono"
         readingLine = 18
+        textWidth = 46
         dockBadge = true
         spotlight = true
         hideMenuBar = false
@@ -177,6 +180,7 @@ final class AppSettings {
         font = file.string("appearance.font") ?? "SF Pro"
         codeFont = file.string("appearance.code_font") ?? "SF Mono"
         readingLine = max(0, min(100, file.int("appearance.reading_line") ?? 18))
+        textWidth = max(0, file.int("appearance.text_width") ?? 46)
         dockBadge = file.bool("appearance.dock_badge") ?? true
         spotlight = file.bool("appearance.spotlight") ?? true
         hideMenuBar = file.bool("appearance.hide_menu_bar") ?? false

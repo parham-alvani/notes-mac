@@ -883,6 +883,7 @@ window.daftar = {
     // SF Pro's alternates mean other things in other fonts.
     root.setProperty("--font-features", note.fontText?.startsWith("-apple-system") === false ? "normal" : '"ss01" 1, "ss07" 1, "cv07" 1');
     if (note.fontCode) root.setProperty("--font-mono", note.fontCode);
+    if (typeof note.textWidth === "number") root.setProperty("--text-width", note.textWidth > 0 ? `${note.textWidth}em` : "none");
     if (typeof note.readingLine === "number") {
       reading.strength = Math.max(0, Math.min(100, note.readingLine));
       root.setProperty("--reading-line", `${reading.strength}%`);

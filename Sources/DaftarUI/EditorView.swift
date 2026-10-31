@@ -325,6 +325,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     func applyTextSize() {
         let settings = store.settings
         let key = "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
+        view?.fitMargins()
         guard key != fontKey else { return }
         fontKey = key
         restyle(all: true)
@@ -1466,13 +1467,32 @@ final class NoteTextView: NSTextView {
         return scroll
     }
 
-    /// A readable line length: the text keeps to about 46em in a wide window.
+    /// A readable line length: the text keeps to `appearance.text_width`
+    /// em in a wide window.
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        let measure = CGFloat(AppSettings.shared.textSize) * 46
-        let side = max(32, (newSize.width - measure) / 2)
+        fitMargins()
+    }
+
+    /// The margins for the view's width now, and the settings now.
+    func fitMargins() {
+        let settings = AppSettings.shared
+        let side = Self.sideMargin(width: bounds.width, textSize: settings.textSize, textWidth: settings.textWidth)
         if abs(textContainerInset.width - side) > 1 { textContainerInset = NSSize(width: side, height: 28) }
     }
+
+    /// Each side's margin in a view [width] wide: what the measure of
+    /// [textWidth] em leaves, and at least 32 points -- 16 in a narrow pane
+    /// (a split, a small window), where the room is worth more than the
+    /// air. The reader's CSS keeps the same rule (`#note`).
+    static func sideMargin(width: CGFloat, textSize: Int, textWidth: Int) -> CGFloat {
+        let least: CGFloat = width < narrowPane ? 16 : 32
+        guard textWidth > 0 else { return least }
+        return max(least, (width - CGFloat(textSize * textWidth)) / 2)
+    }
+
+    /// Narrower than this, a pane has the small margins, in the editor and the reader.
+    static let narrowPane: CGFloat = 720
 
     // MARK: Lines
 

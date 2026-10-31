@@ -34,6 +34,17 @@ import Testing
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
     }
 
+    /// The editor's margins: what `appearance.text_width` em leaves, at
+    /// least 32 points, 16 in a narrow pane; 0 is the whole width.
+    @Test func theMarginsFollowTheTextWidth() {
+        #expect(NoteTextView.sideMargin(width: 1400, textSize: 14, textWidth: 46) == 378)
+        #expect(NoteTextView.sideMargin(width: 1400, textSize: 14, textWidth: 80) == 140)
+        #expect(NoteTextView.sideMargin(width: 1400, textSize: 14, textWidth: 0) == 32)
+        #expect(NoteTextView.sideMargin(width: 700, textSize: 14, textWidth: 46) == 28)
+        #expect(NoteTextView.sideMargin(width: 600, textSize: 14, textWidth: 46) == 16)
+        #expect(NoteTextView.sideMargin(width: 600, textSize: 14, textWidth: 0) == 16)
+    }
+
     @Test func aSlashCommandReplacesTheSlash() throws {
         // A window, off screen, gives the view its undo manager.
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
