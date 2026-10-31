@@ -1364,7 +1364,7 @@ final class NoteTextView: NSTextView {
     /// normal mode the block is drawn under the text with the cursor's line.
     private lazy var caret: NSTextInsertionIndicator = {
         let caret = NSTextInsertionIndicator(frame: .zero)
-        caret.color = NSPalette.accent
+        caret.color = NSPalette.cursor
         caret.displayMode = .hidden
         addSubview(caret)
         return caret

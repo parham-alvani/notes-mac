@@ -538,6 +538,9 @@ enum NSPalette {
     static let background = dynamic(dark: 0x323232, light: 0xFAF9F5)
     static let panel = dynamic(dark: 0x282826, light: 0xEFEDE6)
     static let accent = dynamic(dark: 0xFFB040, light: 0xA85200)
+    /// The cursor: the text's own colour, as Neovim's reverse video has it,
+    /// so that it is like none of the colours of the markup and of code.
+    static let cursor = text
     static let heading1 = dynamic(dark: 0xFFE0A0, light: 0xA85200)
     static let heading2 = dynamic(dark: 0xFFFF88, light: 0x8A6A00)
     static let heading3 = dynamic(dark: 0x60D8FF, light: 0x0070A0)

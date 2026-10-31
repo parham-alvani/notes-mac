@@ -19,6 +19,9 @@ final class EditorExtras {
     var menu: NeovimMenu?
     /// Neovim mode's cursor, block or bar, that slides (`NeovimOverlays.swift`).
     var neovimCursor: NeovimCursor?
+    /// The letter under Neovim's block, in the background's colour, and
+    /// the length of the text then.
+    var invertedLetter: (NSRange, Int)?
     /// The cursor's particles, while `cursor_effect` names one.
     var cursorEffects: CursorEffectsView?
     /// The paragraph focus mode keeps bright, and the length of the text then.
@@ -36,7 +39,7 @@ final class CaretOverlay: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let textView else { return }
-        NSPalette.accent.setFill()
+        NSPalette.cursor.setFill()
         for rect in textView.extraCaretRects() where rect.intersects(dirtyRect) { rect.fill() }
     }
 }

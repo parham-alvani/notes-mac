@@ -176,6 +176,53 @@ import Testing
         #expect(left == 0)
     }
 
+    /// The text's ranges that have a rendering colour, and the colour.
+    func painted() throws -> [(NSRange, NSColor)] {
+        let layout = try #require(view.textLayoutManager)
+        let content = try #require(layout.textContentManager)
+        var out: [(NSRange, NSColor)] = []
+        layout.enumerateRenderingAttributes(from: content.documentRange.location, reverse: false) { _, attributes, range in
+            if let colour = attributes[.foregroundColor] as? NSColor {
+                out.append((NSRange(location: content.offset(from: content.documentRange.location, to: range.location),
+                    length: content.offset(from: range.location, to: range.endLocation)), colour))
+            }
+            return true
+        }
+        return out
+    }
+
+    /// Neovim's block is in the text's colour, and the letter under it in
+    /// the background's: no colour of code or markup is like the cursor.
+    @Test func theLetterUnderTheBlockIsInTheBackgroundsColour() throws {
+        #expect(NSPalette.cursor == NSPalette.text)
+        view.invertLetter(r(4, 1))
+        var painted = try painted()
+        #expect(painted.count == 1)
+        #expect(painted.first?.0 == r(4, 1))
+        #expect(painted.first?.1 == NSPalette.background)
+        // To the next letter: the first one has its own colour again.
+        view.invertLetter(r(5, 1))
+        #expect(try self.painted().map(\.0) == [r(5, 1)])
+        // Focus mode dims the other paragraphs and keeps the letter.
+        try "First paragraph\nstill first\n\nSecond one\n".write(to: root.appending(path: "Notes/Cats.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Cats.md")
+        store.settings.focusMode = true
+        view.setSelectedRange(r(2))
+        view.invertLetter(r(2, 1))
+        controller.followCursor()
+        painted = try self.painted()
+        #expect(painted.contains { $0.0 == r(2, 1) && $0.1 == NSPalette.background })
+        #expect(painted.contains { $0.0.location >= 28 && $0.1 != NSPalette.background })
+        // No block: no letter in the background's colour, and the dimming stays.
+        view.invertLetter(nil)
+        painted = try self.painted()
+        #expect(!painted.contains { $0.1 == NSPalette.background })
+        #expect(painted.contains { $0.0.location >= 28 })
+        store.settings.focusMode = false
+        controller.followWritingModes()
+        #expect(try self.painted().isEmpty)
+    }
+
     @Test func typewriterKeepsTheLineInTheMiddleToTheLastLine() throws {
         let lines = (1...200).map { "Line \($0)" }.joined(separator: "\n")
         try lines.write(to: root.appending(path: "Notes/Cats.md"), atomically: true, encoding: .utf8)

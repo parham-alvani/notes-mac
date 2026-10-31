@@ -36,6 +36,7 @@ extension EditorController {
             if view.extras.focused != nil {
                 view.extras.focused = nil
                 layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
+                view.showInvertedLetter()
             }
             return
         }
@@ -51,6 +52,7 @@ extension EditorController {
             else { continue }
             layout.addRenderingAttribute(.foregroundColor, value: NSPalette.faint.withAlphaComponent(0.55), for: textRange)
         }
+        view.showInvertedLetter()
     }
 
     // MARK: Typewriter

@@ -337,8 +337,9 @@ struct CursorTrail {
 
 /// Neovim mode's cursor: a block in normal mode, a bar while typing, that
 /// slides to where it goes and stretches on the way, as Neovide's does. It
-/// is behind the text, so the letter under the block reads; without the
-/// keys it is an outline.
+/// is in the text's colour, behind the text, and the letter under the block
+/// is in the background's colour: Neovim's reverse video, which no colour
+/// of the markup or of code is like. Without the keys it is an outline.
 final class NeovimCursor: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -349,6 +350,10 @@ final class NeovimCursor: NSView {
 
     /// Where the cursor goes, or is.
     var target: NSRect { trail.target }
+    /// The cursor is on the way.
+    var moving: Bool { link != nil }
+    /// Runs once, when the cursor gets where it goes.
+    var onSettle: (() -> Void)?
 
     func style(block: Bool, focused: Bool) {
         guard look != (block, focused) else { return }
@@ -374,9 +379,15 @@ final class NeovimCursor: NSView {
     }
 
     @objc private func tick() {
-        if !trail.step(at: CACurrentMediaTime()) { stop() }
+        let moving = trail.step(at: CACurrentMediaTime())
         frame = trail.bounds
         needsDisplay = true
+        if !moving {
+            stop()
+            let settle = onSettle
+            onSettle = nil
+            settle?()
+        }
     }
 
     private func stop() {
@@ -390,7 +401,7 @@ final class NeovimCursor: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let accent = NSPalette.accent
+        let colour = NSPalette.cursor
         let path: NSBezierPath
         if link == nil {
             path = NSBezierPath(roundedRect: bounds.insetBy(dx: look.focused ? 0 : 0.5, dy: look.focused ? 0 : 0.5), xRadius: 2, yRadius: 2)
@@ -404,10 +415,10 @@ final class NeovimCursor: NSView {
             path.close()
         }
         if look.focused {
-            accent.withAlphaComponent(look.block ? 0.55 : 1).setFill()
+            colour.setFill()
             path.fill()
         } else {
-            accent.setStroke()
+            colour.setStroke()
             path.lineWidth = 1
             path.stroke()
         }
@@ -543,7 +554,7 @@ final class CursorEffectsView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let accent = NSPalette.accent
+        let accent = NSPalette.cursor
         for particle in particles.particles {
             let strength = particle.strength
             let point = NSPoint(x: particle.position.x - frame.minX, y: particle.position.y - frame.minY)
@@ -575,6 +586,7 @@ extension NoteTextView {
     func moveNeovimCursor() {
         let visual = vim.map { $0.mode.first == "v" || $0.mode.first == "V" || $0.mode == "\u{16}" } ?? false
         guard vimActive, let vim, !visual, selectedRange().length == 0 else {
+            invertLetter(nil)
             extras.neovimCursor?.removeFromSuperview()
             extras.neovimCursor = nil
             if !vimActive {
@@ -599,9 +611,18 @@ extension NoteTextView {
             extras.neovimCursor = cursor
             return cursor
         }()
-        cursor.style(block: vim.isNormal, focused: window?.isKeyWindow == true && window?.firstResponder === self)
+        let focused = window?.isKeyWindow == true && window?.firstResponder === self
+        cursor.style(block: vim.isNormal, focused: focused)
+        let letter = vim.isNormal && focused ? letterUnderCursor() : nil
         let from = cursor.target
-        guard first || from != target else { return }
+        guard first || from != target else {
+            if cursor.moving {
+                cursor.onSettle = { [weak self] in self?.invertLetter(letter) }
+            } else {
+                invertLetter(letter)
+            }
+            return
+        }
         let settings = controller?.store.settings
         // A jump of a screen or more, or a first place, is at once; a window
         // not on screen runs no animation.
@@ -609,7 +630,17 @@ extension NoteTextView {
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // A letter typed, or one to the side: no trail, and quicker.
         let short = abs(from.midY - target.midY) < 1 && abs(from.midX - target.midX) <= max(from.width, target.width, 8) * 2
-        cursor.move(to: target, animated: moves && settings?.animateCursor ?? true, trail: settings?.cursorTrail ?? true, short: short)
+        let animated = moves && settings?.animateCursor ?? true
+        // The letter takes the background's colour when the block is on it,
+        // not while it is on the way.
+        if animated {
+            invertLetter(nil)
+            cursor.onSettle = { [weak self] in self?.invertLetter(letter) }
+        } else {
+            cursor.onSettle = nil
+            invertLetter(letter)
+        }
+        cursor.move(to: target, animated: animated, trail: settings?.cursorTrail ?? true, short: short)
         let effect = settings?.cursorEffect ?? AppSettings.CursorEffect.none
         if moves, effect != .none {
             let effects = extras.cursorEffects ?? {
@@ -620,5 +651,45 @@ extension NoteTextView {
             }()
             effects.spawn(effect, from: from, to: target)
         }
+    }
+}
+
+extension NoteTextView {
+    /// The letter the block is over, or nil at the end of a line.
+    func letterUnderCursor() -> NSRange? {
+        let text = string as NSString
+        let offset = selectedRange().location
+        guard offset < text.length, text.character(at: offset) != 0x0A else { return nil }
+        return text.rangeOfComposedCharacterSequence(at: offset)
+    }
+
+    /// The letter under the block in the background's colour, or none. A
+    /// rendering attribute, as focus mode's, so the text and undo do not
+    /// change; it is taken off the whole note, so an edit that moved the
+    /// letter leaves none behind.
+    func invertLetter(_ range: NSRange?) {
+        let now = range.map { ($0, (string as NSString).length) }
+        guard extras.invertedLetter?.0 != now?.0 || extras.invertedLetter?.1 != now?.1 else { return }
+        let had = extras.invertedLetter != nil
+        extras.invertedLetter = now
+        if had, let layout = textLayoutManager, let content = layout.textContentManager {
+            layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
+            // Focus mode's dimming was taken off with it.
+            extras.focused = nil
+            controller?.dim()
+        }
+        showInvertedLetter()
+    }
+
+    /// The letter under the block, in the background's colour again: focus
+    /// mode takes every colour off when it dims.
+    func showInvertedLetter() {
+        guard let range = extras.invertedLetter?.0, NSMaxRange(range) <= (string as NSString).length,
+            let layout = textLayoutManager, let content = layout.textContentManager,
+            let from = content.location(content.documentRange.location, offsetBy: range.location),
+            let to = content.location(from, offsetBy: range.length),
+            let textRange = NSTextRange(location: from, end: to)
+        else { return }
+        layout.addRenderingAttribute(.foregroundColor, value: NSPalette.background, for: textRange)
     }
 }
