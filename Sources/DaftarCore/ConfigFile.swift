@@ -214,7 +214,7 @@ public struct ConfigFile: Sendable, Equatable {
         # Code and the editor's markup; "SF Mono" is Obsidian's.
         code_font = "SF Mono"
         # The widest a line of text is, in the reader and the editor, in em
-        # of the text size: 46 is about 75 letters. 0 is the whole window.
+        # of the text size: 46 is about 95 letters in SF Pro. 0 is the whole window.
         text_width = 46
         # The reader's cursor marks the line being read in a paragraph of
         # many lines with a band: its strength, in percent of the accent
