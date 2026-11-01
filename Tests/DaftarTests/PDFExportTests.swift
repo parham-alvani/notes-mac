@@ -32,6 +32,14 @@ import Testing
         #expect(PDFExport.failure("") == "daftar-cli failed.")
     }
 
+    /// clap's usage errors end with "try '--help'", which says nothing.
+    @Test func aUsageErrorSaysItsErrorLine() {
+        let old = "error: unrecognized subcommand 'export'\n\nUsage: daftar-cli [OPTIONS] [COMMAND]\n\nFor more information, try '--help'.\n"
+        #expect(PDFExport.failure(old) == "Export as PDF needs daftar-cli 0.9.0 or later: brew upgrade parham-alvani/tap/daftar-cli.")
+        let bad = "error: unexpected argument '--bad' found\n\n  tip: to pass '--bad' as a value, use '-- --bad'\n\nUsage: daftar-cli export [OPTIONS] <NOTE>\n\nFor more information, try '--help'.\n"
+        #expect(PDFExport.failure(bad) == "daftar-cli: unexpected argument '--bad' found")
+    }
+
     /// A stand-in `daftar-cli` that writes its arguments where `-o` says,
     /// or fails as the real one does.
     @Test func runWaitsForTheCommandAndSaysWhyItFailed() async throws {

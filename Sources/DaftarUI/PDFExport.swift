@@ -26,11 +26,20 @@ enum PDFExport {
     }
 
     /// What a failed run says: the last line of its stderr, without the
-    /// command's name.
+    /// command's name. A usage error (clap's `error:` line, then a usage and
+    /// a "try '--help'" line) says its `error:` line, and a `daftar-cli`
+    /// without `export` (before 0.9.0) says to upgrade it.
     static func failure(_ errors: String) -> String {
-        let last = errors.split(whereSeparator: \.isNewline).last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard let last else { return "daftar-cli failed." }
-        let line = last.trimmingCharacters(in: .whitespaces)
+        let lines = errors.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if let usage = lines.first(where: { $0.hasPrefix("error: ") }) {
+            if usage.hasPrefix("error: unrecognized subcommand 'export'") {
+                return "Export as PDF needs daftar-cli 0.9.0 or later: brew upgrade parham-alvani/tap/daftar-cli."
+            }
+            return "daftar-cli: " + usage.dropFirst("error: ".count)
+        }
+        guard let line = lines.last else { return "daftar-cli failed." }
         return line.hasPrefix("daftar-cli: ") ? String(line.dropFirst("daftar-cli: ".count)) : line
     }
 
