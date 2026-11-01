@@ -88,7 +88,7 @@ enum PaletteCommands {
                 model.readAloud()
             },
             PaletteCommand(id: "pdf", title: "Export the Note as PDF", group: "Note", symbol: "doc.richtext.fill", color: Palette.red, shortcut: "⇧⌘E") {
-                model.exportPDF()
+                model.exportPDF(store: store)
             },
             PaletteCommand(id: "assistant", title: "Summarize or Ask with Apple Intelligence", group: "Note", symbol: "apple.intelligence", color: Palette.purple, shortcut: "⌥⌘A") {
                 model.assistant = true

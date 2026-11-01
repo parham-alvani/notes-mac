@@ -611,9 +611,9 @@ struct FileCommands: Commands {
             Button("Sort Headings Under This") { window?.sortHeadings(store: store) }
                 .disabled(window?.showsText != true)
             Divider()
-            Button("Export as PDF…") { window?.exportPDF() }
+            Button("Export as PDF…") { window?.exportPDF(store: store) }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(window?.showsText != true || window?.editing == true)
+                .disabled(window?.showsText != true)
             Divider()
             Button(window?.path.map { store.bookmarks.contains($0) } == true ? "Remove Bookmark" : "Bookmark") {
                 if let path = window?.path { store.toggleBookmark(path) }

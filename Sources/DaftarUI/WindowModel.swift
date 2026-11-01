@@ -252,26 +252,29 @@ final class WindowModel {
         ReadAloud.shared.toggle(path, in: view)
     }
 
-    /// The open note as a PDF on A4, Daylight and unfolded, where the person chooses.
-    func exportPDF() {
-        guard let path, showsText, !editing, let view = readerView, let window = view.window else { return }
+    /// ⇧⌘E: the open note as an A4 PDF, made by `daftar-cli export`, where
+    /// the person chooses. The editor saves first, as the command reads the file.
+    func exportPDF(store: VaultStore) {
+        guard let path, showsText, Vault.isNote(path), let vault = store.root,
+            let window = readerView?.window ?? NSApp.keyWindow
+        else { return }
+        guard let cli = PDFExport.cli() else {
+            store.notice = "Export as PDF runs daftar-cli, which is neither beside Daftar nor on $PATH: brew install parham-alvani/tap/daftar-cli."
+            return
+        }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = Vault.title(of: path) + ".pdf"
         panel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = panel.url else { return }
-            let info = NSPrintInfo.shared.copy() as! NSPrintInfo
-            info.paperSize = NSSize(width: 595.28, height: 841.89)
-            info.topMargin = 0; info.bottomMargin = 0; info.leftMargin = 0; info.rightMargin = 0
-            info.horizontalPagination = .fit
-            info.verticalPagination = .automatic
-            info.jobDisposition = .save
-            info.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
-            let operation = view.printOperation(with: info)
-            operation.showsPrintPanel = false
-            operation.showsProgressPanel = false
-            operation.view?.frame = view.bounds
-            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+            guard response == .OK, let output = panel.url else { return }
+            Task { @MainActor in
+                await store.flushEditors()
+                if let failure = await PDFExport.run(cli: cli, vault: vault, note: path, output: output) {
+                    store.notice = failure
+                } else {
+                    store.notice = "Saved \(output.lastPathComponent)."
+                }
+            }
         }
     }
 
