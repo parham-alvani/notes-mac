@@ -334,5 +334,13 @@ public struct ConfigFile: Sendable, Equatable {
         # Empty finds wakatime-cli in ~/.wakatime or Homebrew.
         cli = ""
 
+        [export]
+        # `daftar-cli export`, which Export as PDF runs: an SVG or PNG at the
+        # head of every PDF. A note in a folder that holds a logo.svg or
+        # logo.png (a company's) has that logo too, on the other side.
+        logo = ""
+        # The words at the foot of every page, beside the page count.
+        footer = ""
+
         """
 }

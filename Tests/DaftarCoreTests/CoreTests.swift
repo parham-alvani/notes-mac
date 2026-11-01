@@ -422,6 +422,8 @@ import Testing
         #expect(file.string("editor.cursor_effect") == "none")
         #expect(file.string("editor.option_as_meta") == "none")
         #expect(file.bool("editor.blur_panels") == true)
+        #expect(file.string("export.logo") == "")
+        #expect(file.string("export.footer") == "")
     }
 
     @Test func setKeepsCommentsAndOrder() {
