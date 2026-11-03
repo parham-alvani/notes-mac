@@ -217,8 +217,8 @@ public enum TaskLine {
     nonisolated(unsafe) private static let blockId = /\s+(\^[A-Za-z0-9-]+)\s*$/
 
     /// The next occurrence above the one just done, every date moved by the
-    /// same number of days. Nil when the rule is not a plain interval or the
-    /// task has no date to move.
+    /// same number of days. Nil when the rule is not a plain interval, the
+    /// task has no date to move, or a step runs off the Jalali calendar.
     static func completeRecurring(prefix: String, body: String, today: String) -> [String]? {
         let split = TaskMetadata.split(body)
         guard let rule = split.meta.first(where: { $0.emoji == recur })?.value,
@@ -228,7 +228,8 @@ public enum TaskLine {
         let dates = Dictionary(split.meta.compactMap { meta in Day(meta.value).map { (meta.emoji, $0) } }) { a, _ in a }
         guard let leading = moved.lazy.compactMap({ dates[$0] }).first else { return nil }
         let from = recurrence.whenDone ? now : leading
-        let shift = leading.days(to: recurrence.next(after: from, notBefore: now))
+        guard let nextDay = recurrence.next(after: from, notBefore: now) else { return nil }
+        let shift = leading.days(to: nextDay)
         let next = split.meta.map { meta in
             if moved.contains(meta.emoji), let date = dates[meta.emoji] {
                 return TaskMetadata.Meta(emoji: meta.emoji, value: date.adding(days: shift).description)
@@ -256,48 +257,72 @@ public enum TaskLine {
     }
 }
 
-/// How often a task comes back: the plain intervals only. A rule with
-/// weekdays or ordinals is refused rather than guessed at, because a wrong
-/// guess writes a wrong date into the vault.
+/// How often a task comes back: the plain intervals, and months and years
+/// of the Jalali calendar (`docs/specs/jalali-recurrence.md` in notes-linux).
+/// A rule with weekdays or ordinals is refused rather than guessed at,
+/// because a wrong guess writes a wrong date into the vault.
 public struct Recurrence: Sendable, Equatable {
-    public enum Unit: Sendable { case day, week, month, year }
+    public enum Unit: Sendable {
+        case day, week, month, year
+        /// `every jalali month`: the same day of the Jalali month.
+        case jalaliMonth
+        /// `every jalali year`.
+        case jalaliYear
+    }
     public var amount: Int
     public var unit: Unit
     public var whenDone: Bool
+
+    nonisolated(unsafe) private static let rule = /every(?:\s+(\d+))?\s+(?:(jalali)\s+(month|year)|(day|week|month|year))s?/
 
     public init?(_ rule: String) {
         var text = rule.trimmingCharacters(in: .whitespaces).lowercased()
         whenDone = text.hasSuffix("when done")
         if whenDone { text = String(text.dropLast("when done".count)).trimmingCharacters(in: .whitespaces) }
-        guard let match = text.wholeMatch(of: /every(?:\s+(\d+))?\s+(day|week|month|year)s?/) else { return nil }
-        amount = match.1.flatMap { Int($0) } ?? 1
+        guard let match = text.wholeMatch(of: Self.rule) else { return nil }
+        if let digits = match.1 {
+            guard let number = Int(digits) else { return nil }
+            amount = number
+        } else {
+            amount = 1
+        }
         guard amount > 0 else { return nil }
-        unit = switch match.2 {
-        case "day": .day
-        case "week": .week
-        case "month": .month
-        default: .year
+        if let jalali = match.3 {
+            unit = jalali == "month" ? .jalaliMonth : .jalaliYear
+        } else {
+            unit = switch match.4 ?? "" {
+            case "day": .day
+            case "week": .week
+            case "month": .month
+            default: .year
+            }
         }
     }
 
     /// Stepped until it lands after [notBefore], so a daily task ticked ten
-    /// days late does not come back already overdue.
-    func next(after from: Day, notBefore: Day) -> Day {
-        var date = step(from)
+    /// days late does not come back already overdue. Nil when a step runs
+    /// off the Jalali calendar.
+    func next(after from: Day, notBefore: Day) -> Day? {
+        guard var date = step(from) else { return nil }
         var guardSteps = 0
         while date <= notBefore, guardSteps < 4000 {
-            date = step(date)
+            guard let stepped = step(date) else { return nil }
+            date = stepped
             guardSteps += 1
         }
         return date
     }
 
-    private func step(_ day: Day) -> Day {
+    private func step(_ day: Day) -> Day? {
         switch unit {
-        case .day: day.adding(days: amount)
-        case .week: day.adding(days: 7 * amount)
-        case .month: day.adding(months: amount)
-        case .year: day.adding(months: 12 * amount)
+        case .day: return day.adding(days: amount)
+        case .week: return day.adding(days: 7 * amount)
+        case .month: return day.adding(months: amount)
+        case .year: return day.adding(months: 12 * amount)
+        case .jalaliMonth: return Jalali.adding(months: amount, to: day)
+        case .jalaliYear:
+            let (months, overflow) = amount.multipliedReportingOverflow(by: 12)
+            return overflow ? nil : Jalali.adding(months: months, to: day)
         }
     }
 }

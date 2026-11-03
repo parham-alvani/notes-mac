@@ -164,6 +164,38 @@ import Testing
         #expect(lines == ["- [x] Gym 🔁 every Monday ⏳ 2026-10-05 ✅ 2026-10-05"])
     }
 
+    @Test func jalaliRulesAreRead() {
+        func rule(_ text: String) -> String? { Recurrence(text).map { "\($0.amount) \($0.unit) \($0.whenDone)" } }
+        #expect(rule("every jalali month") == "1 jalaliMonth false")
+        #expect(rule("Every 3 Jalali Months when done") == "3 jalaliMonth true")
+        #expect(rule("every jalali year") == "1 jalaliYear false")
+        #expect(rule("every 2 jalali years") == "2 jalaliYear false")
+        #expect(rule("every month") == "1 month false")
+        for refused in ["every jalali week", "every jalali day", "every jalali", "every 0 jalali months", "every jalali month on the 10th"] {
+            #expect(rule(refused) == nil, "\(refused)")
+        }
+    }
+
+    @Test func jalaliRepeatKeepsTheDayOfTheJalaliMonth() {
+        func next(_ line: String, _ today: String) -> String? { TaskLine.toggled(line, today: today)?.first }
+        #expect(next("- [ ] Pay 🔁 every jalali month ⏳ 2026-12-31", "2026-12-31") == "- [ ] Pay 🔁 every jalali month ⏳ 2027-01-30")
+        #expect(next("- [ ] Pay 🔁 every jalali month ⏳ 2026-09-22", "2026-09-22") == "- [ ] Pay 🔁 every jalali month ⏳ 2026-10-22")
+        #expect(next("- [ ] Pay 🔁 every jalali year ⏳ 2025-03-20", "2025-03-20") == "- [ ] Pay 🔁 every jalali year ⏳ 2026-03-20")
+        #expect(next("- [ ] Pay 🔁 every jalali month ⏳ 2026-09-01", "2026-11-03") == "- [ ] Pay 🔁 every jalali month ⏳ 2026-12-01")
+        #expect(next("- [ ] Pay 🔁 every jalali month when done ⏳ 2026-10-01", "2026-11-01")
+            == "- [ ] Pay 🔁 every jalali month when done ⏳ 2026-12-01")
+        #expect(next("- [ ] Pay 🔁 every jalali month ➕ 2026-12-01 ⏳ 2026-12-31 📅 2027-01-02", "2026-12-31")
+            == "- [ ] Pay 🔁 every jalali month ➕ 2026-12-01 ⏳ 2027-01-30 📅 2027-02-01")
+        #expect(next("- [ ] Pay 🔁 every 3 jalali months ⏳ 2026-12-31", "2026-12-31") == "- [ ] Pay 🔁 every 3 jalali months ⏳ 2027-03-30")
+        #expect(TaskLine.toggled("- [ ] Pay 🔁 every jalali month ⏳ 2026-12-31", today: "2026-12-31")?.last
+            == "- [x] Pay 🔁 every jalali month ⏳ 2026-12-31 ✅ 2026-12-31")
+    }
+
+    @Test func aJalaliRepeatOffTheCalendarCompletesWithoutOne() {
+        #expect(TaskLine.toggled("- [ ] Far 🔁 every 9000 jalali years ⏳ 2026-12-31", today: "2026-12-31")
+            == ["- [x] Far 🔁 every 9000 jalali years ⏳ 2026-12-31 ✅ 2026-12-31"])
+    }
+
     @Test func theBlockIdStaysLast() {
         let lines = TaskLine.toggled("- [ ] t 🔁 every day 📅 2026-10-25 ^abc", today: "2026-10-25")
         #expect(lines == ["- [ ] t 🔁 every day 📅 2026-10-26", "- [x] t 🔁 every day 📅 2026-10-25 ✅ 2026-10-25 ^abc"])

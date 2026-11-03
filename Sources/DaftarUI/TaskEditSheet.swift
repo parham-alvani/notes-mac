@@ -126,7 +126,7 @@ struct TaskEditSheet: View {
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Repeat")
                 Menu {
-                    ForEach(["every day", "every week", "every 2 weeks", "every month", "every year", "every week when done"], id: \.self) { rule in
+                    ForEach(["every day", "every week", "every 2 weeks", "every month", "every jalali month", "every year", "every week when done"], id: \.self) { rule in
                         Button(rule) { fields.recurring = rule }
                     }
                     Divider()
@@ -138,8 +138,8 @@ struct TaskEditSheet: View {
                 .tint(Palette.pink)
                 if let rule = fields.recurring, Recurrence(rule) == nil {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.yellow)
-                        .help("Daftar repeats only plain intervals, such as every 2 weeks; Obsidian reads the rest.")
-                        .accessibilityLabel("Daftar repeats only plain intervals, such as every 2 weeks; Obsidian reads the rest.")
+                        .help("Daftar repeats only plain intervals, such as every 2 weeks or every jalali month; Obsidian reads the rest.")
+                        .accessibilityLabel("Daftar repeats only plain intervals, such as every 2 weeks or every jalali month; Obsidian reads the rest.")
                 }
             }
         }
