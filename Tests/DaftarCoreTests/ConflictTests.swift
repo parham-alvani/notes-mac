@@ -204,6 +204,24 @@ import Testing
         #expect(repos.read(repos.mac, "data.json") == "{\"a\":1}\n")
     }
 
+    @Test func syncRefusesAnOpenMerge() async throws {
+        let repos = try await Repos()
+        defer { repos.remove() }
+        try await diverge(repos, files: ["a.md": ("# A\n", "# A\nphone\n", "# A\nmac\n")])
+        try await repos.mac.run(["commit", "-qam", "mac"])
+        await #expect(throws: Git.Failure.self) { try await repos.mac.run(["-c", "pull.rebase=false", "pull", "-q"]) }
+        #expect(try await repos.mac.otherOperationInProgress() == "merge")
+        // The marks are never committed as the merge's end.
+        await #expect(throws: Git.Failure.self) { try await repos.mac.sync(message: "over the merge") }
+        #expect(repos.read(repos.mac, "a.md")?.contains("<<<<<<<") == true)
+        #expect(try await repos.subjects(repos.mac).first == "mac")
+    }
+
+    @Test func changedPathsKeepAFirstLetterThatIsNotASCII() {
+        let output = " M یادداشت.md\0R  new name.md\0old name.md\0?? 🎉.md\0"
+        #expect(Git.changedPaths(output) == ["یادداشت.md", "new name.md", "🎉.md"])
+    }
+
     @Test func theStatusRecordsAreRead() {
         let output = "1 .M N... 100644 100644 100644 a b x.md\0u UD N... 100644 100644 000000 100644 h1 h2 h3 A note.md\0u AA N... 000000 100644 100644 100644 h1 h2 h3 b.png\0"
         #expect(Git.conflicted(output) == [
