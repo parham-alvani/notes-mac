@@ -267,6 +267,22 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// Sort Tasks sorts the file once Neovim has written what was typed.
+    @Test func sortTasksWaitsForNeovimsWrite() async throws {
+        try "# Plan\n- [ ] Open\n".write(to: root.appending(path: "Sort.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("Sort.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        for key in "GA\rDone\u{1B}03lrx" { press(String(key)) }
+        #expect(await eventually { view.string == "# Plan\n- [ ] Open\n- [x] Done\n" })
+        controller.sortTasks()
+        #expect(await eventually {
+            (try? String(contentsOf: root.appending(path: "Sort.md"), encoding: .utf8)) == "# Plan\n- [x] Done\n- [ ] Open\n"
+        })
+        await session.stop()
+    }
+
     /// The editor opens on the line the reader was at, and tells the pane
     /// that line, so the reader comes back to it: never the note's top.
     @Test func theEditorOpensAtTheReadersLine() async throws {
