@@ -220,6 +220,12 @@ public struct ConfigFile: Sendable, Equatable {
         # many lines with a band: its strength, in percent of the accent
         # colour. 0 leaves it out, and j and k go a paragraph at a time.
         reading_line = 18
+        # Pictures from the web in a note: true shows them; false asks no site
+        # for one until you click it, so opening a note tells no one.
+        remote_images = true
+        # The Solar Hijri date beside the Gregorian one (home, Today), and the
+        # Jalali month in the day picker of a task's dates and a date property.
+        persian_calendar = false
         # Count the tasks due today and overdue on the Dock icon.
         dock_badge = true
         # Show the vault's notes in Spotlight. The index is on this Mac only;
@@ -228,6 +234,13 @@ public struct ConfigFile: Sendable, Equatable {
         # Hide the menu bar while Daftar is in front; it comes back when the
         # pointer goes to the top of the screen.
         hide_menu_bar = false
+
+        [calendar]
+        # The holidays and feasts of where you live, on Today, the home page and
+        # the day picker, each with its note when the vault has one by that name:
+        # "spain", "catalonia" or "barcelona", each keeping the days of the one
+        # before it. Empty is none.
+        place = ""
 
         [editor]
         # Away from the cursor's line, the marks (**, ==, [[ ]], #, a link's

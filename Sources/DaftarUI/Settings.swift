@@ -25,6 +25,14 @@ final class AppSettings {
     var textWidth: Int { didSet { write("appearance.text_width", .int(textWidth)) } }
     /// The reading cursor's band on the line being read, in percent of the accent; 0 is none.
     var readingLine: Int { didSet { write("appearance.reading_line", .int(readingLine)) } }
+    /// Pictures from the web in a note are shown; off, the reader asks no site for one until it is clicked.
+    var remoteImages: Bool { didSet { write("appearance.remote_images", .bool(remoteImages)) } }
+    /// The Jalali date beside the Gregorian one, and the Jalali month in the day picker.
+    var persianCalendar: Bool { didSet { write("appearance.persian_calendar", .bool(persianCalendar)) } }
+    /// `calendar.place` as the file has it: whose holidays and feasts are shown.
+    var calendarPlace: String { didSet { write("calendar.place", .string(calendarPlace)) } }
+    /// The place `calendarPlace` names; nil is none.
+    var place: CalendarEvents.Place? { CalendarEvents.Place(calendarPlace) }
     var dockBadge: Bool { didSet { write("appearance.dock_badge", .bool(dockBadge)) } }
     var spotlight: Bool { didSet { write("appearance.spotlight", .bool(spotlight)) } }
     var hideMenuBar: Bool { didSet { write("appearance.hide_menu_bar", .bool(hideMenuBar)); applyMenuBar() } }
@@ -124,6 +132,9 @@ final class AppSettings {
         codeFont = "SF Mono"
         readingLine = 18
         textWidth = 46
+        remoteImages = true
+        persianCalendar = false
+        calendarPlace = ""
         dockBadge = true
         spotlight = true
         hideMenuBar = false
@@ -181,6 +192,10 @@ final class AppSettings {
         codeFont = file.string("appearance.code_font") ?? "SF Mono"
         readingLine = max(0, min(100, file.int("appearance.reading_line") ?? 18))
         textWidth = max(0, file.int("appearance.text_width") ?? 46)
+        // Anything but `false` shows them, as before the setting was there.
+        remoteImages = file.bool("appearance.remote_images") ?? true
+        persianCalendar = file.bool("appearance.persian_calendar") ?? false
+        calendarPlace = file.string("calendar.place") ?? ""
         dockBadge = file.bool("appearance.dock_badge") ?? true
         spotlight = file.bool("appearance.spotlight") ?? true
         hideMenuBar = file.bool("appearance.hide_menu_bar") ?? false

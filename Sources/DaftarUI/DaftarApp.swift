@@ -311,6 +311,15 @@ private struct GeneralSettings: View {
             Picker("Code font", selection: $settings.codeFont) {
                 ForEach(Self.codeFonts(current: settings.codeFont), id: \.self) { Text($0).tag($0) }
             }
+            Toggle("Load pictures from the web", isOn: $settings.remoteImages)
+                .help("Off, a picture from another site is a placeholder until you click it, so opening a note tells no site.")
+            Toggle("Persian calendar", isOn: $settings.persianCalendar)
+                .help("The Solar Hijri date on the home page and Today, and the Jalali month in the day picker.")
+            Picker("Holidays and feasts", selection: Binding { settings.place?.key ?? "" } set: { settings.calendarPlace = $0 }) {
+                Text("None").tag("")
+                ForEach(CalendarEvents.Place.allCases, id: \.self) { Text($0.name).tag($0.key) }
+            }
+            .help("Shown on Today, the home page and the day picker, each opening its note when the vault has one by that name.")
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
             Toggle("Show notes in Spotlight", isOn: $settings.spotlight)
                 .help("The index is on this Mac only. Excluded files are left out.")
