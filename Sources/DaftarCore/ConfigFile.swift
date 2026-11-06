@@ -220,6 +220,9 @@ public struct ConfigFile: Sendable, Equatable {
         # many lines with a band: its strength, in percent of the accent
         # colour. 0 leaves it out, and j and k go a paragraph at a time.
         reading_line = 18
+        # Pictures from the web in a note: true shows them; false asks no site
+        # for one until you click it, so opening a note tells no one.
+        remote_images = true
         # Count the tasks due today and overdue on the Dock icon.
         dock_badge = true
         # Show the vault's notes in Spotlight. The index is on this Mac only;

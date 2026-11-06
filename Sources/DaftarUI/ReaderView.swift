@@ -21,6 +21,21 @@ struct ReaderRequest: Equatable {
 /// files, which is how an embedded image is loaded. The page cannot reach the
 /// network or the rest of the disk.
 struct ReaderView: NSViewRepresentable {
+    /// What every `daftar.show(note)` carries from the settings: the text's
+    /// size, fonts and measure, the reading band, and whether pictures from
+    /// the web are asked for (`docs/specs/remote-images.md` in notes-linux).
+    @MainActor static func appearance(_ settings: AppSettings) -> [String: Any] {
+        [
+            "textSize": settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
+            "readingLine": settings.readingLine, "textWidth": settings.textWidth, "remoteImages": settings.remoteImages,
+        ]
+    }
+
+    /// The settings the note on screen was drawn with: a change to one draws it again.
+    @MainActor static func shownKey(_ settings: AppSettings) -> String {
+        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)"
+    }
+
     var request: ReaderRequest?
     var store: VaultStore
     /// The store's revision, read where the view is made: a change of it
@@ -100,7 +115,7 @@ struct ReaderView: NSViewRepresentable {
             // change to a note can change it.
             let changedOnDisk = store.revision != shownRevision
                 && (store.lastChanged.contains(request.path) || (hasQuery && store.lastChanged.contains(where: Vault.isNote)))
-            let sizeChanged = "\(store.settings.textSize)|\(store.settings.font)|\(store.settings.codeFont)|\(store.settings.readingLine)|\(store.settings.textWidth)" != shownSize
+            let sizeChanged = ReaderView.shownKey(store.settings) != shownSize
             if request != shown {
                 show(request, keepScroll: false)
             } else if changedOnDisk || sizeChanged || (shownRevision == -1) {
@@ -126,7 +141,7 @@ struct ReaderView: NSViewRepresentable {
             hasQuery = false
             shown = request
             shownRevision = store.revision
-            shownSize = "\(store.settings.textSize)|\(store.settings.font)|\(store.settings.codeFont)|\(store.settings.readingLine)|\(store.settings.textWidth)"
+            shownSize = ReaderView.shownKey(store.settings)
             showCount += 1
             if Vault.isImage(request.path) {
                 showImage(request, keepScroll: keepScroll)
@@ -150,13 +165,10 @@ struct ReaderView: NSViewRepresentable {
                 "properties": parsed.properties.filter { !Vault.hiddenProperties.contains($0.key) }
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
-                "textSize": store.settings.textSize,
-                "fontText": Fonts.css.text,
-                "fontCode": Fonts.css.code,
-                "readingLine": store.settings.readingLine, "textWidth": store.settings.textWidth,
                 "folds": store.places.folds(request.path),
                 "detected": Detected.find(in: text).map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
+            note.merge(ReaderView.appearance(store.settings)) { $1 }
             if !keepScroll {
                 if let heading = request.heading { note["heading"] = heading }
                 if let line = request.line { note["line"] = line }
@@ -188,11 +200,11 @@ struct ReaderView: NSViewRepresentable {
             Task {
                 let base = await runBase(source, context: request.path)
                 guard count == showCount else { return }
-                let note: [String: Any] = [
+                var note: [String: Any] = [
                     "path": request.path, "title": Vault.title(of: request.path), "text": "", "links": [String: String](),
                     "properties": [[String]](), "keepScroll": keepScroll, "base": base,
-                    "textSize": store.settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code, "readingLine": store.settings.readingLine, "textWidth": store.settings.textWidth,
                 ]
+                note.merge(ReaderView.appearance(store.settings)) { $1 }
                 _ = try? await view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             }
         }
@@ -227,12 +239,12 @@ struct ReaderView: NSViewRepresentable {
                 out["label"] = edge.label
                 return out
             }
-            let note: [String: Any] = [
+            var note: [String: Any] = [
                 "path": request.path, "title": Vault.title(of: request.path), "text": "",
                 "links": canvas.links(in: store.index, from: request.path),
                 "properties": [[String]](), "keepScroll": keepScroll, "canvas": ["nodes": nodes, "edges": edges],
-                "textSize": store.settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code, "readingLine": store.settings.readingLine, "textWidth": store.settings.textWidth,
             ]
+            note.merge(ReaderView.appearance(store.settings)) { $1 }
             view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             if !keepScroll { takeKeys() }
         }
@@ -249,11 +261,11 @@ struct ReaderView: NSViewRepresentable {
                 "type": kind?.localizedDescription ?? (request.path as NSString).pathExtension.uppercased(),
                 "version": "\(Int((values?.contentModificationDate?.timeIntervalSince1970 ?? 0) * 1000))-\(values?.fileSize ?? 0)",
             ]
-            let note: [String: Any] = [
+            var note: [String: Any] = [
                 "path": request.path, "title": Vault.title(of: request.path), "text": "", "links": [String: String](),
                 "properties": [[String]](), "keepScroll": keepScroll, "image": image,
-                "textSize": store.settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code, "readingLine": store.settings.readingLine, "textWidth": store.settings.textWidth,
             ]
+            note.merge(ReaderView.appearance(store.settings)) { $1 }
             view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             if !keepScroll { takeKeys() }
         }

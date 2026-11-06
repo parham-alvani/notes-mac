@@ -311,6 +311,8 @@ private struct GeneralSettings: View {
             Picker("Code font", selection: $settings.codeFont) {
                 ForEach(Self.codeFonts(current: settings.codeFont), id: \.self) { Text($0).tag($0) }
             }
+            Toggle("Load pictures from the web", isOn: $settings.remoteImages)
+                .help("Off, a picture from another site is a placeholder until you click it, so opening a note tells no site.")
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
             Toggle("Show notes in Spotlight", isOn: $settings.spotlight)
                 .help("The index is on this Mac only. Excluded files are left out.")
