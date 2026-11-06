@@ -234,8 +234,16 @@ final class WindowModel {
     /// Opens a note in the focused pane, or in [pane].
     func open(_ path: String, heading: String? = nil, line: Int? = nil, in pane: NotePane? = nil, store: VaultStore) {
         guard Vault.opensInApp(path) else {
-            // An attachment opens in the app the system gives it to.
-            if let url = store.url(of: path) { NSWorkspace.shared.open(url) }
+            // A document opens in the app the system gives it to; any other
+            // file could run, from a link in a note or a `daftar://` address,
+            // so it is only shown in Finder.
+            if let url = store.url(of: path) {
+                if Vault.opensOutside(path) {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
             return
         }
         (pane ?? focused).open(path, heading: heading, line: line)

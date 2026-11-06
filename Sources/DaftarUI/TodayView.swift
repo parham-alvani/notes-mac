@@ -180,7 +180,7 @@ struct MeetingRow: View {
             .accessibilityLabel("\(time), \(meeting.title)")
             .accessibilityValue(state(live: live, past: past))
             Spacer()
-            if let join = meeting.join, !past {
+            if let join = meeting.join, !past, Vault.leavesTheApp(join) {
                 Button { NSWorkspace.shared.open(join) } label: { Label("Join", systemImage: "video.fill") }
                     .buttonStyle(.glassProminent)
                     .tint(live ? Palette.accent : Palette.blue)

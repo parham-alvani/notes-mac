@@ -103,7 +103,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
-        if let join = info["join"] as? String, let url = URL(string: join),
+        if let join = info["join"] as? String, let url = URL(string: join), Vault.leavesTheApp(url),
             response.actionIdentifier == Self.joinAction || response.actionIdentifier == UNNotificationDefaultActionIdentifier
         {
             await MainActor.run { _ = NSWorkspace.shared.open(url) }

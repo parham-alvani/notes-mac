@@ -341,14 +341,13 @@ struct ReaderView: NSViewRepresentable {
                     NSPasteboard.general.setString(text, forType: .string)
                 }
             case "external":
-                // Web and mail only: a note's `file:`, `smb:` or
-                // `shortcuts:` link would start an app or a script.
+                // Web, mail and phone only (`Vault.outsideSchemes`).
                 guard let text = body["url"] as? String, let url = URL(string: text) else { return }
-                if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") {
+                if Vault.leavesTheApp(url) {
                     NSWorkspace.shared.open(url)
                 } else {
                     NSSound.beep()
-                    parent.store.notice = "Daftar opens only web and mail links, not “\(url.scheme ?? text):” links."
+                    parent.store.notice = "Daftar opens only web, mail and phone links, not “\(url.scheme ?? text):” links."
                 }
             default:
                 break
