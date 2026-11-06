@@ -131,13 +131,17 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     }
 
     /// Sorts the tasks as the vault's Task Sorter plugin does, as one step
-    /// to undo. Neovim owns its buffer, so there the file is sorted and
-    /// Neovim reads it again.
+    /// to undo. Neovim owns its buffer, so there the file is sorted, once
+    /// Neovim has written it, and Neovim reads it again.
     func sortTasks() {
         guard let view, let path else { return }
         if session != nil {
-            saveNow()
-            if !store.sortTasks(path) { store.notice = "The tasks are in order already." }
+            // Sorted from the file only once Neovim has written it: a save
+            // sent without waiting left the last keys out of the sort.
+            Task {
+                await flush()
+                if !store.sortTasks(path) { store.notice = "The tasks are in order already." }
+            }
             return
         }
         guard let sorted = TaskSorter.sort(view.string) else {
