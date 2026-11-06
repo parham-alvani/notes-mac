@@ -863,9 +863,8 @@ function renderProperties(properties, note) {
 }
 
 function escape(text) {
-  const div = document.createElement("div");
-  div.textContent = String(text);
-  return div.innerHTML;
+  // Quotes too: the text goes into attributes (`data-path="…"`) as well.
+  return escapeHtml(String(text));
 }
 
 window.daftar = {
