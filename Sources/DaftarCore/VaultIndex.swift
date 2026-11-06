@@ -164,6 +164,32 @@ public enum Vault {
         return imageExtensions.contains(path[path.index(after: dot)...].lowercased())
     }
 
+    /// The files a link may hand to the app the system gives it to.
+    static let outsideExtensions: Set<String> = [
+        "pdf", "epub", "djvu", "txt", "csv", "tsv", "rtf", "doc", "docx", "odt", "xls", "xlsx", "ods", "ppt", "pptx", "odp", "key",
+        "pages", "numbers", "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "heic", "heif", "tif", "tiff", "ico", "mp3",
+        "m4a", "wav", "ogg", "oga", "flac", "opus", "aac", "mp4", "m4v", "mov", "webm", "mkv", "avi", "ogv", "zip", "tar", "gz", "7z",
+        "xz",
+    ]
+
+    /// A file a link may hand to the app the system gives it to: a document,
+    /// a picture, a sound, a film or an archive, which the system opens in a
+    /// viewer. Anything else (a script, a `.command` file, an app) could run,
+    /// so a click only shows it in Finder.
+    public static func opensOutside(_ path: String) -> Bool {
+        let name = path.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? path
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else { return false }
+        return outsideExtensions.contains(name[name.index(after: dot)...].lowercased())
+    }
+
+    /// The schemes of the links that leave the app: web, mail and phone.
+    /// A note's `file:`, `smb:` or `shortcuts:` link would start an app or
+    /// a script, so it is never opened.
+    public static let outsideSchemes: Set<String> = ["http", "https", "mailto", "tel", "sms", "geo"]
+
+    /// Whether [url] is a link the app hands to the system.
+    public static func leavesTheApp(_ url: URL) -> Bool { outsideSchemes.contains(url.scheme?.lowercased() ?? "") }
+
     /// Whether a vault path is one the app reads at all.
     public static func counts(_ path: String) -> Bool {
         !path.split(separator: "/").contains { $0.hasPrefix(".") || skipped.contains(String($0)) }

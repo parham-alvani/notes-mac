@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import DaftarCore
@@ -11,6 +12,21 @@ import Testing
         }
         for path in ["note.md", "a.pdf", "film.mov", "png", "folder.png/note", "Board.canvas", "x.base", "a.png.md"] {
             #expect(!Vault.isImage(path), "\(path)")
+        }
+    }
+
+    @Test func onlyDocumentsOpenOutside() {
+        for path in ["Books/a.pdf", "uploads/Photo.JPG", "talk.mp4", "Sheets/x.xlsx", "a.tar.gz"] {
+            #expect(Vault.opensOutside(path), "\(path)")
+        }
+        for path in ["tools/x.sh", "x.desktop", "run.AppImage", "a.command", "Makefile", ".pdf", "x.py", "x.exe", "x.jar"] {
+            #expect(!Vault.opensOutside(path), "\(path)")
+        }
+        for link in ["https://example.com", "mailto:a@example.com", "tel:+100", "sms:+100", "geo:35.7,51.4", "HTTP://example.com"] {
+            #expect(Vault.leavesTheApp(URL(string: link)!), "\(link)")
+        }
+        for link in ["file:///Applications/Calculator.app", "smb://host/share", "shortcuts://run-shortcut?name=x", "javascript:alert(1)"] {
+            #expect(!Vault.leavesTheApp(URL(string: link)!), "\(link)")
         }
     }
 
