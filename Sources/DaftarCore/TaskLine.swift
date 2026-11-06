@@ -230,11 +230,14 @@ public enum TaskLine {
         let from = recurrence.whenDone ? now : leading
         guard let nextDay = recurrence.next(after: from, notBefore: now) else { return nil }
         let shift = leading.days(to: nextDay)
-        let next = split.meta.map { meta in
+        var next: [TaskMetadata.Meta] = []
+        for meta in split.meta {
             if moved.contains(meta.emoji), let date = dates[meta.emoji] {
-                return TaskMetadata.Meta(emoji: meta.emoji, value: date.adding(days: shift).description)
+                guard let day = date.checkedAdding(days: shift) else { return nil }
+                next.append(TaskMetadata.Meta(emoji: meta.emoji, value: day.description))
+            } else {
+                next.append(meta)
             }
-            return meta
         }
         let rebuilt = ([trimmedEnd(split.text)] + next.map { trimmedEnd("\($0.emoji) \($0.value)") })
             .filter { !$0.isEmpty }.joined(separator: " ")
@@ -273,6 +276,12 @@ public struct Recurrence: Sendable, Equatable {
     public var unit: Unit
     public var whenDone: Bool
 
+    /// The most a rule's number may be, in every app: a larger one is
+    /// refused, so the task is ticked with no next occurrence.
+    public static let maxAmount = 10_000
+    /// The most chained steps of a month or a year: 333 years of months.
+    static let maxSteps = 4000
+
     nonisolated(unsafe) private static let rule = /every(?:\s+(\d+))?\s+(?:(jalali)\s+(month|year)|(day|week|month|year))s?/
 
     public init?(_ rule: String) {
@@ -286,7 +295,7 @@ public struct Recurrence: Sendable, Equatable {
         } else {
             amount = 1
         }
-        guard amount > 0 else { return nil }
+        guard amount > 0, amount <= Self.maxAmount else { return nil }
         if let jalali = match.3 {
             unit = jalali == "month" ? .jalaliMonth : .jalaliYear
         } else {
@@ -300,12 +309,26 @@ public struct Recurrence: Sendable, Equatable {
     }
 
     /// Stepped until it lands after [notBefore], so a daily task ticked ten
-    /// days late does not come back already overdue. Nil when a step runs
-    /// off the Jalali calendar.
+    /// days late does not come back already overdue: days and weeks in one
+    /// jump, months and years a step at a time, as each clamps from the day
+    /// the last one reached. Nil when a step runs off the calendar, or
+    /// months and years would take more than `maxSteps`.
     func next(after from: Day, notBefore: Day) -> Day? {
+        let days: Int? = switch unit {
+        case .day: amount
+        case .week: 7 * amount
+        default: nil
+        }
+        if let days {
+            let behind = from.days(to: notBefore)
+            let steps = behind < 0 ? 1 : behind / days + 1
+            let (total, overflow) = steps.multipliedReportingOverflow(by: days)
+            return overflow ? nil : from.checkedAdding(days: total)
+        }
         guard var date = step(from) else { return nil }
         var guardSteps = 0
-        while date <= notBefore, guardSteps < 4000 {
+        while date <= notBefore {
+            if guardSteps == Self.maxSteps { return nil }
             guard let stepped = step(date) else { return nil }
             date = stepped
             guardSteps += 1
@@ -315,14 +338,12 @@ public struct Recurrence: Sendable, Equatable {
 
     private func step(_ day: Day) -> Day? {
         switch unit {
-        case .day: return day.adding(days: amount)
-        case .week: return day.adding(days: 7 * amount)
-        case .month: return day.adding(months: amount)
-        case .year: return day.adding(months: 12 * amount)
+        case .day: return day.checkedAdding(days: amount)
+        case .week: return day.checkedAdding(days: 7 * amount)
+        case .month: return day.checkedAdding(months: amount)
+        case .year: return day.checkedAdding(months: 12 * amount)
         case .jalaliMonth: return Jalali.adding(months: amount, to: day)
-        case .jalaliYear:
-            let (months, overflow) = amount.multipliedReportingOverflow(by: 12)
-            return overflow ? nil : Jalali.adding(months: months, to: day)
+        case .jalaliYear: return Jalali.adding(months: 12 * amount, to: day)
         }
     }
 }
@@ -383,6 +404,21 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
 
     public func adding(days: Int) -> Day { Day(date: Self.utc.date(byAdding: .day, value: days, to: date)!) }
     public func adding(months: Int) -> Day { Day(date: Self.utc.date(byAdding: .month, value: months, to: date)!) }
+
+    /// [adding(days:)], or nil when the calendar cannot reach the day.
+    public func checkedAdding(days: Int) -> Day? { checked(Self.utc.date(byAdding: .day, value: days, to: date)) }
+    /// [adding(months:)], or nil when the calendar cannot reach the day.
+    public func checkedAdding(months: Int) -> Day? { checked(Self.utc.date(byAdding: .month, value: months, to: date)) }
+
+    /// The day of [date] when it falls between the year 1 and 999,999, so a
+    /// far step gives nil instead of a trap in `Day(date:)`.
+    private func checked(_ date: Date?) -> Day? {
+        guard let date, date.timeIntervalSinceReferenceDate.isFinite else { return nil }
+        let parts = Self.utc.dateComponents([.era, .year, .month, .day], from: date)
+        guard parts.era == 1, let year = parts.year, let month = parts.month, let day = parts.day, year <= 999_999 else { return nil }
+        return Day(year: year, month: month, day: day)
+    }
+
     public func days(to other: Day) -> Int { Self.utc.dateComponents([.day], from: date, to: other.date).day! }
 
     public var description: String { String(format: "%04d-%02d-%02d", year, month, day) }
