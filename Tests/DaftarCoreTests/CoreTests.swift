@@ -484,6 +484,9 @@ import Testing
         #expect(file.bool("editor.blur_panels") == true)
         #expect(file.string("export.logo") == "")
         #expect(file.string("export.footer") == "")
+        #expect(file.bool("appearance.remote_images") == true)
+        #expect(file.bool("appearance.persian_calendar") == false)
+        #expect(file.string("calendar.place") == "")
     }
 
     @Test func setKeepsCommentsAndOrder() {
