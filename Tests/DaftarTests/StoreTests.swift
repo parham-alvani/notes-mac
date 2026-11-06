@@ -32,6 +32,17 @@ import Testing
         #expect(!store.editTask(path: "Notes/Plan.md", line: 1, before: before, fields: after))
     }
 
+    @Test func searchForgetsTheVaultOpenedBefore() throws {
+        #expect(store.search.search("Plan").map(\.path).contains("Notes/Plan.md"))
+        let other = FileManager.default.temporaryDirectory.appending(path: "daftar-store-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: other) }
+        try "# Garden\nTomatoes.".write(to: other.appending(path: "Garden.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(other)
+        #expect(store.search.search("Plan").isEmpty)
+        #expect(store.search.search("Tomatoes").map(\.path) == ["Garden.md"])
+    }
+
     @Test func tasksAreSortedInTheFile() throws {
         try "# Plan\n- [ ] Open\n- [x] Done\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
         store.openSynchronously(root)
