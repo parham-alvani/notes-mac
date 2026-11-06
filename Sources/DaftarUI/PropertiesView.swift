@@ -313,28 +313,43 @@ private struct PropertyDateField: View {
     @ViewState private var date = Date()
     @ViewState private var pending: Task<Void, Never>?
 
+    /// [day] as the property writes it: a date and time keeps its time, and
+    /// one without a time starts at nine.
+    static func picked(_ day: Day, time: Bool, from value: String) -> String {
+        guard time else { return day.description }
+        let clock = value.firstIndex { $0 == "T" || $0 == " " }.map { String(value[value.index(after: $0)...].prefix(5)) } ?? ""
+        return "\(day)T\(clock.count == 5 ? clock : "09:00")"
+    }
+
     var body: some View {
         if value.isEmpty {
             Button(time ? "Add date and time" : "Add date") { commit(PropertyType.format(Date(), time: time)) }
                 .buttonStyle(.link)
         } else if let parsed = PropertyType.date(from: value) {
-            DatePicker(
-                name,
-                selection: Binding(get: { date }, set: { new in
-                    date = new
+            HStack(spacing: 4) {
+                DatePicker(
+                    name,
+                    selection: Binding(get: { date }, set: { new in
+                        date = new
+                        pending?.cancel()
+                        pending = Task {
+                            try? await Task.sleep(for: .milliseconds(800))
+                            guard !Task.isCancelled else { return }
+                            let text = PropertyType.format(new, time: time)
+                            if text != value { commit(text) }
+                        }
+                    }),
+                    displayedComponents: time ? [.date, .hourAndMinute] : [.date]
+                )
+                .labelsHidden().datePickerStyle(.field).fixedSize()
+                .onAppear { date = parsed }
+                .onChange(of: value) { if let again = PropertyType.date(from: value) { date = again } }
+                DayPickerButton(selected: Day(String(value.prefix(10))), name: name) { day in
                     pending?.cancel()
-                    pending = Task {
-                        try? await Task.sleep(for: .milliseconds(800))
-                        guard !Task.isCancelled else { return }
-                        let text = PropertyType.format(new, time: time)
-                        if text != value { commit(text) }
-                    }
-                }),
-                displayedComponents: time ? [.date, .hourAndMinute] : [.date]
-            )
-            .labelsHidden().datePickerStyle(.field).fixedSize()
-            .onAppear { date = parsed }
-            .onChange(of: value) { if let again = PropertyType.date(from: value) { date = again } }
+                    let text = Self.picked(day, time: time, from: value)
+                    if text != value { commit(text) }
+                }
+            }
         } else {
             CommitField(value: value, prompt: time ? "YYYY-MM-DDTHH:mm" : "YYYY-MM-DD", name: name,
                         valid: { $0.isEmpty || PropertyType.date(from: $0) != nil }, commit: commit)

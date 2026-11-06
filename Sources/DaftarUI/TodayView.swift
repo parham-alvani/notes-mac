@@ -14,12 +14,16 @@ struct TodayView: View {
         let day = days.first { $0.day == today }
         let tomorrow = days.first { $0.day == today.adding(days: 1) }
         let groups = store.taskGroups(today: today)
+        let coming = store.calendarEvents(from: today, to: today.adding(days: Self.holidayDays))
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(Date().formatted(.dateTime.weekday(.wide).day().month(.wide)))
                         .font(.largeTitle.bold())
                         .foregroundStyle(LinearGradient(colors: [Palette.accent, Palette.pink, Palette.purple], startPoint: .leading, endPoint: .trailing))
+                    if store.settings.persianCalendar {
+                        Text(Jalali.long(today)).font(.title3).foregroundStyle(.secondary)
+                    }
                     HStack(spacing: 8) {
                         let meetings = day?.meetings.count ?? 0
                         Chip(text: "\(meetings) \(meetings == 1 ? "meeting" : "meetings")", symbol: "calendar", color: Palette.blue)
@@ -27,6 +31,9 @@ struct TodayView: View {
                         Chip(text: "\(groups.today.count) due", symbol: "sun.max.fill", color: Palette.accent)
                         if !groups.overdue.isEmpty { Chip(text: "\(groups.overdue.count) overdue", symbol: "exclamationmark.circle.fill", color: Palette.red) }
                         if !groups.inProgress.isEmpty { Chip(text: "\(groups.inProgress.count) in progress", symbol: "circle.lefthalf.filled", color: Palette.purple) }
+                        ForEach(coming.filter { $0.day == today }) { happening in
+                            eventChip(happening.event)
+                        }
                     }
                 }
 
@@ -47,6 +54,16 @@ struct TodayView: View {
                     }
                 }
 
+                if !coming.isEmpty {
+                    Card(title: "Holidays and feasts", symbol: "star.fill", color: Palette.red) {
+                        ForEach(coming) { happening in
+                            EventRow(happening: happening, today: today, note: store.note(of: happening.event)) {
+                                model.open($0, store: store)
+                            }
+                        }
+                    }
+                }
+
                 taskCard("Overdue", "exclamationmark.circle.fill", groups.overdue, Palette.red)
                 taskCard("Due today", "sun.max.fill", groups.today, Palette.accent)
                 taskCard("In progress", "circle.lefthalf.filled", groups.inProgress, Palette.purple)
@@ -55,6 +72,24 @@ struct TodayView: View {
             .padding(32)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The days of `calendar.place` the card lists, from today on.
+    static let holidayDays = 45
+
+    /// A chip for an event of today, red for a holiday; a click opens its
+    /// note when the vault has one.
+    @ViewBuilder
+    private func eventChip(_ event: CalendarEvents.Event) -> some View {
+        let chip = Chip(text: event.title, symbol: event.holiday ? "flag.fill" : "sparkles", color: event.holiday ? Palette.red : Palette.aqua)
+            .accessibilityLabel(event.holiday ? "\(event.title), a holiday" : event.title)
+        if let path = store.note(of: event) {
+            Button { model.open(path, store: store) } label: { chip }
+                .buttonStyle(.plain)
+                .help("Open \(event.title)")
+        } else {
+            chip.help(event.local)
         }
     }
 
@@ -266,4 +301,62 @@ struct TaskRow: View {
 
     /// `[[Target|label]]` as its label, for a one-line list.
     static func plain(_ text: String) -> String { Spoken.plain(text) }
+}
+
+/// A holiday or a feast on the Today page: how far it is, its title and
+/// local name, and its date; a click opens its note when the vault has one.
+struct EventRow: View {
+    var happening: CalendarEvents.Happening
+    var today: Day
+    var note: String?
+    var open: (String) -> Void
+
+    var body: some View {
+        let event = happening.event
+        let color = event.holiday ? Palette.red : Palette.aqua
+        let row = HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(DateField.relative(happening.day))
+                .font(.caption.weight(.semibold)).foregroundStyle(color)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(color.opacity(0.14), in: Capsule())
+            Text(event.title).foregroundStyle(note == nil ? Color.primary : Palette.link)
+            if event.local != event.title {
+                Text(event.local).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(Self.short(happening.day)).font(.caption).foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(event.title), \(event.local), \(DayPicker.long(happening.day)), \(DateField.relative(happening.day))\(event.holiday ? ", a holiday" : "")")
+        if let note {
+            Button { open(note) } label: { row }
+                .buttonStyle(.plain)
+                .help(note)
+                .accessibilityHint("Opens its note")
+        } else {
+            row
+        }
+    }
+
+    /// `Tue 3 Nov`.
+    static func short(_ day: Day) -> String {
+        "\(DayPicker.weekdayNames[day.weekdayFromMonday].prefix(3)) \(day.day) \(Month.gregorianMonths[day.month - 1].prefix(3))"
+    }
+}
+
+extension VaultStore {
+    /// The holidays and feasts of `calendar.place` from [from] to [to]; none
+    /// when no place is set.
+    func calendarEvents(from: Day, to: Day) -> [CalendarEvents.Happening] {
+        guard let place = settings.place else { return [] }
+        return CalendarEvents.between(place, from: from, to: to)
+    }
+
+    /// An event's note: the vault's note named by its title, found as a
+    /// `[[Title]]` link from the vault's top finds it. The app never makes it.
+    func note(of event: CalendarEvents.Event) -> String? {
+        index.resolve(event.title, from: "").flatMap { Vault.isNote($0) ? $0 : nil }
+    }
 }

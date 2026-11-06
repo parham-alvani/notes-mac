@@ -216,6 +216,9 @@ struct DateField: View {
                 Label(title, systemImage: symbol).foregroundStyle(value == nil ? Color.secondary : color).frame(width: 110, alignment: .leading)
             }
             .toggleStyle(.switch).controlSize(.small).tint(color)
+            if value.flatMap({ Day($0) }) == nil {
+                DayPickerButton(selected: nil, name: title) { value = $0.description }
+            }
             if let current = value, let day = Day(current) {
                 DatePicker("", selection: Binding {
                     Calendar.current.date(from: DateComponents(year: day.year, month: day.month, day: day.day)) ?? Date()
@@ -224,6 +227,7 @@ struct DateField: View {
                 }, displayedComponents: .date)
                 .labelsHidden().datePickerStyle(.field)
                 .accessibilityLabel("\(title) date")
+                DayPickerButton(selected: day, name: title) { value = $0.description }
                 Text(Self.relative(day)).font(.caption).foregroundStyle(color)
                     .padding(.horizontal, 6).padding(.vertical, 1).background(color.opacity(0.12), in: Capsule())
                     .accessibilityHidden(true)

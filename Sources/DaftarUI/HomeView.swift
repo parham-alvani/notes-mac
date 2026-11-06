@@ -83,9 +83,14 @@ struct HomeView: View {
                     Text(Self.time(context.date, twentyFourHour: settings.twentyFourHour))
                         .font(.system(size: compact ? 48 : 88, weight: .light, design: .rounded))
                         .monospacedDigit()
-                    Text(context.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                    Text(dateLine(context.date))
                         .font(compact ? .callout : .title3)
                         .foregroundStyle(.secondary)
+                    if store.settings.persianCalendar {
+                        Text(Jalali.long(Day(date: context.date, in: .current)))
+                            .font(compact ? .caption : .callout)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if settings.showGreeting {
                     Text(Home.greeting(settings.greetingText, hour: Calendar.current.component(.hour, from: context.date)))
@@ -98,6 +103,14 @@ struct HomeView: View {
             .shadow(color: Palette.background.opacity(0.7), radius: 10)
             .accessibilityElement(children: .combine)
         }
+    }
+
+    /// The date, followed by the titles of the day's holidays and feasts.
+    private func dateLine(_ date: Date) -> String {
+        let day = Day(date: date, in: .current)
+        let titles = store.calendarEvents(from: day, to: day).map(\.event.title)
+        let text = date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        return titles.isEmpty ? text : "\(text) · \(titles.joined(separator: ", "))"
     }
 
     /// The hour as Beautitab's setting asks, or as the system does.
