@@ -242,6 +242,14 @@ import Testing
         #expect(throws: VaultEdits.Failure.taskMoved) {
             try VaultEdits.toggleTask(in: text, line: 1, status: "x", today: Day("2026-10-05")!)
         }
+        #expect(throws: VaultEdits.Failure.taskMoved) {
+            try VaultEdits.toggleTask(in: text, line: 9, status: " ", today: Day("2026-10-05")!)
+        }
+        // The text the page showed must still be the line's.
+        #expect(throws: VaultEdits.Failure.taskMoved) {
+            try VaultEdits.toggleTask(in: text, line: 2, status: " ", expected: "One", today: Day("2026-10-05")!)
+        }
+        _ = try VaultEdits.toggleTask(in: text, line: 2, status: " ", expected: "Two", today: Day("2026-10-05")!)
     }
 
     @Test func windowsLineEndingsSurvive() throws {

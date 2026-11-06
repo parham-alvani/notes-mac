@@ -298,13 +298,15 @@ final class VaultStore {
 
     /// Ticks or opens the task on [line] of [path]. The file is read again
     /// first, and the edit is refused when that line is no longer the task
-    /// that was clicked.
+    /// that was clicked: its status, and the text the index read, which the
+    /// view was drawn from.
     func toggleTask(path: String, line: Int, status: Character) {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return }
         let statuses = index.statuses
+        let expected = index.notes[path]?.parsed.tasks.first { $0.line == line }?.text
         do {
             try ownEdit(path, in: root) { text in
-                try VaultEdits.toggleTask(in: text, line: line, status: status, today: .today(), statuses: statuses)
+                try VaultEdits.toggleTask(in: text, line: line, status: status, expected: expected, today: .today(), statuses: statuses)
             }
             changed([path])
             requestSync()
