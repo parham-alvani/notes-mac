@@ -57,7 +57,10 @@ final class VaultStore {
     /// A message the window shows once, then clears: an edit that failed.
     var notice: String?
 
-    let search = SearchIndex()
+    /// The open vault's full-text search, made anew for each vault opened:
+    /// an index still being built for the one before fills its own, which
+    /// nothing reads.
+    @ObservationIgnored private(set) var search = SearchIndex()
     private var watcher: FileWatcher?
     private var pending: Set<String> = []
     private var flush: Task<Void, Never>?
@@ -107,6 +110,7 @@ final class VaultStore {
         watcher = FileWatcher(root: url) { [weak self] paths in
             Task { @MainActor in self?.changed(paths) }
         }
+        search = SearchIndex()
         let search = self.search
         Task.detached(priority: .userInitiated) {
             let index = Vault.index(url, search: search)
@@ -171,6 +175,7 @@ final class VaultStore {
         templates = Templates.read(root: url)
         beautitab = Beautitab.read(root: url)
         places.load(root: url, directory: settings.stateDirectory)
+        search = SearchIndex()
         index = Vault.index(url, search: search)
         isRepository = FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
         revision += 1
