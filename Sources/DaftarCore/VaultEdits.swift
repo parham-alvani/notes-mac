@@ -13,14 +13,18 @@ public enum VaultEdits {
     }
 
     /// Ticks or opens the task on [line] of [text]. [status] is what the view
-    /// showed, which the line must still hold.
-    public static func toggleTask(in text: String, line: Int, status: Character, today: Day, statuses: TaskStatuses = .current) throws -> String {
+    /// showed, which the line must still hold, and [expected], when given,
+    /// the task's text it showed.
+    public static func toggleTask(in text: String, line: Int, status: Character, expected: String? = nil, today: Day,
+                                  statuses: TaskStatuses = .current) throws -> String {
         var lines = text.components(separatedBy: "\n")
         guard line >= 0, line < lines.count else { throw Failure.taskMoved }
         let raw = lines[line]
         let crlf = raw.hasSuffix("\r")
         let clean = crlf ? String(raw.dropLast()) : raw
+        // Another task with the same status that moved onto the line is not this one.
         guard let task = TaskLine.parse(clean, line: line, section: ""), task.status == status,
+            expected.map({ $0.trimmingCharacters(in: .whitespaces) == task.text.trimmingCharacters(in: .whitespaces) }) ?? true,
             let replacement = TaskLine.toggled(clean, today: today.description, statuses: statuses)
         else { throw Failure.taskMoved }
         lines.replaceSubrange(line...line, with: replacement.map { crlf ? $0 + "\r" : $0 })
