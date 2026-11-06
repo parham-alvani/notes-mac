@@ -149,8 +149,8 @@ public enum CalendarEvents {
         var found: [(happening: Happening, order: Int)] = []
         for year in from.year...to.year {
             for (order, event) in events.enumerated() where event.place <= place {
-                if let day = day(of: event, in: year), from <= day, day <= to {
-                    found.append((Happening(day: day, event: event), order))
+                if let on = day(of: event, in: year), from <= on, on <= to {
+                    found.append((Happening(day: on, event: event), order))
                 }
             }
         }
