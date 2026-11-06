@@ -196,6 +196,26 @@ import Testing
             == ["- [x] Far 🔁 every 9000 jalali years ⏳ 2026-12-31 ✅ 2026-12-31"])
     }
 
+    @Test func aNumberOverTheLimitIsRefused() {
+        #expect(Recurrence("every 10000 years")?.amount == 10_000)
+        for refused in ["every 10001 days", "every 999999999 years", "every 4000000000 days", "every 99999999999999999999 weeks"] {
+            #expect(Recurrence(refused) == nil, "\(refused)")
+        }
+        // Ticked with no next occurrence, never a crash.
+        #expect(TaskLine.toggled("- [ ] Far 🔁 every 999999999 years 📅 2026-01-01", today: "2026-01-01")
+            == ["- [x] Far 🔁 every 999999999 years 📅 2026-01-01 ✅ 2026-01-01"])
+        #expect(TaskLine.toggled("- [ ] Far 🔁 every 10000 years 📅 2026-01-01", today: "2026-01-01")?.first
+            == "- [ ] Far 🔁 every 10000 years 📅 12026-01-01")
+    }
+
+    @Test func aTaskTickedYearsLateComesBackAfterToday() {
+        func next(_ line: String) -> String? { TaskLine.toggled(line, today: "2026-11-06")?.first }
+        #expect(next("- [ ] Water 🔁 every day 📅 1990-01-01") == "- [ ] Water 🔁 every day 📅 2026-11-07")
+        #expect(next("- [ ] Bins 🔁 every 2 weeks 📅 1990-01-01") == "- [ ] Bins 🔁 every 2 weeks 📅 2026-11-16")
+        #expect(next("- [ ] Rent 🔁 every month 📅 1990-01-31") == "- [ ] Rent 🔁 every month 📅 2026-11-28")
+        #expect(next("- [ ] Early 🔁 every day 📅 2026-12-01") == "- [ ] Early 🔁 every day 📅 2026-12-02")
+    }
+
     @Test func theBlockIdStaysLast() {
         let lines = TaskLine.toggled("- [ ] t 🔁 every day 📅 2026-10-25 ^abc", today: "2026-10-25")
         #expect(lines == ["- [ ] t 🔁 every day 📅 2026-10-26", "- [x] t 🔁 every day 📅 2026-10-25 ✅ 2026-10-25 ^abc"])
