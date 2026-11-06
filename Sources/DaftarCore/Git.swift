@@ -89,8 +89,30 @@ public struct Git: Sendable {
     /// Pulls with a rebase, keeping local changes aside while it does. A
     /// rebase that stops on a conflict stays open and throws `Stopped`.
     public func pull() async throws {
-        if try await rebaseInProgress() { throw Stopped(conflicts: try await conflicts()) }
+        try await refuseOpenOperation()
         try await pullRebase()
+    }
+
+    /// Throws `Stopped` while a rebase is open, and a `Failure` while a
+    /// merge, a cherry-pick or a revert that git left open, or files still
+    /// marked as conflicted, would be committed with their marks.
+    private func refuseOpenOperation() async throws {
+        if try await rebaseInProgress() { throw Stopped(conflicts: try await conflicts()) }
+        if let operation = try await otherOperationInProgress() {
+            throw Failure(arguments: ["sync"], status: -1, output: "a \(operation) is in progress: finish or abort it with git first")
+        }
+        if try await !conflicts().isEmpty {
+            throw Failure(arguments: ["sync"], status: -1, output: "files have unresolved conflicts: resolve them first")
+        }
+    }
+
+    /// A merge, cherry-pick or revert that git left open, by its name.
+    public func otherOperationInProgress() async throws -> String? {
+        for (name, operation) in [("MERGE_HEAD", "merge"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert")] {
+            let path = try await run(["rev-parse", "--path-format=absolute", "--git-path", name])
+            if FileManager.default.fileExists(atPath: path) { return operation }
+        }
+        return nil
     }
 
     private func pullRebase() async throws {
@@ -129,16 +151,32 @@ public struct Git: Sendable {
 
     /// Paths with changes not yet committed.
     public func changes() async throws -> [String] {
-        try await run(["status", "--porcelain=v1", "-z"]).split(separator: "\0").map { String($0.dropFirst(3)) }
+        Git.changedPaths(try await run(["status", "--porcelain=v1", "-z"], trimmed: false))
+    }
+
+    /// The paths of `git status --porcelain=v1 -z`: `XY path` records, and
+    /// after a rename or a copy the old path as a record of its own. Read
+    /// untrimmed, by bytes: trimmed, the first record lost the space its
+    /// code can start with, and with it its path's first letter.
+    public static func changedPaths(_ output: String) -> [String] {
+        var paths: [String] = []
+        var records = output.utf8.split(separator: 0, omittingEmptySubsequences: false).makeIterator()
+        while let record = records.next() {
+            guard record.count > 3 else { continue }
+            paths.append(String(decoding: record.dropFirst(3), as: UTF8.self))
+            if record.prefix(2).contains(where: { $0 == UInt8(ascii: "R") || $0 == UInt8(ascii: "C") }) { _ = records.next() }
+        }
+        return paths
     }
 
     /// Commits everything, pulls with a rebase, and pushes: the vault's own
     /// workflow. Returns false when there was nothing to do.
     /// A rebase open on a conflict is never committed over: it throws
-    /// `Stopped`, and the person resolves it first.
+    /// `Stopped`, and the person resolves it first. Nor is a merge, a
+    /// cherry-pick or a revert left open, or a file still in conflict.
     @discardableResult
     public func sync(message: String) async throws -> Bool {
-        if try await rebaseInProgress() { throw Stopped(conflicts: try await conflicts()) }
+        try await refuseOpenOperation()
         var changed = false
         if try await !changes().isEmpty {
             try await run(["add", "-A"])
