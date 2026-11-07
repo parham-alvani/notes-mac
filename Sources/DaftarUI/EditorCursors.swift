@@ -113,7 +113,7 @@ extension NoteTextView {
         else { return nil }
         layout.ensureLayout(for: NSTextRange(location: location))
         var found: NSRect?
-        layout.enumerateTextSegments(in: NSTextRange(location: location), type: .standard, options: [.rangeNotRequired]) { _, frame, _, _ in
+        layout.enumerateTextSegments(in: NSTextRange(location: location), type: .selection, options: [.rangeNotRequired]) { _, frame, _, _ in
             found = frame
             return false
         }

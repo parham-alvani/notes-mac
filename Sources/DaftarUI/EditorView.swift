@@ -1413,21 +1413,46 @@ final class NoteTextView: NSTextView {
         if caret.displayMode != .automatic { caret.displayMode = .automatic }
     }
 
-    /// The block over the character at the cursor: as wide as it is, or as
-    /// an `m` at the end of a line. A Persian character is to the left.
+    /// The block over the character at the cursor: its own box on the line,
+    /// or an `m` at the end of a line. Two carets do not give the box: where
+    /// Persian and English meet, the caret after a letter is at the other
+    /// end of the run, and the block was as wide as a word. At the end of a
+    /// line the block goes away from the last letter, to the left after a
+    /// Persian one.
     func blockRect() -> NSRect? {
         let offset = selectedRange().location
         guard let caret = letterCaret(at: offset) else { return nil }
         let text = string as NSString
-        var block = NSRect(x: caret.minX + 0.5, y: caret.minY, width: blockWidth, height: caret.height)
         if offset < text.length, text.character(at: offset) != 0x0A,
-            let next = letterCaret(at: offset + (text.rangeOfComposedCharacterSequence(at: offset).length)),
-            abs(next.minY - caret.minY) < 1, abs(next.minX - caret.minX) > 1
+            let box = letterBox(text.rangeOfComposedCharacterSequence(at: offset)), box.width > 0.5
         {
-            block.origin.x = min(caret.minX, next.minX) + 0.5
-            block.size.width = abs(next.minX - caret.minX)
+            return NSRect(x: box.minX, y: caret.minY, width: box.width, height: caret.height)
+        }
+        var block = NSRect(x: caret.minX + 0.5, y: caret.minY, width: blockWidth, height: caret.height)
+        if offset > 0, text.character(at: offset - 1) != 0x0A,
+            let last = letterBox(text.rangeOfComposedCharacterSequence(at: offset - 1)),
+            abs(last.midY - caret.midY) < caret.height, last.midX > caret.midX
+        {
+            block.origin.x = caret.minX + 0.5 - blockWidth
         }
         return block
+    }
+
+    /// Where [range]'s letters are drawn, in the view: the union of their
+    /// segments on the line; nil off the laid out text.
+    func letterBox(_ range: NSRange) -> NSRect? {
+        guard let layout = textLayoutManager, let content = layout.textContentManager,
+            let from = content.location(content.documentRange.location, offsetBy: range.location),
+            let to = content.location(from, offsetBy: range.length),
+            let textRange = NSTextRange(location: from, end: to)
+        else { return nil }
+        layout.ensureLayout(for: textRange)
+        var box: NSRect?
+        layout.enumerateTextSegments(in: textRange, type: .standard, options: [.rangeNotRequired]) { _, frame, _, _ in
+            box = box.map { $0.union(frame) } ?? frame
+            return true
+        }
+        return box?.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
     }
 
     override func setNeedsDisplay(_ invalidRect: NSRect, avoidAdditionalLayout flag: Bool) {
