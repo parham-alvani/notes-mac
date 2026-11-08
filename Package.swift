@@ -22,7 +22,7 @@ let package = Package(
     dependencies: [
         // The terminal pane. Pinned exactly: a terminal emulator is a parser
         // of untrusted bytes, and an update is something to read first.
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.99.2"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", exact: "1.99.3"),
     ],
     targets: [
         // Everything that can be tested without a window: the vault, its
