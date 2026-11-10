@@ -114,6 +114,10 @@ struct ReaderView: NSViewRepresentable {
         /// `appearance.remote_images` when the page was loaded: its policy
         /// for pictures comes with the page, so a change loads it again.
         var loadedRemoteImages = true
+        /// The loads of the page the app itself asked for and WebKit has not
+        /// started yet: the first, and one for each time the page is loaded
+        /// again. The main frame gets no other navigation.
+        private var loads = 1
 
         init(_ parent: ReaderView) { self.parent = parent }
 
@@ -125,8 +129,7 @@ struct ReaderView: NSViewRepresentable {
             if store.settings.remoteImages != loadedRemoteImages {
                 // The page's policy lets `https:` pictures in or not: it is the page's, so the page loads again.
                 loadedRemoteImages = store.settings.remoteImages
-                ready = false
-                view?.load(URLRequest(url: ReaderView.page))
+                reload()
                 return
             }
             guard let request = parent.request else { return }
@@ -153,6 +156,13 @@ struct ReaderView: NSViewRepresentable {
                 lastFind = find
                 view?.callAsyncJavaScript("daftar.find(text)", arguments: ["text": find], in: nil, in: .page)
             }
+        }
+
+        /// The page from the start: its policy changed, or its process ended.
+        private func reload() {
+            ready = false
+            loads += 1
+            view?.load(URLRequest(url: ReaderView.page))
         }
 
         private func show(_ request: ReaderRequest, keepScroll: Bool) {
@@ -293,13 +303,25 @@ struct ReaderView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
 
-        /// The page stays the reader: a note's `<meta http-equiv=refresh>` or
-        /// `<form>` cannot take the window to a web page, which would then
-        /// talk to the app. Links go out through the click handler instead.
+        /// The page stays the reader. The main frame loads `index.html` when
+        /// the app asks for it and nothing else, ever: not a web page, which
+        /// would then talk to the app, and not another file of the bundle
+        /// (`daftar://reader/reader.css`), which would leave the pane with a
+        /// page that has no reader in it. Links go out through the click
+        /// handler instead.
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+            if action.targetFrame?.isMainFrame ?? true {
+                guard loads > 0, action.request.url == ReaderView.page else { return .cancel }
+                loads -= 1
+                return .allow
+            }
             let scheme = action.request.url?.scheme ?? ""
-            if action.targetFrame?.isMainFrame ?? true { return scheme == "daftar" ? .allow : .cancel }
             return scheme == "vault" || scheme == "about" ? .allow : .cancel
+        }
+
+        /// The page's process ended (memory, a crash): the page loads again and shows the note.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            reload()
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
