@@ -70,6 +70,17 @@ struct EditorView: NSViewRepresentable {
     }
 }
 
+/// Who owns the note's text. The view edits and saves it (`plain`), or
+/// Neovim does: while Neovim starts and runs, the view shows what Neovim
+/// says and refuses every edit of its own, and Neovim writes the file. A
+/// Neovim that failed or ended (`neovimDead`) owns nothing any more, and
+/// the view is not yet a plain editor: nothing is typed into it and nothing
+/// is saved from it, until the controller lets it go (`showStatus`).
+/// Saving, following the disk and taking an edit all go by this one answer.
+enum TextOwner: Equatable {
+    case plain, neovimStarting, neovimRunning, neovimDead
+}
+
 @MainActor
 final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegate {
     let store: VaultStore
@@ -78,6 +89,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private(set) var path: String?
     /// Neovim, in Neovim mode: it owns the buffer and writes the file.
     private(set) var session: NeovimSession?
+    /// Who edits and saves the text now.
+    var owner: TextOwner { session?.owner ?? .plain }
+    /// Neovim did not start for this note, which is in the plain editor
+    /// until it is opened again or the setting changes: no start at every
+    /// update of the view.
+    private(set) var neovimRefused = false
     /// What the file said when it was last read or written.
     private var saved = ""
     private var saveTask: Task<Void, Never>?
@@ -193,13 +210,15 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         view.undoManager?.removeAllActions()
         updateCounts()
         stopVim()
+        neovimRefused = false
         if store.settings.vimMode { startVim() }
     }
 
     // MARK: Neovim mode
 
     func followVimSetting() {
-        if store.settings.vimMode, session == nil, path != nil { startVim() }
+        if store.settings.vimMode, session == nil, path != nil, !neovimRefused { startVim() }
+        if !store.settings.vimMode { neovimRefused = false }
         if !store.settings.vimMode, session != nil {
             stopVim()
             if let path { load(path) }
@@ -239,7 +258,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         container?.setCommandLine(session?.state == .running ? session?.commandLine : nil, blurred: store.settings.blurPanels)
         guard let session else { return container?.setStatus(nil, mode: nil) ?? () }
         switch session.state {
-        case .failed(let message): container?.setStatus(message, mode: "NEOVIM")
+        case .failed(let message):
+            // Neovim did not start: the note is in the plain editor, which
+            // saves what is typed, and shows the file as it is.
+            neovimRefused = true
+            stopVim(writing: false)
+            takeDisk()
+            store.notice = "Neovim did not start, so this note is in the plain editor. \(message)"
+            return
         case .ended:
             // `:wq`, `:q` and `ZZ` mean "done" to a Vim hand: the note is
             // read again, and the next edit starts a new Neovim. Neovim
@@ -273,11 +299,17 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     func followDisk() {
         guard let path, let view, store.revision != seenRevision else { return }
         seenRevision = store.revision
-        if let session {
+        switch owner {
+        case .neovimRunning:
             // Neovim wrote it (the view already says so), or someone else
             // did, and Neovim reads it again.
-            if store.lastChanged.contains(path), store.text(of: path) != view.string { session.checkDisk() }
+            if store.lastChanged.contains(path), store.text(of: path) != view.string { session?.checkDisk() }
             return
+        case .neovimStarting, .neovimDead:
+            // Neovim reads the file when it opens it; a dead one reads nothing.
+            return
+        case .plain:
+            break
         }
         guard store.lastChanged.contains(path), let disk = store.text(of: path), disk != saved else { return }
         if view.string == saved {
@@ -441,9 +473,16 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     func saveNow() {
         saveTask?.cancel()
-        if let session {
-            session.save()
+        switch owner {
+        case .neovimRunning:
+            session?.save()
             return
+        case .neovimStarting, .neovimDead:
+            // Nothing typed is in the view: the keys wait for Neovim, and
+            // a dead Neovim's view takes no edit.
+            return
+        case .plain:
+            break
         }
         guard let path, let view, view.string != saved else { return }
         let text = view.string
@@ -953,7 +992,10 @@ final class NoteTextView: NSTextView {
     }
     /// The many cursors, and what focus and typewriter mode did (`EditorCursors.swift`).
     let extras = EditorExtras()
-    var vimActive: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
+    /// Who edits the text: this view, or Neovim (`TextOwner`).
+    var owner: TextOwner { vim?.owner ?? .plain }
+    /// Neovim has the keys and the text.
+    var vimActive: Bool { owner == .neovimStarting || owner == .neovimRunning }
     /// A new editor takes the keys once it is in its window: SwiftUI may put
     /// it there after the next turn of the run loop, and the keys typed
     /// until then went nowhere.
@@ -1011,7 +1053,7 @@ final class NoteTextView: NSTextView {
 
     /// The view never edits its own text while Neovim owns it.
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        if vimActive { return false }
+        guard owner == .plain else { return false }
         guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
         holdScroll(editing: affectedCharRange, with: ((replacementString ?? "") as NSString).length)
         DispatchQueue.main.async { [weak self] in self?.redrawPanels() }

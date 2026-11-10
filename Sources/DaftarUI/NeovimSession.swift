@@ -65,6 +65,15 @@ final class NeovimSession {
         return arguments
     }
 
+    /// Who owns the text while this session is the editor's.
+    var owner: TextOwner {
+        switch state {
+        case .starting: .neovimStarting
+        case .running: .neovimRunning
+        case .failed, .ended: .neovimDead
+        }
+    }
+
     /// Neovim was killed, and did not quit: what the view shows was not all written.
     var crashed: Bool { client.crashed }
 

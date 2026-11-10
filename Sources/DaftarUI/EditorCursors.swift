@@ -45,9 +45,6 @@ final class CaretOverlay: NSView {
 }
 
 extension NoteTextView {
-    /// Neovim mode: the view's text is Neovim's.
-    var neovimOwnsText: Bool { vim.map { $0.state == .running || $0.state == .starting } ?? false }
-
     private var text: NSString { string as NSString }
 
     // MARK: The cursors
@@ -142,7 +139,7 @@ extension NoteTextView {
     /// Typed text at every cursor. False when there is one cursor, or while
     /// an input method is composing.
     func insertAtCursors(_ string: Any) -> Bool {
-        guard hasManyCursors, !hasMarkedText(), !neovimOwnsText else { return false }
+        guard hasManyCursors, !hasMarkedText(), !vimActive else { return false }
         let typed = (string as? NSAttributedString)?.string ?? string as? String ?? ""
         applyCursorEdits(MultiCursor.replace(cursorRanges, with: [typed]))
         return true
@@ -151,7 +148,7 @@ extension NoteTextView {
     /// The keys that edit or move, at every cursor; Escape leaves one. Any
     /// other command acts on the first, and the rest go.
     func commandAtCursors(_ selector: Selector) -> Bool {
-        guard hasManyCursors, !neovimOwnsText else { return false }
+        guard hasManyCursors, !vimActive else { return false }
         let ranges = cursorRanges
         let name = NSStringFromSelector(selector)
         switch name {
@@ -189,7 +186,7 @@ extension NoteTextView {
 
     /// A paste at every cursor: a line each when the text has as many lines.
     func pasteAtCursors() -> Bool {
-        guard hasManyCursors, !neovimOwnsText, let pasted = NSPasteboard.general.string(forType: .string) else { return false }
+        guard hasManyCursors, !vimActive, let pasted = NSPasteboard.general.string(forType: .string) else { return false }
         let ranges = MultiCursor.normalize(cursorRanges)
         applyCursorEdits(MultiCursor.replace(ranges, with: MultiCursor.pieces(of: pasted, cursors: ranges.count)))
         return true
@@ -205,7 +202,7 @@ extension NoteTextView {
     }
 
     override func cut(_ sender: Any?) {
-        guard hasManyCursors, !neovimOwnsText, !selectedPieces.isEmpty else { return super.cut(sender) }
+        guard hasManyCursors, !vimActive, !selectedPieces.isEmpty else { return super.cut(sender) }
         copy(sender)
         applyCursorEdits(MultiCursor.replace(cursorRanges, with: [""]))
     }
@@ -252,7 +249,7 @@ extension NoteTextView {
     }
 
     private func refusedInNeovim() -> Bool {
-        guard neovimOwnsText else { return false }
+        guard vimActive else { return false }
         controller?.store.notice = "Many cursors work in the editor without Neovim mode; Neovim has its own."
         return true
     }
@@ -262,7 +259,7 @@ extension NoteTextView {
     /// ⌥-drag selects a column, a caret on each line when it goes straight
     /// down; ⌃⇧-click adds a caret. True when the click is handled here.
     func cursorClick(_ event: NSEvent) -> Bool {
-        guard !neovimOwnsText else { return false }
+        guard !vimActive else { return false }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         let at = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
         if flags == [.control, .shift] {

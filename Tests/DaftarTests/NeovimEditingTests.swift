@@ -238,4 +238,24 @@ import Testing
         controller.saveNow()
         #expect(file() == "ab\n")
     }
+
+    /// A Neovim that does not start leaves the plain editor, which saves:
+    /// before, the view took the typing and no save ever wrote it.
+    @Test func typingAfterAFailedStartIsSaved() async throws {
+        store.settings.nvimPath = "/usr/bin/false"
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("N.md")
+        #expect(controller.owner == .neovimStarting)
+        #expect(await eventually { controller.session == nil })
+        #expect(controller.owner == .plain)
+        #expect(store.notice?.contains("Neovim did not start") == true)
+        view.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        #expect(view.string == "xa\n")
+        controller.saveNow()
+        #expect(file() == "xa\n")
+        // Not started again at each update of the view.
+        controller.followVimSetting()
+        #expect(controller.session == nil)
+    }
 }
