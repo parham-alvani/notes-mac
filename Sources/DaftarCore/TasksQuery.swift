@@ -293,11 +293,17 @@ public struct TasksQuery: Sendable {
         if let match = text.wholeMatch(of: /(?i)(due|scheduled|done|happens)( on or before| on or after| before| after| on| in)?\s+(.+)/),
             let field = dateField(String(match.1))
         {
-            let relation = match.2.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "on"
-            let phrase = String(match.3).trimmingCharacters(in: .whitespaces)
-            guard DateRange(phrase, today: Day(year: 2000, month: 1, day: 1)) != nil else { return nil }
+            var relation = match.2.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "on"
+            var phrase = String(match.3).trimmingCharacters(in: .whitespaces)
+            let sample = Day(year: 2000, month: 1, day: 1)
+            // `due in 3 days`: the `in` is the phrase's, not a relation before `3 days`.
+            if DateRange(phrase, today: sample) == nil, relation == "in", DateRange("in " + phrase, today: sample) != nil {
+                phrase = "in " + phrase
+                relation = "on"
+            }
+            guard DateRange(phrase, today: sample) != nil else { return nil }
             let ranges = DateRange.Cache(phrase)
-            return { task, today in
+            return { [relation] task, today in
                 guard let range = ranges.range(today: today), let value = field(task), let day = Day(value) else { return false }
                 return range.relation(relation, day) ?? false
             }
@@ -386,7 +392,8 @@ public struct TasksQuery: Sendable {
         a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
     }
 
-    /// `(a) AND (b)`, `(a) OR NOT (b)`, nested to any depth, left to right.
+    /// `(a) AND (b)`, `(a) OR NOT (b)`, nested to any depth, in the plugin's
+    /// order of operators: `NOT`, `XOR`, `AND`, `OR`.
     private struct Combination {
         var text: [Character]
         var at = 0
@@ -397,21 +404,44 @@ public struct TasksQuery: Sendable {
             return at == text.count ? result : nil
         }
 
+        /// The Tasks plugin's order: `NOT` first, then `XOR`, then `AND`,
+        /// then `OR`, so `(a) OR (b) AND (c)` is a, or b and c both.
         private mutating func sequence() -> Filter? {
+            guard var left = conjunction() else { return nil }
+            while take("OR ") {
+                guard let right = conjunction() else { return nil }
+                let l = left
+                left = { t, d in l(t, d) || right(t, d) }
+            }
+            return left
+        }
+
+        private mutating func conjunction() -> Filter? {
+            guard var left = exclusive() else { return nil }
+            // `AND NOT (b)` is `AND` and then an operand that starts with `NOT`.
+            while take("AND ") {
+                guard let right = exclusive() else { return nil }
+                let l = left
+                left = { t, d in l(t, d) && right(t, d) }
+            }
+            return left
+        }
+
+        private mutating func exclusive() -> Filter? {
             guard var left = operand() else { return nil }
-            while true {
-                skipSpace()
-                guard let op = ["AND NOT ", "AND ", "OR ", "XOR "].first(where: { starts(with: $0) }) else { return left }
-                at += op.count
+            while take("XOR ") {
                 guard let right = operand() else { return nil }
                 let l = left
-                switch op.trimmingCharacters(in: .whitespaces) {
-                case "AND": left = { t, d in l(t, d) && right(t, d) }
-                case "OR": left = { t, d in l(t, d) || right(t, d) }
-                case "XOR": left = { t, d in l(t, d) != right(t, d) }
-                default: left = { t, d in l(t, d) && !right(t, d) }
-                }
+                left = { t, d in l(t, d) != right(t, d) }
             }
+            return left
+        }
+
+        private mutating func take(_ word: String) -> Bool {
+            skipSpace()
+            guard starts(with: word) else { return false }
+            at += word.count
+            return true
         }
 
         private func starts(with word: String) -> Bool {

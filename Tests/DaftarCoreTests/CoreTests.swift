@@ -709,6 +709,30 @@ import Testing
         TasksQuery.parse(source, file: file).run(tasks, today: today) { $0 }.map(\.text)
     }
 
+    @Test func andBindsBeforeOrAsInThePlugin() {
+        // NOT, then XOR, then AND, then OR: this is "plan", or both "one" and "old".
+        #expect(Set(run("(description includes plan) OR (description includes one) AND (description includes old)")) == ["Ship the plan #work", "Old one"])
+        #expect(Set(run("(description includes one) AND (description includes old) OR (description includes plan)")) == ["Ship the plan #work", "Old one"])
+        // Brackets still say otherwise.
+        #expect(run("((description includes plan) OR (description includes one)) AND (description includes old)") == ["Old one"])
+        // XOR before AND: done, and exactly one of the two words.
+        #expect(run("(done) AND (description includes old) XOR (description includes dropped)") == ["Old one", "Dropped"])
+        #expect(run("(done) AND NOT (description includes old)") == ["Dropped"])
+        #expect(run("(path includes Home) AND NOT (done) OR (description includes Reading)") == ["Reading", "Book flights"])
+        #expect(TasksQuery.parse("(done) OR (not done) AND").notUnderstood.count == 1)
+    }
+
+    @Test func inSomeDaysIsADay() {
+        // The `in` belongs to the date, as in `due before in 7 days`.
+        #expect(TasksQuery.parse("due in 7 days\nscheduled in 1 day\nhappens in 2 days\ndue on in 7 days").notUnderstood.isEmpty)
+        #expect(run("due in 7 days") == ["Book flights"])
+        #expect(run("scheduled in 1 day") == ["Reading"])
+        #expect(run("due in 6 days").isEmpty)
+        // `in` before a range is still the relation.
+        #expect(run("due in 2026-10-26 2026-11-01") == ["Book flights"])
+        #expect(TasksQuery.parse("due in a while").notUnderstood == ["due in a while"])
+    }
+
     @Test func theVaultsInProgressQuery() {
         let source = """
             folder includes {{query.file.folder}}
