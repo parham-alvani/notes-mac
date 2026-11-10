@@ -72,8 +72,16 @@ public struct QueryTask: Sendable, Equatable {
     public var scheduled: String?
     public var done: String?
     public var recurring: String?
+    public var start: String?
+    public var created: String?
+    public var cancelled: String?
+    /// The priority's emoji, 🔺 ⏫ 🔼 🔽 or ⏬; nil for none.
+    public var priority: String?
 
     public var state: TaskState { status.type }
+
+    /// The earliest of the start, scheduled and due dates: the plugin's "happens".
+    var happens: String? { [start, scheduled, due].compactMap { $0 }.min() }
 
     public init(_ task: VaultTask, statuses: TaskStatuses = .current) {
         text = task.task.text
@@ -85,10 +93,19 @@ public struct QueryTask: Sendable, Equatable {
         scheduled = task.task.scheduled
         done = task.task.done
         recurring = task.task.recurring
+        start = task.task.start
+        created = task.task.created
+        cancelled = task.task.cancelled
+        priority = task.task.priority
     }
 
     public init(text: String, state: TaskState, path: String, section: String = "", due: String? = nil,
-                scheduled: String? = nil, done: String? = nil, recurring: String? = nil, reason: String? = nil, status: TaskStatus? = nil) {
+                scheduled: String? = nil, done: String? = nil, recurring: String? = nil, reason: String? = nil, status: TaskStatus? = nil,
+                start: String? = nil, created: String? = nil, cancelled: String? = nil, priority: String? = nil) {
+        self.start = start
+        self.created = created
+        self.cancelled = cancelled
+        self.priority = priority
         self.text = text
         self.status = status ?? TaskStatus(symbol: state.symbol, name: state.name, next: " ", type: state)
         self.reason = reason
@@ -286,13 +303,29 @@ public struct TasksQuery: Sendable {
             let value = String(match.2).trimmingCharacters(in: .whitespaces)
             return { task, _ in (task.reason ?? "").localizedCaseInsensitiveContains(value) != negate }
         }
-        if let match = text.wholeMatch(of: /(?i)(has|no) (due|scheduled|done|happens) date/), let field = dateField(String(match.2)) {
+        if let match = text.wholeMatch(of: /(?i)priority is( above| below| not)? (lowest|low|none|normal|medium|high|highest)/) {
+            let wanted = priorities[match.2.lowercased()] ?? 3
+            let relation = match.1.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
+            return { task, _ in
+                let rank = TaskBoard.rank(task.priority)
+                switch relation {
+                // A smaller rank is a higher priority.
+                case "above": return rank < wanted
+                case "below": return rank > wanted
+                case "not": return rank != wanted
+                default: return rank == wanted
+                }
+            }
+        }
+        if let match = text.wholeMatch(of: /(?i)(has|no) (due|scheduled|done|happens|start|created|cancelled) date/), let field = dateField(String(match.2)) {
             let wantsOne = match.1.lowercased() == "has"
             return { task, _ in (field(task) != nil) == wantsOne }
         }
-        if let match = text.wholeMatch(of: /(?i)(due|scheduled|done|happens)( on or before| on or after| before| after| on| in)?\s+(.+)/),
+        if let match = text.wholeMatch(of: /(?i)(due|scheduled|done|happens|starts|created|cancelled)( on or before| on or after| before| after| on| in)?\s+(.+)/),
             let field = dateField(String(match.1))
         {
+            // The plugin's `starts` also takes a task with no start date: it can be started.
+            let undated = match.1.lowercased() == "starts"
             var relation = match.2.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "on"
             var phrase = String(match.3).trimmingCharacters(in: .whitespaces)
             let sample = Day(year: 2000, month: 1, day: 1)
@@ -304,7 +337,8 @@ public struct TasksQuery: Sendable {
             guard DateRange(phrase, today: sample) != nil else { return nil }
             let ranges = DateRange.Cache(phrase)
             return { [relation] task, today in
-                guard let range = ranges.range(today: today), let value = field(task), let day = Day(value) else { return false }
+                guard let value = field(task) else { return undated }
+                guard let range = ranges.range(today: today), let day = Day(value) else { return false }
                 return range.relation(relation, day) ?? false
             }
         }
@@ -338,11 +372,16 @@ public struct TasksQuery: Sendable {
         case "due": { $0.due }
         case "scheduled": { $0.scheduled }
         case "done": { $0.done }
-        // The plugin counts the start date too; the index does not keep it.
-        case "happens": { [$0.scheduled, $0.due].compactMap { $0 }.min() }
+        case "start", "starts": { $0.start }
+        case "created": { $0.created }
+        case "cancelled": { $0.cancelled }
+        case "happens": { $0.happens }
         default: nil
         }
     }
+
+    /// The plugin's names for a priority, by `TaskBoard.rank`: the highest is 0, none is 3.
+    private static let priorities = ["highest": 0, "high": 1, "medium": 2, "none": 3, "normal": 3, "low": 4, "lowest": 5]
 
     private static func tags(in text: String) -> [String] {
         text.matches(of: /(?:^|[^\p{L}\p{N}_])#([\p{L}\p{N}_\/-]*[\p{L}_\/-][\p{L}\p{N}_\/-]*)/).map { String($0.1) }
@@ -359,7 +398,12 @@ public struct TasksQuery: Sendable {
         case "due": key = dates { $0.due }
         case "scheduled": key = dates { $0.scheduled }
         case "done": key = dates { $0.done }
-        case "happens": key = dates { [$0.scheduled, $0.due].compactMap { $0 }.min() }
+        case "happens": key = dates { $0.happens }
+        case "start": key = dates { $0.start }
+        case "created": key = dates { $0.created }
+        case "cancelled": key = dates { $0.cancelled }
+        // The highest first, as the plugin sorts a priority.
+        case "priority": key = { a, b in compare(TaskBoard.rank(a.priority), TaskBoard.rank(b.priority)) }
         case "status": key = { a, b in compare(a.state.isFinished ? 1 : 0, b.state.isFinished ? 1 : 0) }
         case "path": key = { a, b in compare(a.path.lowercased(), b.path.lowercased()) }
         case "filename": key = { a, b in compare(a.filename.lowercased(), b.filename.lowercased()) }

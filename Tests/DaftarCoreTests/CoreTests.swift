@@ -793,6 +793,43 @@ import Testing
         #expect(TasksQuery.parse("due in a while").notUnderstood == ["due in a while"])
     }
 
+    @Test func startCreatedCancelledAndPriority() {
+        let tasks = [
+            QueryTask(text: "Later", state: .todo, path: "T.md", due: "2026-11-20", start: "2026-11-01", created: "2026-10-01", priority: "🔽"),
+            QueryTask(text: "Now", state: .todo, path: "T.md", scheduled: "2026-10-22", start: "2026-10-10", created: "2026-10-05", priority: "⏫"),
+            QueryTask(text: "Any time", state: .todo, path: "T.md", created: "2026-10-09"),
+            QueryTask(text: "Dropped", state: .cancelled, path: "T.md", created: "2026-09-01", cancelled: "2026-10-20", priority: "🔺"),
+        ]
+        func run(_ source: String) -> [String] {
+            let query = TasksQuery.parse(source)
+            #expect(query.notUnderstood.isEmpty, "\(query.notUnderstood)")
+            return query.run(tasks, today: today) { $0 }.map(\.text)
+        }
+        // `starts` also takes what has no start date, as the plugin does: it can be started.
+        #expect(Set(run("starts before tomorrow")) == ["Now", "Any time", "Dropped"])
+        #expect(run("has start date\nstarts after today") == ["Later"])
+        #expect(Set(run("no start date")) == ["Any time", "Dropped"])
+        #expect(run("created before 2026-10-05\nnot done") == ["Later"])
+        #expect(run("cancelled this week") == ["Dropped"])
+        #expect(run("has cancelled date") == ["Dropped"])
+        #expect(Set(run("no created date")) == [])
+        // Happens is the earliest of start, scheduled and due.
+        #expect(run("happens before 2026-10-15") == ["Now"])
+        #expect(run("happens on 2026-11-01") == ["Later"])
+        #expect(run("no happens date\nnot done") == ["Any time"])
+        #expect(run("not done\nsort by happens") == ["Now", "Later", "Any time"])
+        #expect(run("priority is high") == ["Now"])
+        #expect(Set(run("priority is above none")) == ["Now", "Dropped"])
+        #expect(run("priority is below medium\nsort by priority") == ["Any time", "Later"])
+        #expect(Set(run("priority is not none")) == ["Later", "Now", "Dropped"])
+        #expect(run("priority is none") == ["Any time"])
+        #expect(run("sort by priority") == ["Dropped", "Now", "Any time", "Later"])
+        #expect(run("sort by priority reverse") == ["Later", "Any time", "Now", "Dropped"])
+        #expect(run("not done\nsort by start reverse") == ["Any time", "Later", "Now"])
+        #expect(run("sort by created") == ["Dropped", "Later", "Now", "Any time"])
+        #expect(TasksQuery.parse("priority is urgent").notUnderstood == ["priority is urgent"])
+    }
+
     @Test func theVaultsInProgressQuery() {
         let source = """
             folder includes {{query.file.folder}}
@@ -834,7 +871,7 @@ import Testing
     }
 
     @Test func unknownLinesAreReported() {
-        let query = TasksQuery.parse("priority is high\nfilter by function task.urgency > 3\nfolder includes {{query.file.unknown}}", file: "A.md")
+        let query = TasksQuery.parse("is blocked\nfilter by function task.urgency > 3\nfolder includes {{query.file.unknown}}", file: "A.md")
         #expect(query.notUnderstood.count == 3)
         #expect(TasksQuery.parse("folder includes {{query.file.folder}}").notUnderstood.count == 1)
     }
