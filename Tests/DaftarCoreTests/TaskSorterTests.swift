@@ -69,4 +69,32 @@ import Testing
         #expect(once == "- [x] b\n- [-] d\n- [ ] a\n- [ ] c")
         #expect(once.flatMap(TaskSorter.sort) == nil)
     }
+
+    @Test func aCodeFenceIsLeftAsItIs() {
+        // An example of a task list is text: it is not sorted, and its `# comment` starts no section.
+        let text = """
+            - [ ] Open
+            ```markdown
+            - [ ] a
+            # not a heading
+            - [x] b
+            ```
+            - [x] Done
+            """
+        #expect(TaskSorter.sort(text) == """
+            - [x] Done
+            ```markdown
+            - [ ] a
+            # not a heading
+            - [x] b
+            ```
+            - [ ] Open
+            """)
+        #expect(TaskSorter.sort("~~~\n- [ ] a\n- [x] b\n~~~\n") == nil)
+    }
+
+    @Test func aChildTwoSpacesInStaysWithItsParent() {
+        let text = "- [ ] Open\n  - [ ] its child\n   and a line of it\n- [x] Done\n  - [x] done's child"
+        #expect(TaskSorter.sort(text) == "- [x] Done\n  - [x] done's child\n- [ ] Open\n  - [ ] its child\n   and a line of it")
+    }
 }
