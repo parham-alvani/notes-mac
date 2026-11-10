@@ -137,8 +137,6 @@ public enum HeadingRename {
     }
 
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
-    nonisolated(unsafe) private static let markdownLink = /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+|[^)>\n]+(?=>))(>?\))/
-    nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
     /// A markdown link's anchor: spaces and `(` `)` encoded, as Obsidian writes it.
     private static let anchorAllowed = CharacterSet.urlFragmentAllowed.subtracting(CharacterSet(charactersIn: "()#"))
 
@@ -160,7 +158,7 @@ public enum HeadingRename {
                 continue
             }
             if open != nil || !line.hasMark("#") || (!line.hasMark("[[") && !line.hasMark("](")) { continue }
-            let code = line.hasMark("`") ? line.matches(of: inlineCode).map(\.range) : []
+            let code = line.hasMark("`") ? InlineCode.spans(in: line) : []
             func inCode(_ range: Range<String.Index>) -> Bool { code.contains { $0.overlaps(range) } }
             var result = !line.hasMark("[[") ? line : line.replacing(wikilink) { match -> String in
                 guard !inCode(match.range) else { return String(match.output.0) }
@@ -177,8 +175,8 @@ public enum HeadingRename {
                 return match.output.1 + "[[" + inner[...hash] + new + inner[end...] + "]]"
             }
             if result.hasMark("](") {
-                let code = result.hasMark("`") ? result.matches(of: inlineCode).map(\.range) : []
-                result = result.replacing(markdownLink) { match -> String in
+                let code = result.hasMark("`") ? InlineCode.spans(in: result) : []
+                result = result.replacing(NoteParser.markdownLink) { match -> String in
                     guard !code.contains(where: { $0.overlaps(match.range) }) else { return String(match.output.0) }
                     let url = String(match.output.3)
                     guard !url.contains("://"), !url.hasPrefix("mailto:"), let hash = url.firstIndex(of: "#") else { return String(match.output.0) }

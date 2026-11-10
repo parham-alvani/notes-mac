@@ -167,6 +167,21 @@ import Testing
         #expect(NoteParser.parse(try read("Home.md", in: root)).links.first?.target == "Notes (old)/a.md")
     }
 
+    @Test func anAddressInBracketsOrWithATitleFollowsTheMove() throws {
+        let root = try makeVault([
+            "Old/my note.md": "a",
+            "Home.md": "[a](<Old/my note.md>) [b](Old/my%20note.md \"its title\") [c](<Old/my note.md#Part one> 'x') `[d](<Old/my note.md>)`",
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Both are links the index knows, so the note that holds them is one that links to the moved note.
+        let links = NoteParser.parse(try read("Home.md", in: root)).links
+        #expect(links.map(\.target) == ["Old/my note.md", "Old/my note.md", "Old/my note.md"])
+        #expect(links.map(\.anchor) == [nil, nil, "Part one"])
+        try VaultMoves.perform("Old", to: "New place", index: Vault.index(root), root: root)
+        #expect(try read("Home.md", in: root)
+            == "[a](<New place/my note.md>) [b](New%20place/my%20note.md \"its title\") [c](<New place/my note.md#Part one> 'x') `[d](<Old/my note.md>)`")
+    }
+
     @Test func excludedFiles() {
         let excluded = ExcludedFiles(filters: ["uploads/", "node_modules/", "/\\.excalidraw\\.md$/"])
         #expect(excluded.contains("uploads/a.png"))

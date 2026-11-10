@@ -208,6 +208,11 @@ import Testing
         #expect(edits.isEmpty)
     }
 
+    @Test func aLinkWithATitleIsRewrittenToo() throws {
+        let text = "[x](Target.md#Old%20Heading \"a title\") [y](<Notes/Target.md#Old Heading> 'another') ``[z](Target.md#Old%20Heading)``"
+        #expect(try Self.rename(text) == "[x](Target.md#New%20Name \"a title\") [y](<Notes/Target.md#New Name> 'another') ``[z](Target.md#Old%20Heading)``")
+    }
+
     @Test func theNoteItselfUsesBareAnchors() throws {
         let text = "See [[#Old Heading]] and [[#Old Heading#Child|c]]."
         #expect(try Self.rename(text, source: "Notes/Target.md") == "See [[#New Name]] and [[#New Name#Child|c]].")

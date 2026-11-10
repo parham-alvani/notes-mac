@@ -77,7 +77,22 @@ public enum NoteParser {
         return (match.1.count, text)
     }
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
-    nonisolated(unsafe) private static let markdownLink = /(!?)\[[^\]\n]*\]\(<?([^)>\s]+)>?\)/
+    /// A markdown link, `[text](address)`, in four parts: up to the `(`, a
+    /// `<` or nothing, the address, and the rest to the `)`. The address may
+    /// be in `<…>`, which keeps its spaces, and a `"title"` may follow it.
+    /// One pattern for the index and for the links a rename writes again.
+    nonisolated(unsafe) static let markdownLink =
+        /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+|[^)>\n]+(?=>))(>?(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'))?\))/
+
+    /// Where a markdown link's address goes in the vault: its file and its
+    /// anchor. Nil for a web address, a `mailto:` and a bare `#anchor`.
+    /// An address in `<…>` is as written; any other is percent-decoded.
+    static func destination(_ url: String, bracketed: Bool) -> (target: String, anchor: String?)? {
+        guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { return nil }
+        let decoded = bracketed ? url : url.removingPercentEncoding ?? url
+        guard let hash = decoded.firstIndex(of: "#") else { return (decoded, nil) }
+        return (String(decoded[..<hash]), String(decoded[decoded.index(after: hash)...]))
+    }
     nonisolated(unsafe) private static let tag = /(?:^|\s)#([\p{L}\p{N}_\/-]+)/
     nonisolated(unsafe) static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
 
@@ -142,13 +157,8 @@ public enum NoteParser {
                 note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
             }
             for match in code.hasMark("](") ? code.matches(of: markdownLink) : [] {
-                let url = String(match.2)
-                guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { continue }
-                let decoded = url.removingPercentEncoding ?? url
-                let hash = decoded.firstIndex(of: "#")
-                let target = hash.map { String(decoded[..<$0]) } ?? decoded
-                let anchor = hash.map { String(decoded[decoded.index(after: $0)...]) }
-                note.links.append(Link(target: target, anchor: anchor, embed: !match.1.isEmpty, line: index))
+                guard let (target, anchor) = destination(String(match.3), bracketed: !match.2.isEmpty) else { continue }
+                note.links.append(Link(target: target, anchor: anchor, embed: match.1.hasPrefix("!"), line: index))
             }
             for match in code.mayHoldTag ? code.matches(of: tag) : [] where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
                 note.tags.append(String(match.1))
