@@ -296,13 +296,14 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let slow = folder.appending(path: "git")
-        try "#!/bin/sh\necho waiting for the remote\nexec sleep 60\n".write(to: slow, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\necho waiting for the remote\nexec sleep 600\n".write(to: slow, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slow.path)
         let started = Date()
         let failure = await #expect(throws: Git.Failure.self) { try await Git(root: folder, executable: slow, limit: 1).run(["pull"]) }
         #expect(failure?.timedOut == true)
         #expect(failure?.output == "it took longer than 1 seconds and was stopped: waiting for the remote")
-        #expect(Date().timeIntervalSince(started) < 20)
+        // Far under the ten minutes the command sleeps, with room for a loaded machine (CI took 35 s once).
+        #expect(Date().timeIntervalSince(started) < 120)
         // The defaults: no question, no wait for a host that is gone.
         #expect(Git.ssh.contains("BatchMode=yes") && Git.ssh.contains("ConnectTimeout=") && Git.ssh.contains("ServerAliveInterval="))
         #expect(Git(root: folder).limit == 300)
