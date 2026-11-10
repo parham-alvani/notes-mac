@@ -295,13 +295,19 @@ public struct Git: Sendable {
         }
     }
 
-    /// Goes on with the rebase once every file is resolved. Returns the
+    /// Goes on with the rebase once every file is resolved, with whatever
+    /// else changed in the tree since it stopped. Returns the
     /// conflicts of the next commit it replays, if that one stops too, or
     /// none when the rebase is done. Git is never let to open an editor.
     public func continueRebase() async throws -> [Conflicted] {
         while try await rebaseInProgress() {
             let open = try await conflicts()
             if !open.isEmpty { return open }
+            // `rebase --continue` refuses a tree with changes that are not
+            // staged, and the person may have gone on working while the
+            // conflict waited: what they wrote goes into the commit being
+            // replayed, which is theirs.
+            try await run(["add", "-A"])
             do {
                 try await run(["rebase", "--continue"], environment: ["GIT_EDITOR": "true"])
             } catch {

@@ -210,6 +210,27 @@ import Testing
         #expect(repos.read(repos.mac, "Old.md") == nil)
     }
 
+    /// A task ticked or a line captured while the conflict waits does not
+    /// keep the rebase from going on: it is committed with the replayed commit.
+    @Test func finishGoesOnWithOtherNotesEditedDuringTheStop() async throws {
+        let repos = try await Repos()
+        defer { repos.remove() }
+        try await diverge(repos, files: ["N.md": ("x\n", "phone\n", "mac\n"), "Tasks.md": ("- [ ] one\n", "- [ ] one\n", "- [ ] one\n")])
+        let stopped = await #expect(throws: Git.Stopped.self) { try await repos.mac.sync(message: "mac") }
+        try repos.write(repos.mac, "Tasks.md", "- [x] one\n")
+        try repos.write(repos.mac, "New.md", "new\n")
+        let conflicts = try #require(stopped?.conflicts)
+        #expect(try await repos.mac.finishRebase(conflicts.map { ($0, .keepMine) }).isEmpty)
+        #expect(try await !repos.mac.rebaseInProgress())
+        #expect(try await repos.mac.changes().isEmpty)
+        #expect(repos.read(repos.mac, "N.md") == "mac\n")
+        #expect(repos.read(repos.mac, "Tasks.md") == "- [x] one\n")
+        #expect(repos.read(repos.mac, "New.md") == "new\n")
+        #expect(try await repos.mac.run(["rev-list", "--count", "@{upstream}..HEAD"]) == "0")
+        try await repos.phone.pull()
+        #expect(repos.read(repos.phone, "Tasks.md") == "- [x] one\n")
+    }
+
     @Test func otherFilesKeepOneSideAndADeletionIsASide() async throws {
         let repos = try await Repos()
         defer { repos.remove() }
