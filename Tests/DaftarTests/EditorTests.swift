@@ -92,6 +92,22 @@ import Testing
         #expect(view.string == "# **Plan**\n## - [ ] first\n")
     }
 
+    /// Two pictures pasted in one second are two files, and the folder
+    /// `app.json` names cannot take a picture out of the vault.
+    @Test func aPastedImageNeverWritesOverAFileOrLeavesTheVault() throws {
+        let second = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = try #require(controller.savePastedImage(Data([1]), at: second))
+        let next = try #require(controller.savePastedImage(Data([2]), at: second))
+        #expect(first != next)
+        #expect(try Data(contentsOf: root.appending(path: first)) == Data([1]))
+        #expect(try Data(contentsOf: root.appending(path: next)) == Data([2]))
+
+        try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        try #"{"attachmentFolderPath": "../daftar-outside-\#(root.lastPathComponent)"}"#.write(to: root.appending(path: ".obsidian/app.json"), atomically: true, encoding: .utf8)
+        #expect(controller.savePastedImage(Data([3]), at: second) == nil)
+        #expect(!FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appending(path: "daftar-outside-\(root.lastPathComponent)").path))
+    }
+
     @Test func aSlashCommandReplacesTheSlash() throws {
         // A window, off screen, gives the view its undo manager.
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)

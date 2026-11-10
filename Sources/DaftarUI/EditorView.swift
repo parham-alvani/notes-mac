@@ -1033,6 +1033,37 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
     }
 
+    /// A pasted picture, written into the attachment folder under a name no
+    /// file has: its name, for the embed. The name is the second it was
+    /// pasted in, as Obsidian's, so two pastes in one second, or a picture
+    /// another device pasted then, would be the same file: the second gets
+    /// a number, and no file is ever written over. A folder that leaves the
+    /// vault (`..` in `app.json`) is refused.
+    func savePastedImage(_ data: Data, at date: Date = Date()) -> String? {
+        let stem = (EditorCommands.pastedImageName(at: date) as NSString).deletingPathExtension
+        var files = store.index.files
+        do {
+            while true {
+                let path = VaultMoves.freeName(stem, ext: "png", in: attachmentFolder, files: files)
+                guard let url = store.url(of: path) else {
+                    store.notice = "The image was not saved: the attachment folder is outside the vault."
+                    return nil
+                }
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                do {
+                    try data.write(to: url, options: .withoutOverwriting)
+                    return url.lastPathComponent
+                } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                    // On disk, and not in the index yet: the next name.
+                    files.insert(path)
+                }
+            }
+        } catch {
+            store.notice = "The image could not be saved: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// Where a pasted image goes: Obsidian's attachment folder for the vault.
     var attachmentFolder: String {
         guard let root = store.root,
@@ -2071,21 +2102,12 @@ final class NoteTextView: NSTextView {
         if board.string(forType: .string) != nil, let html = board.string(forType: .html), let markdown = HTMLMarkdown.convert(html) {
             return replace(selection, with: markdown, select: NSRange(location: selection.location + (markdown as NSString).length, length: 0))
         }
-        guard board.string(forType: .string) == nil, let controller, let root = controller.store.root,
+        guard board.string(forType: .string) == nil, let controller, controller.store.root != nil,
             let image = NSImage(pasteboard: board), let tiff = image.tiffRepresentation,
             let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
         else { return super.paste(sender) }
-        let folder = controller.attachmentFolder
-        let name = EditorCommands.pastedImageName()
-        let relative = folder.isEmpty ? name : folder + "/" + name
-        let url = root.appending(path: relative)
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try png.write(to: url, options: .atomic)
-            if vimActive { vim?.paste("![[\(name)]]") } else { insertText("![[\(name)]]", replacementRange: selectedRange()) }
-        } catch {
-            controller.store.notice = "The image could not be saved: \(error.localizedDescription)"
-        }
+        guard let name = controller.savePastedImage(png) else { return }
+        if vimActive { vim?.paste("![[\(name)]]") } else { insertText("![[\(name)]]", replacementRange: selectedRange()) }
     }
 }
 
