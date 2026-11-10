@@ -99,6 +99,18 @@ public struct Iconic: Sendable {
         return Data(json.text.utf8)
     }
 
+    /// Iconic's file after [path] -- a file, or a folder with all in it --
+    /// went: its entries go with it, as Iconic drops them in Obsidian
+    /// (`rememberDeletedItems` off). Nil when it had none.
+    public static func removing(_ path: String, in data: Data) throws -> Data? {
+        var json = try OrderedJSON.parse(String(decoding: data, as: UTF8.self))
+        guard case .object(let members) = json["fileIcons"] else { return nil }
+        let kept = members.filter { $0.0 != path && !$0.0.hasPrefix(path + "/") }
+        guard kept.count != members.count else { return nil }
+        json["fileIcons"] = .object(kept)
+        return Data(json.text.utf8)
+    }
+
     /// Iconic's file after files and folders moved: each entry under its new
     /// path, where it was in the file. Nil when no entry moved.
     public static func moving(_ moves: [String: String], folder: (from: String, to: String)?, in data: Data) throws -> Data? {

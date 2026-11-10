@@ -653,6 +653,12 @@ final class VaultStore {
         let before = bookmarks.entries
         bookmarks.remove(path)
         if bookmarks.entries != before { saveBookmarks(root) }
+        // Its icon goes too: left in Iconic's file, it would be the icon
+        // of the next note of that name.
+        if let data = try? Data(contentsOf: iconicFile(root)), let without = try? Iconic.removing(path, in: data) {
+            try? without.write(to: iconicFile(root), options: .atomic)
+            iconic = Iconic.parse(without)
+        }
         let base = path + "/"
         for gone in index.files.filter({ $0 == path || $0.hasPrefix(base) }) {
             search.remove(path: gone)

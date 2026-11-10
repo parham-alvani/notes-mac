@@ -177,6 +177,53 @@ import Testing
         #expect(store.lastChanged.contains("Home.md"))
     }
 
+    /// A note or a folder sent to the Trash takes its icons out of Iconic's
+    /// file; the others stay, in their order.
+    @Test func aDeleteTakesTheIconAway() async throws {
+        let file = root.appending(path: FileWatcher.iconic)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+            {
+              "fileIcons": {
+                "Notes": {
+                  "icon": "lucide-book",
+                  "color": "cyan"
+                },
+                "Home.md": {
+                  "icon": "🏠"
+                },
+                "Notes/Plan.md": {
+                  "icon": "🗺️"
+                },
+                "Notes2/Plan.md": {
+                  "icon": "📌"
+                }
+              },
+              "rememberDeletedItems": false
+            }
+            """.write(to: file, atomically: true, encoding: .utf8)
+        store.changed([FileWatcher.iconic])
+        #expect(store.iconic.icon(for: "Notes/Plan.md", folder: false)?.name == "🗺️")
+        try await store.delete("Notes/Plan.md")
+        #expect(store.iconic.icon(for: "Notes/Plan.md", folder: false) == nil)
+        try await store.delete("Notes")
+        #expect(store.iconic.icon(for: "Notes", folder: true) == nil)
+        #expect(try String(contentsOf: file, encoding: .utf8) == """
+            {
+              "fileIcons": {
+                "Home.md": {
+                  "icon": "🏠"
+                },
+                "Notes2/Plan.md": {
+                  "icon": "📌"
+                }
+              },
+              "rememberDeletedItems": false
+            }
+            """)
+        #expect(try Iconic.removing("Nothing.md", in: Data(contentsOf: file)) == nil)
+    }
+
     @Test func tasksAreSortedInTheFile() throws {
         try "# Plan\n- [ ] Open\n- [x] Done\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
         store.openSynchronously(root)
