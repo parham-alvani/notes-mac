@@ -31,7 +31,12 @@ struct SidebarView: View {
         }
         .searchable(text: $model.query, placement: .sidebar, prompt: "Search \(store.name)")
         .background(HostWindowFinder(host: host))
-        .onChange(of: model.searchRequests) { SearchField.focus(in: host.window) }
+        .onChange(of: model.searchRequests) {
+            // The field may not be in the window yet (a sidebar just shown, a window just made): asked again for a second.
+            Task {
+                for _ in 0..<20 where !SearchField.focus(in: host.window) { try? await Task.sleep(for: .milliseconds(50)) }
+            }
+        }
     }
 }
 
@@ -978,10 +983,11 @@ func openInObsidian(_ path: String, store: VaultStore) {
     /// which is the last Daftar window in front even while Settings or a
     /// panel is the key window, and with two windows open the key one is
     /// not always the one asked.
-    static func focus(in window: NSWindow? = nil) {
+    /// False when the window has no search field (yet).
+    @discardableResult static func focus(in window: NSWindow? = nil) -> Bool {
         let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.tabbingIdentifier == "daftar.main" }
-        guard let window, let root = window.contentView?.superview else { return }
-        if let field = find(in: root) { window.makeFirstResponder(field) }
+        guard let window, let root = window.contentView?.superview, let field = find(in: root) else { return false }
+        return window.makeFirstResponder(field)
     }
 
     private static func find(in view: NSView) -> NSSearchField? {

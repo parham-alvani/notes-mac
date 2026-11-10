@@ -35,11 +35,19 @@ import Testing
         other.contentView = NSHostingView(rootView: Text("Another window"))
         other.orderBack(nil)
         defer { other.orderOut(nil) }
-        try await Task.sleep(for: .milliseconds(800))
+        // The sidebar is in the window when its search field is: with every suite running at once
+        // that takes seconds, and a request made before the sidebar is there is heard by no one.
+        func hasField(_ view: NSView) -> Bool { view is NSSearchField || view.subviews.contains(where: hasField) }
+        for _ in 0..<200 where !(window.contentView?.superview.map(hasField) ?? false) { try await Task.sleep(for: .milliseconds(50)) }
+        try await Task.sleep(for: .milliseconds(200))
         model.searchRequests += 1
-        try await Task.sleep(for: .milliseconds(300))
-        // The field edits in a text view of its own, inside the field.
-        let responder = window.firstResponder as? NSView
-        #expect(responder.map { sequence(first: $0, next: \.superview).contains { $0 is NSSearchField } } == true)
+        // The field edits in a text view of its own, inside the field. With every suite running at
+        // once the window gets its search field late: the request waits for it, and so does the test.
+        func focused() -> Bool {
+            (window.firstResponder as? NSView).map { sequence(first: $0, next: \.superview).contains { $0 is NSSearchField } } == true
+        }
+        for _ in 0..<60 where !focused() { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(focused())
+        #expect((other.firstResponder as? NSView) == nil)
     }
 }
