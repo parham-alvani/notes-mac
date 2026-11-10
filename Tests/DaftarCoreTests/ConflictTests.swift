@@ -308,6 +308,42 @@ import Testing
         #expect(Git(root: folder).limit == 300)
     }
 
+    /// On a detached HEAD, or a branch with no upstream, a sync says so
+    /// and commits nothing: the commit could be neither pulled over nor pushed.
+    @Test func syncRefusesADetachedHeadAndABranchWithNoUpstream() async throws {
+        let repos = try await Repos()
+        defer { repos.remove() }
+        try await diverge(repos, files: ["N.md": ("x\n", "x\n", "mac\n")])
+        let head = try await repos.mac.run(["rev-parse", "HEAD"])
+        try await repos.mac.run(["branch", "--unset-upstream"])
+        let unset = await #expect(throws: Git.Failure.self) { try await repos.mac.sync(message: "no upstream") }
+        #expect(unset?.output.contains("the branch main has no upstream") == true)
+        try await repos.mac.run(["branch", "--set-upstream-to=origin/main"])
+        try await repos.mac.run(["checkout", "-q", "--detach"])
+        let detached = await #expect(throws: Git.Failure.self) { try await repos.mac.sync(message: "detached") }
+        #expect(detached?.output.hasPrefix("HEAD is detached") == true)
+        #expect(try await repos.mac.run(["rev-parse", "HEAD"]) == head)
+        #expect(try await repos.mac.changes() == ["N.md"])
+        try await repos.mac.run(["checkout", "-q", "main"])
+        #expect(try await repos.mac.sync(message: "mac"))
+    }
+
+    /// A pre-commit hook that refuses: the failure names the hook.
+    @Test func aHookThatRefusesTheCommitIsNamed() async throws {
+        let repos = try await Repos()
+        defer { repos.remove() }
+        try await diverge(repos, files: ["N.md": ("x\n", "x\n", "mac\n")])
+        let hook = repos.mac.root.appending(path: ".git/hooks/pre-commit")
+        try FileManager.default.createDirectory(at: hook.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho 'N.md:1 a made-up warning'\nexit 1\n".write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        let failure = await #expect(throws: Git.Failure.self) { try await repos.mac.sync(message: "mac") }
+        #expect(failure?.hook == "pre-commit")
+        #expect(failure?.description == "The pre-commit hook stopped the commit: N.md:1 a made-up warning")
+        try FileManager.default.removeItem(at: hook)
+        #expect(try await repos.mac.sync(message: "mac"))
+    }
+
     @Test func changedPathsKeepAFirstLetterThatIsNotASCII() {
         let output = " M یادداشت.md\0R  new name.md\0old name.md\0?? 🎉.md\0"
         #expect(Git.changedPaths(output) == ["یادداشت.md", "new name.md", "🎉.md"])

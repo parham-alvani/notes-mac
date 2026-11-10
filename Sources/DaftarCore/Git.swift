@@ -29,7 +29,12 @@ public struct Git: Sendable {
         public var output: String
         /// The command was stopped at the limit (`Git.limit`).
         public var timedOut = false
-        public var description: String { "git \(arguments.joined(separator: " ")): \(output)" }
+        /// The hook of the repository that refused the commit, by its name.
+        public var hook: String?
+        public var description: String {
+            if let hook { return "The \(hook) hook stopped the commit: \(output)" }
+            return "git \(arguments.joined(separator: " ")): \(output)"
+        }
     }
 
     static func locate() -> URL {
@@ -230,16 +235,49 @@ public struct Git: Sendable {
     @discardableResult
     public func sync(message: String) async throws -> Bool {
         try await refuseOpenOperation()
+        try await refuseNoBranch()
         var changed = false
         if try await !changes().isEmpty {
             try await run(["add", "-A"])
-            try await run(["commit", "-m", message])
+            do {
+                try await run(["commit", "-m", message])
+            } catch var failure as Failure {
+                // A hook's refusal reads as its own words, a lint report
+                // perhaps: say whose they are.
+                failure.hook = await refusingHook()
+                throw failure
+            }
             changed = true
         }
         let before = try await run(["rev-parse", "HEAD"])
         try await pullRebase()
         let after = try await run(["rev-parse", "HEAD"])
         return try await pushIfAhead() || changed || before != after
+    }
+
+    /// Throws before anything is committed when the commit could not be
+    /// pulled over or pushed: on a detached HEAD each sync would add a
+    /// commit that is on no branch, and with no upstream the pull fails
+    /// after the commit, every time.
+    private func refuseNoBranch() async throws {
+        guard let branch = try? await run(["symbolic-ref", "-q", "--short", "HEAD"]), !branch.isEmpty else {
+            throw Failure(arguments: ["sync"], status: -1, output: "HEAD is detached: check out a branch first (git switch <branch>)")
+        }
+        guard (try? await run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])) != nil else {
+            throw Failure(
+                arguments: ["sync"], status: -1,
+                output: "the branch \(branch) has no upstream to pull from and push to: set it once (git push -u origin \(branch))")
+        }
+    }
+
+    /// The hook that can refuse a commit, when the repository has one:
+    /// `pre-commit`, else `commit-msg`, in `core.hooksPath` when that is set.
+    func refusingHook() async -> String? {
+        for name in ["pre-commit", "commit-msg"] {
+            guard let path = try? await run(["rev-parse", "--path-format=absolute", "--git-path", "hooks/" + name]) else { continue }
+            if FileManager.default.isExecutableFile(atPath: path) { return name }
+        }
+        return nil
     }
 
     /// Pushes when the branch has commits its upstream has not.

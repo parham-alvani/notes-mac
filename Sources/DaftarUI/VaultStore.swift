@@ -893,6 +893,12 @@ final class VaultStore {
             syncError = stopped.description
         } catch {
             syncError = String(describing: error)
+            // A hook's refusal is the person's to mend (a lint, an audit):
+            // it is said at once, by its name, with the hook's last words.
+            if let failure = error as? Git.Failure, let hook = failure.hook {
+                let last = failure.output.split(separator: "\n").last.map(String.init) ?? ""
+                notice = "The \(hook) hook stopped the commit, so nothing was synced" + (last.isEmpty ? "." : ": " + last)
+            }
         }
         await refreshStatus()
     }

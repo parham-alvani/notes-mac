@@ -86,6 +86,23 @@ import Testing
         #expect(try await mac.run(["rev-list", "--count", "@{upstream}..HEAD"]) == "0")
     }
 
+    /// The vault's own pre-commit hook refuses: the notice names the hook
+    /// and gives its last line, and nothing is committed.
+    @Test func aRefusingHookIsNamedInTheNotice() async throws {
+        defer { try? FileManager.default.removeItem(at: base) }
+        let hook = mac.root.appending(path: ".git/hooks/pre-commit")
+        try FileManager.default.createDirectory(at: hook.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\necho 'checking'\necho 'Plan.md:2 a made-up warning'\nexit 1\n".write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        let head = try await mac.run(["rev-parse", "HEAD"])
+        let store = store()
+        await store.sync()
+        #expect(store.notice == "The pre-commit hook stopped the commit, so nothing was synced: Plan.md:2 a made-up warning")
+        #expect(store.syncError?.hasPrefix("The pre-commit hook stopped the commit") == true)
+        #expect(!store.rebasing)
+        #expect(try await mac.run(["rev-parse", "HEAD"]) == head)
+    }
+
     @Test func aRebaseLeftOpenIsFoundAndAborted() async throws {
         defer { try? FileManager.default.removeItem(at: base) }
         try await mac.run(["commit", "-qam", "mac"])
