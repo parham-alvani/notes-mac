@@ -216,14 +216,18 @@ public enum TaskLine {
         func date(_ emoji: String) -> String? {
             split.meta.first { $0.emoji == emoji }?.value.nilIfEmpty
         }
-        let prefix = match.1
-        let indent = prefix.prefix { $0 == " " || $0 == "\t" || $0 == ">" }
+        // Indented under another item: the white space before the bullet, after a quote's or a callout's marks.
+        var indent = match.1.prefix { $0 == " " || $0 == "\t" || $0 == ">" }
+        if let quote = indent.lastIndex(of: ">") {
+            indent = indent[indent.index(after: quote)...]
+            if indent.first == " " { indent = indent.dropFirst() }
+        }
         return ParsedTask(
             line: line, status: status, text: described.text, reason: described.reason, section: section,
             created: date("➕"), scheduled: date("⏳"), due: date("📅"), start: date("🛫"),
             done: date(done), cancelled: date(cancelledMark), recurring: date(recur),
             priority: split.meta.first { TaskMetadata.symbols[$0.emoji] == "priority" }?.emoji,
-            nested: indent.contains(where: { $0 == " " || $0 == "\t" }))
+            nested: !indent.isEmpty)
     }
 
     /// The line after a click on its checkbox: an open task is completed, and

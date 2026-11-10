@@ -310,6 +310,18 @@ import Testing
         #expect(TaskLine.toggled("- [x] No date ✅", today: "2026-11-10") == ["- [ ] No date ✅"])
     }
 
+    @Test func nestedIsIndentedUnderAnItemNotInAQuote() {
+        func nested(_ line: String) -> Bool? { TaskLine.parse(line, line: 0, section: "")?.nested }
+        #expect(nested("- [ ] top") == false)
+        #expect(nested("    - [ ] child") == true)
+        #expect(nested("\t- [ ] child") == true)
+        // A task in a quote or a callout is not under another item for that.
+        #expect(nested("> - [ ] in a callout") == false)
+        #expect(nested(">- [ ] in a quote") == false)
+        #expect(nested("> > - [ ] in two") == false)
+        #expect(nested(">     - [ ] a child in a callout") == true)
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")
