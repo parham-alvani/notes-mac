@@ -42,14 +42,15 @@ import Testing
         follower.follow(store)
         // Asked again, as each window and the menu bar icon do: still one follower.
         follower.follow(store)
-        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<100 where seen.plans < 1 { try await Task.sleep(for: .milliseconds(50)) }
+        try await Task.sleep(for: .milliseconds(200))
         #expect(seen.plans == 1)
         #expect(seen.badges.last == "1")
         let spotlight = seen.spotlight
 
         // The vault changes with no window open: a task ticked by the store.
         store.toggleTask(path: "Tasks.md", line: 2, status: " ")
-        for _ in 0..<40 where seen.plans < 2 { try await Task.sleep(for: .milliseconds(50)) }
+        for _ in 0..<100 where seen.plans < 2 { try await Task.sleep(for: .milliseconds(50)) }
         try await Task.sleep(for: .milliseconds(200))
         #expect(seen.plans == 2)
         #expect(seen.badges.last == String?.none)

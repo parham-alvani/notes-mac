@@ -42,7 +42,11 @@ import WebKit
         window.orderBack(nil)
         for _ in 0..<40 {
             try await Task.sleep(for: .milliseconds(150))
-            if let web, try await web.evaluateJavaScript("!!document.querySelector('#reading-cursor')") as? Bool == true { return (web, window) }
+            // The page with its size: with every suite running at once the note can be drawn
+            // before the web view has one, and a key then finds nothing on a screen of no height.
+            if let web, try await web.evaluateJavaScript("!!document.querySelector('#reading-cursor') && window.innerHeight > 0") as? Bool == true {
+                return (web, window)
+            }
         }
         throw CancellationError()
     }
