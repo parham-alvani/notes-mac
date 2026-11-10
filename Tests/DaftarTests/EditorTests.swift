@@ -72,6 +72,26 @@ import Testing
         #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == disk)
     }
 
+    /// With the Persian layout on, a shortcut's key reads as its Persian
+    /// letter: ⌘B (the key of `ذ`) is still bold, ⌥⌘2 (`۲`) still a heading.
+    @Test func shortcutsWorkWithThePersianLayoutOn() throws {
+        // The keys are found by their place on the Latin layout: this needs one where key 11 is `b`.
+        guard NeovimSession.latinCharacter(keycode: 11, shift: false) == "b" else { return }
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        window.makeFirstResponder(view)
+        func chord(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
+        }
+        view.setSelectedRange(NSRange(location: 2, length: 4))
+        #expect(view.performKeyEquivalent(with: chord("ذ", 11, .command)))
+        #expect(view.string == "# **Plan**\n- [ ] first\n")
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length - 2, length: 0))
+        #expect(view.performKeyEquivalent(with: chord("۲", 19, [.command, .option])))
+        #expect(view.string == "# **Plan**\n## - [ ] first\n")
+    }
+
     @Test func aSlashCommandReplacesTheSlash() throws {
         // A window, off screen, gives the view its undo manager.
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)

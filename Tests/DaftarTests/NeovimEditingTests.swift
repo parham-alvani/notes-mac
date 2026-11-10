@@ -40,10 +40,10 @@ import Testing
         return condition()
     }
 
-    func press(_ characters: String, _ flags: NSEvent.ModifierFlags = [], ignoring: String? = nil) {
+    func press(_ characters: String, _ flags: NSEvent.ModifierFlags = [], ignoring: String? = nil, keyCode: UInt16 = 0) {
         let event = NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
-            context: nil, characters: characters, charactersIgnoringModifiers: ignoring ?? characters, isARepeat: false, keyCode: 0)!
+            context: nil, characters: characters, charactersIgnoringModifiers: ignoring ?? characters, isARepeat: false, keyCode: keyCode)!
         view.keyDown(with: event)
     }
 
@@ -277,5 +277,14 @@ import Testing
         try await Task.sleep(for: .milliseconds(200))
         #expect(view.string == shown)
         _ = session
+    }
+
+    /// ⌃A with the Persian layout on: the key reads `ش`, and Neovim gets `<C-a>`.
+    @Test func controlChordsWorkWithThePersianLayoutOn() async throws {
+        guard NeovimSession.latinCharacter(keycode: 0, shift: false) == "a" else { return }
+        let session = try await open("item 9\n")
+        press("\u{01}", .control, ignoring: "ش", keyCode: 0)
+        await settle(session, "item 10\n", "ctrl-a on the Persian layout")
+        await session.stop()
     }
 }

@@ -96,6 +96,16 @@ import Testing
         #expect(VimKeys.escape("a<b") == "a<LT>b")
     }
 
+    @Test func aChordIsNamedByItsLatinKey() {
+        #expect(VimKeys.chord("ص", latin: "w") == "w")
+        #expect(VimKeys.chord("۱", latin: "1") == "1")
+        // A Latin key, a special key and a key with no Latin letter stay.
+        #expect(VimKeys.chord("w", latin: "x") == "w")
+        #expect(VimKeys.chord("\u{F700}", latin: "x") == "\u{F700}")
+        #expect(VimKeys.chord("ص", latin: nil) == "ص")
+        #expect(VimKeys.notation(characters: VimKeys.chord("ص", latin: "w"), modifiers: .control) == "<C-w>")
+    }
+
     @Test func optionIsMetaOnTheSidesTheSettingNames() {
         #expect(VimKeys.notation(characters: "x", modifiers: [.option]) == "<M-x>")
         #expect(VimKeys.notation(characters: "\u{F702}", modifiers: [.option]) == "<M-Left>")

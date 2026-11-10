@@ -360,6 +360,16 @@ public enum VimKeys {
         characters.unicodeScalars.first.map { special[$0.value] != nil } ?? false
     }
 
+    /// The letter a chord is named by. [raw] is the key on the layout that
+    /// is on, [latin] the same key on the Latin layout: with the Persian
+    /// layout on, ⌃W is `<C-w>` and ⌘B is bold, not `<C-ص>` and ⌘ذ, which
+    /// no mapping and no shortcut knows. A special key (an arrow, Return)
+    /// and a key the Latin layout has no letter for stay as they are.
+    public static func chord(_ raw: String, latin: Character?) -> String {
+        guard let latin, let scalar = raw.unicodeScalars.first, !scalar.isASCII, !isSpecial(raw) else { return raw }
+        return String(latin)
+    }
+
     /// Typed text -- from the keyboard or an input method -- for `nvim_input`,
     /// where `<` starts a key name.
     public static func escape(_ text: String) -> String {

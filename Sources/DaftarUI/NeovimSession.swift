@@ -159,6 +159,13 @@ final class NeovimSession {
         return VimKeys.langmap(pairs)
     }
 
+    /// The letter the key [keycode] types on the Latin layout, for a chord
+    /// pressed with another layout on (`VimKeys.chord`).
+    static func latinCharacter(keycode: UInt16, shift: Bool) -> Character? {
+        guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(), let layout = layoutData(source) else { return nil }
+        return character(layout, keycode, shift: shift)
+    }
+
     private static func layoutData(_ source: TISInputSource) -> Data? {
         guard let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return nil }
         return Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data

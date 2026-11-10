@@ -1281,12 +1281,21 @@ final class NoteTextView: NSTextView {
         }
         let raw = event.charactersIgnoringModifiers ?? ""
         if modifiers.contains(.option) || flags.contains(.control) || flags.contains(.command) || VimKeys.isSpecial(raw) {
-            if let keys = VimKeys.notation(characters: raw, modifiers: modifiers) { vim.input(keys) }
+            // A chord is named by its key on the Latin layout, whatever layout is on.
+            if let keys = VimKeys.notation(characters: chordCharacters(event), modifiers: modifiers) { vim.input(keys) }
             return
         }
         // Text goes through the input system, so an input method and the
         // Persian layout type what they type; `insertText` sends it.
         interpretKeyEvents([event])
+    }
+
+    /// What a chord's key types on the Latin layout: with the Persian
+    /// layout on, `charactersIgnoringModifiers` is the Persian letter.
+    func chordCharacters(_ event: NSEvent) -> String {
+        let raw = event.charactersIgnoringModifiers ?? ""
+        guard raw.unicodeScalars.first.map({ !$0.isASCII }) == true, !VimKeys.isSpecial(raw) else { return raw }
+        return VimKeys.chord(raw, latin: NeovimSession.latinCharacter(keycode: event.keyCode, shift: event.modifierFlags.contains(.shift)))
     }
 
     override func doCommand(by selector: Selector) {
@@ -1754,8 +1763,10 @@ final class NoteTextView: NSTextView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard window?.firstResponder === self, !vimActive else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // The shortcut's key on the Latin layout: ⌘B is bold with the Persian layout on too.
+        let key = chordCharacters(event)
         if flags == .command {
-            switch event.charactersIgnoringModifiers {
+            switch key {
             case "\r": toggleTask(); return true
             case "b": wrap("**"); return true
             case "i": wrap("*"); return true
@@ -1764,7 +1775,7 @@ final class NoteTextView: NSTextView {
             }
         }
         if flags == [.command, .shift] {
-            switch event.charactersIgnoringModifiers?.lowercased() {
+            switch key.lowercased() {
             case "h": wrap("=="); return true
             case "x": wrap("~~"); return true
             case "c": wrap("`"); return true
@@ -1773,7 +1784,7 @@ final class NoteTextView: NSTextView {
             }
         }
         // ⌥⌘1 to ⌥⌘6 make the line a heading, ⌥⌘0 plain text.
-        if flags == [.command, .option], let digit = event.charactersIgnoringModifiers.flatMap(Int.init), (0...6).contains(digit) {
+        if flags == [.command, .option], let digit = Int(key), (0...6).contains(digit) {
             let line = currentLineRange()
             let text = ns.substring(with: line)
             let body = text.hasSuffix("\n") ? String(text.dropLast()) : text
