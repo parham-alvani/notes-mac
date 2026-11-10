@@ -1108,11 +1108,15 @@ final class NoteTextView: NSTextView {
     // MARK: Neovim mode
 
     /// An edit Neovim made, applied as it is: no undo, no autosave.
-    func applyRemote(_ range: NSRange, _ text: String) {
-        guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return }
+    /// False when the edit does not fit the text: the view and Neovim's
+    /// buffer have come apart, and the session takes the buffer again.
+    @discardableResult
+    func applyRemote(_ range: NSRange, _ text: String) -> Bool {
+        guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return false }
         holdScroll(editing: range, with: (text as NSString).length)
         storage.replaceCharacters(in: range, with: text)
         redrawPanels()
+        return true
     }
 
     /// A quote's bar and a block's panel span lines the edit did not touch:

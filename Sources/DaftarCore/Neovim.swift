@@ -193,12 +193,19 @@ public struct BufferMirror: Sendable, Equatable {
     /// Each line's length in UTF-16, so a position is a sum, not a count of
     /// every line above it at every key.
     private var lengths: [Int]
+    /// Every line's length and its newline, kept as the lines change.
+    private var sum: Int
 
     public init(lines: [String], endsWithNewline: Bool = true) {
         self.lines = lines.isEmpty ? [""] : lines
         self.endsWithNewline = endsWithNewline
         lengths = self.lines.map(\.utf16.count)
+        sum = lengths.reduce(0) { $0 + $1 + 1 }
     }
+
+    /// The length of [text] in UTF-16, without making it: what the view's
+    /// text must be as long as, or the two have come apart.
+    public var utf16Count: Int { sum - 1 + (endsWithNewline ? 1 : 0) }
 
     public var text: String { lines.joined(separator: "\n") + (endsWithNewline ? "\n" : "") }
 
@@ -228,11 +235,14 @@ public struct BufferMirror: Sendable, Equatable {
         let offset = start(of: from)
         let old = segment(lines, from, end)
         lines.replaceSubrange(begin..<end, with: replacement)
-        lengths.replaceSubrange(begin..<end, with: replacement.map(\.utf16.count))
+        let added = replacement.map(\.utf16.count)
+        sum += added.reduce(0) { $0 + $1 + 1 } - lengths[begin..<end].reduce(0) { $0 + $1 + 1 }
+        lengths.replaceSubrange(begin..<end, with: added)
         if lines.isEmpty {
             // No line left: the buffer is one empty line, as Neovim keeps it.
             lines = [""]
             lengths = [0]
+            sum = 1
             let all = NSRange(location: 0, length: offset + (old as NSString).length)
             return (all, text)
         }

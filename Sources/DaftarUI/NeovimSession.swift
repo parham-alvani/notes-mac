@@ -221,16 +221,50 @@ final class NeovimSession {
         }
     }
 
+    /// The buffer's lines are on their way: the first event after the
+    /// attach holds all of them.
+    private var awaitingSnapshot = false
+    /// The file ends with a newline, as Neovim's `eol` says.
+    private var eol = true
+    private var resyncing = false
+
     /// Listens to the buffer's lines, and takes all of them: the view shows
-    /// the buffer as it is now. The lines are read after the attach, so an
-    /// edit between the two is in them, and every event after them follows.
+    /// the buffer as it is now. Neovim sends the lines itself (`send_buffer`),
+    /// as the first event, so they are in order with every edit after them:
+    /// lines asked for apart could come back on either side of an edit, and
+    /// the mirror then lacked it for good.
     private func takeBuffer() async throws {
-        try await client.request("nvim_buf_attach", [0, false, [:]])
-        let lines = try await client.request("nvim_buf_get_lines", [0, 0, -1, false]).arrayValue?.compactMap(\.stringValue) ?? []
-        let eol = try await client.request("nvim_get_option_value", ["eol", [:]]).boolValue ?? true
+        eol = try await client.request("nvim_get_option_value", ["eol", [:]]).boolValue ?? true
+        awaitingSnapshot = true
+        try await client.request("nvim_buf_attach", [0, true, [:]])
+        // The event is sent before the answer; it is handled in its turn.
+        for _ in 0..<500 where awaitingSnapshot { try? await Task.sleep(for: .milliseconds(2)) }
+        if awaitingSnapshot {
+            // A Neovim that sent none: the lines as they are, asked for.
+            let lines = try await client.request("nvim_buf_get_lines", [0, 0, -1, false]).arrayValue?.compactMap(\.stringValue) ?? []
+            if awaitingSnapshot { take(lines) }
+        }
+    }
+
+    /// All the buffer's lines: the mirror is them, and the view too, by
+    /// the one range that differs.
+    private func take(_ lines: [String]) {
+        awaitingSnapshot = false
         mirror = BufferMirror(lines: lines, endsWithNewline: eol)
-        if let view, view.string != mirror.text {
-            view.applyRemote(NSRange(location: 0, length: (view.string as NSString).length), mirror.text)
+        guard let view, let storage = view.textStorage else { return }
+        let edit = EditorController.smallestEdit(from: storage.string as NSString, to: mirror.text as NSString)
+        if edit.range.length > 0 || !edit.text.isEmpty { view.applyRemote(edit.range, edit.text) }
+    }
+
+    /// The view and the buffer came apart -- an edit that did not fit, a
+    /// text of another length: the buffer is taken again, whole.
+    private func resync() {
+        guard !resyncing, case .running = state else { return }
+        resyncing = true
+        Task {
+            try? await takeBuffer()
+            resyncing = false
+            onRemoteEdit?()
         }
     }
 
@@ -412,8 +446,18 @@ final class NeovimSession {
         case "nvim_buf_lines_event":
             guard note.params.count >= 5, let first = note.params[2].intValue, let last = note.params[3].intValue else { return }
             let lines = note.params[4].arrayValue?.compactMap(\.stringValue) ?? []
+            if awaitingSnapshot {
+                // The whole buffer, after an attach; nothing else counts before it.
+                guard first == 0, last == -1 else { return }
+                take(lines)
+                onRemoteEdit?()
+                return
+            }
             let edit = mirror.apply(first: first, last: last, replacement: lines)
-            view?.applyRemote(edit.range, edit.text)
+            if let view {
+                let fits = view.applyRemote(edit.range, edit.text)
+                if !fits || (view.textStorage?.length ?? 0) != mirror.utf16Count { resync() }
+            }
             onRemoteEdit?()
             scheduleSave()
         case "nvim_buf_detach_event":

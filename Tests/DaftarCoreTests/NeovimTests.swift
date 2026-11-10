@@ -202,6 +202,8 @@ import Testing
                 shown = shown.replacingCharacters(in: edit.range, with: edit.text) as NSString
                 #expect(shown as String == mirror.text, "first \(first) last \(last) \(replacement)")
                 if shown as String != mirror.text { return }
+                // The length the view's text must have, kept without making the text.
+                #expect(mirror.utf16Count == shown.length)
                 // A row and column there and back again.
                 let row = Int.random(in: 1...mirror.lines.count, using: &random)
                 let offset = mirror.offset(row: row, byteColumn: 0)

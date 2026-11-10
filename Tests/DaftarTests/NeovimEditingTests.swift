@@ -384,4 +384,19 @@ import Testing
         await settle(session, "aef\nس دنیا\naef\n", "the block that was shown is the block deleted")
         await session.stop()
     }
+
+    /// The view's text and Neovim's buffer come apart (here by force): the
+    /// next edit does not fit, and the view takes the whole buffer again.
+    @Test func theViewTakesTheBufferAgainWhenTheyComeApart() async throws {
+        let session = try await open("one\ntwo\nthree\n")
+        view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 8), with: "")
+        #expect(view.string == "three\n")
+        keys("GAx\u{1B}")
+        await settle(session, "one\ntwo\nthreex\n", "the buffer, whole, after an edit that did not fit")
+        // An edit that fits a text of another length is seen too.
+        view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 0), with: "stray ")
+        keys("Ay\u{1B}")
+        await settle(session, "one\ntwo\nthreexy\n", "the buffer, whole, after the lengths differed")
+        await session.stop()
+    }
 }
