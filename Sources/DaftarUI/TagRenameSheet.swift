@@ -66,8 +66,11 @@ struct TagRenameSheet: View {
     }
 
     private func rename() {
-        let count = store.renameTag(target.tag, to: clean)
-        store.notice = count == 1 ? "#\(target.tag) is #\(clean) in 1 note." : "#\(target.tag) is #\(clean) in \(count) notes."
-        dismiss()
+        let old = target.tag, new = clean
+        Task {
+            let count = await store.renameTag(old, to: new)
+            store.notice = count == 1 ? "#\(old) is #\(new) in 1 note." : "#\(old) is #\(new) in \(count) notes."
+            dismiss()
+        }
     }
 }

@@ -199,13 +199,15 @@ struct HistorySheet: View {
 
     private func restore() {
         guard let path, let selection, selection != Self.working, let text = texts[selection] else { return }
-        do {
-            try store.write(text, to: path)
-            let date = revisions.first { $0.hash == selection }?.date.formatted(date: .abbreviated, time: .shortened) ?? selection
-            store.notice = "\(Vault.title(of: path)) has its text of \(date) again."
-            dismiss()
-        } catch {
-            store.notice = "The note could not be restored: \(error.localizedDescription)"
+        let date = revisions.first { $0.hash == selection }?.date.formatted(date: .abbreviated, time: .shortened) ?? selection
+        Task {
+            do {
+                try await store.restore(text, to: path)
+                store.notice = "\(Vault.title(of: path)) has its text of \(date) again."
+                dismiss()
+            } catch {
+                store.notice = "The note could not be restored: \(error.localizedDescription)"
+            }
         }
     }
 }

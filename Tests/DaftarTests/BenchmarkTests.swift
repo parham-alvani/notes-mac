@@ -319,7 +319,7 @@ final class Stopwatch {
 
         // The edits write the files: they come last, once each.
         let tagged = store.notes(tagged: "project")
-        let written = watch.time("tag rename: project -> job", runs: 1) { store.renameTag("project", to: "job") }
+        let written = watch.time("tag rename: project -> job", runs: 1) { store.writeTagRename("project", to: "job") }
         watch.rows[watch.rows.count - 1].note = "\(written) of \(tagged.count) notes written"
         watch.time("watcher: apply the renamed tags", runs: 1) {
             _ = Vault.update(store.index, changed: Set(tagged), in: root, search: store.search)

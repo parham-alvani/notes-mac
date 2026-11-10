@@ -283,6 +283,23 @@ final class VaultStore {
         requestSync()
     }
 
+    /// The gate of every edit the app makes to a note outside an editor:
+    /// [work] runs once all that the editors hold is on disk, so it reads
+    /// what the person typed, and no editor saves its older text over the
+    /// edit afterwards. With no editor open it runs at once and its answer
+    /// is returned. With one open, saving waits for Neovim, so the work
+    /// runs after it and the answer here is true; [otherwise] then says
+    /// what a false answer would have said.
+    @discardableResult
+    private func afterEditors(_ work: @escaping () -> Bool, otherwise: (() -> Void)? = nil) -> Bool {
+        guard !flushers.isEmpty else { return work() }
+        Task {
+            await flushEditors()
+            if !work() { otherwise?() }
+        }
+        return true
+    }
+
     /// An edit of the app's own, read from the file and written back. The
     /// app's own change does not make the note "updated since you read".
     private func ownEdit(_ path: String, in root: URL, _ change: (String) throws -> String) throws {
@@ -310,21 +327,28 @@ final class VaultStore {
     /// that was clicked: its status, and the text the index read, which the
     /// view was drawn from.
     func toggleTask(path: String, line: Int, status: Character) {
-        guard let root, url(of: path) != nil, index.files.contains(path) else { return }
-        let statuses = index.statuses
+        // What the view showed, read before the editors save.
         let expected = index.notes[path]?.parsed.tasks.first { $0.line == line }?.text
+        afterEditors { self.toggleTaskNow(path: path, line: line, status: status, expected: expected) }
+    }
+
+    private func toggleTaskNow(path: String, line: Int, status: Character, expected: String?) -> Bool {
+        guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
+        let statuses = index.statuses
         do {
             try ownEdit(path, in: root) { text in
                 try VaultEdits.toggleTask(in: text, line: line, status: status, expected: expected, today: .today(), statuses: statuses)
             }
             changed([path])
             requestSync()
+            return true
         } catch VaultEdits.Failure.taskMoved {
             notice = "The note changed before the click. Nothing was written; the note is shown again."
             changed([path])
         } catch {
             notice = "The task could not be written: \(error.localizedDescription)"
         }
+        return false
     }
 
     // MARK: Unlinked mentions
@@ -356,19 +380,25 @@ final class VaultStore {
     /// The mention in [source] made a link to [target], with the shortest
     /// name that still finds it.
     func link(_ mention: UnlinkedMentions.Mention, in source: String, to target: String) {
-        guard let root, url(of: source) != nil else { return }
+        afterEditors { self.linkNow(mention, in: source, to: target) }
+    }
+
+    private func linkNow(_ mention: UnlinkedMentions.Mention, in source: String, to target: String) -> Bool {
+        guard let root, url(of: source) != nil else { return false }
         let title = Vault.title(of: target)
         let name = index.resolve(title, from: source) == target ? title : String(target.dropLast(3))
         do {
             try ownEdit(source, in: root) { try UnlinkedMentions.link(mention, to: name, in: $0) }
             changed([source])
             requestSync()
+            return true
         } catch VaultEdits.Failure.textMoved {
             notice = "The note changed before the click. Nothing was written; the list is made again."
             changed([source])
         } catch {
             notice = "The link could not be written: \(error.localizedDescription)"
         }
+        return false
     }
 
     // MARK: Files
@@ -569,6 +599,10 @@ final class VaultStore {
     /// Moves [task] to a board column. False when its line no longer holds
     /// the task the card showed.
     func moveTask(_ task: VaultTask, to drop: TaskBoard.Drop) -> Bool {
+        afterEditors { self.moveTaskNow(task, to: drop) }
+    }
+
+    private func moveTaskNow(_ task: VaultTask, to drop: TaskBoard.Drop) -> Bool {
         guard let root, url(of: task.path) != nil, index.files.contains(task.path) else { return false }
         let statuses = index.statuses
         do {
@@ -589,6 +623,10 @@ final class VaultStore {
     /// or none. False when its line no longer holds the task the menu showed.
     @discardableResult
     func setTaskStatus(_ task: VaultTask, to status: Character, reason: String? = nil) -> Bool {
+        afterEditors { self.setTaskStatusNow(task, to: status, reason: reason) }
+    }
+
+    private func setTaskStatusNow(_ task: VaultTask, to status: Character, reason: String?) -> Bool {
         guard let root, url(of: task.path) != nil, index.files.contains(task.path) else { return false }
         let statuses = index.statuses
         do {
@@ -609,6 +647,14 @@ final class VaultStore {
     /// Writes the task on [line] of [path] from [fields]. False when the
     /// line no longer holds the task the form was opened on.
     func editTask(path: String, line: Int, before: TaskFields, fields: TaskFields) -> Bool {
+        afterEditors {
+            self.editTaskNow(path: path, line: line, before: before, fields: fields)
+        } otherwise: {
+            self.notice = "The note changed before the save. Nothing was written."
+        }
+    }
+
+    private func editTaskNow(path: String, line: Int, before: TaskFields, fields: TaskFields) -> Bool {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
         do {
             try ownEdit(path, in: root) { text in
@@ -629,6 +675,14 @@ final class VaultStore {
     /// done and cancelled first in each section. False when none moved.
     @discardableResult
     func sortTasks(_ path: String) -> Bool {
+        afterEditors {
+            self.sortTasksNow(path)
+        } otherwise: {
+            if self.notice == nil { self.notice = "The tasks are in order already." }
+        }
+    }
+
+    private func sortTasksNow(_ path: String) -> Bool {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
         var sorted = false
         do {
@@ -653,6 +707,10 @@ final class VaultStore {
     /// block changed since it was listed.
     @discardableResult
     func addBlockId(_ id: String, to path: String, line: Int, text: String) -> Bool {
+        afterEditors { self.addBlockIdNow(id, to: path, line: line, text: text) }
+    }
+
+    private func addBlockIdNow(_ id: String, to path: String, line: Int, text: String) -> Bool {
         guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
         do {
             try ownEdit(path, in: root) { try BlockRefs.addId(id, toBlockAt: line, expected: text, in: $0) }
@@ -674,10 +732,17 @@ final class VaultStore {
             .map(\.path).sorted()
     }
 
-    /// Renames the tag [old], and those under it, in every note that has it.
-    /// The number of notes written.
+    /// Renames the tag [old], and those under it, in every note that has it,
+    /// once the editors have saved. The number of notes written.
     @discardableResult
-    func renameTag(_ old: String, to new: String) -> Int {
+    func renameTag(_ old: String, to new: String) async -> Int {
+        await flushEditors()
+        return writeTagRename(old, to: new)
+    }
+
+    /// The rename itself, on the files as they are.
+    @discardableResult
+    func writeTagRename(_ old: String, to new: String) -> Int {
         guard let root, TagRename.isValid(old), TagRename.isValid(new) else { return 0 }
         var written: Set<String> = []
         // The notes are read, renamed and written several at a time.
@@ -750,6 +815,14 @@ final class VaultStore {
 
     // MARK: History
 
+    /// [text], an older text of [path], in the note's place, once the
+    /// editors have saved: an editor with unsaved typing would write it
+    /// over the restored text.
+    func restore(_ text: String, to path: String) async throws {
+        await flushEditors()
+        try write(text, to: path)
+    }
+
     /// The commits that changed [path], newest first; none outside a repository.
     func history(of path: String) async -> [Git.Revision] {
         guard let root, isRepository else { return [] }
@@ -768,6 +841,9 @@ final class VaultStore {
     func sync() async {
         guard let root else { return }
         if rebasing { return conflictStops += 1 }
+        // What the editors hold is committed with the rest, and a pull
+        // that changes the open note meets no unsaved text to lose to.
+        await flushEditors()
         await run { try await Git(root: root).sync(message: Git.message()) }
     }
 
@@ -775,6 +851,7 @@ final class VaultStore {
     func pull() async {
         guard let root else { return }
         if rebasing { return conflictStops += 1 }
+        await flushEditors()
         await run { try await Git(root: root).pull() }
     }
 

@@ -43,6 +43,72 @@ import Testing
         #expect(store.search.search("Tomatoes").map(\.path) == ["Garden.md"])
     }
 
+    /// An editor that holds typing not saved yet, as the store sees one:
+    /// its save, which the store asks for before an edit of its own.
+    final class Typing {
+        let file: URL
+        var unsaved: String?
+        var saves = 0
+        init(_ file: URL, unsaved: String) {
+            self.file = file
+            self.unsaved = unsaved
+        }
+        func save() {
+            saves += 1
+            guard let text = unsaved else { return }
+            try? text.write(to: file, atomically: true, encoding: .utf8)
+            unsaved = nil
+        }
+    }
+
+    func typing(_ path: String, _ unsaved: String) -> Typing {
+        let typing = Typing(root.appending(path: path), unsaved: unsaved)
+        store.flushers[ObjectIdentifier(typing)] = { typing.save() }
+        return typing
+    }
+
+    func eventually(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<200 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    /// A tick, a status, a task form, a sort, a tag rename and a restore
+    /// each wait for the editors' save, and so read what was typed: before
+    /// this the edit read the older file, and the editor's save wrote it away.
+    @Test func anEditOfTheStoresWaitsForTheEditorsSave() async throws {
+        let typed = "# Plan\n- [ ] First 📅 2026-10-30\n- [ ] Second\n- [ ] Typed #work\n"
+        var editor = typing("Notes/Plan.md", typed)
+        store.toggleTask(path: "Notes/Plan.md", line: 2, status: " ")
+        #expect(await eventually { (try? text("Notes/Plan.md"))?.contains("- [x] Second") == true })
+        #expect(try text("Notes/Plan.md").hasSuffix("- [ ] Typed #work\n"))
+
+        store.openSynchronously(root)
+        editor = typing("Notes/Plan.md", try text("Notes/Plan.md") + "- [x] Later\n")
+        #expect(store.sortTasks("Notes/Plan.md"))
+        #expect(await eventually { editor.saves == 1 && (try? text("Notes/Plan.md"))?.hasSuffix("- [ ] Typed #work\n") == true })
+        #expect(try text("Notes/Plan.md").contains("- [x] Later\n"))
+
+        try "#work at home".write(to: root.appending(path: "Home.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        editor = typing("Home.md", "Typed #work at home")
+        #expect(await store.renameTag("work", to: "job") == 2)
+        #expect(try text("Home.md") == "Typed #job at home")
+
+        editor = typing("Home.md", "typed after")
+        try await store.restore("the older text", to: "Home.md")
+        #expect(editor.saves == 1)
+        #expect(try text("Home.md") == "the older text")
+
+        editor = typing("Home.md", "typed before the sync")
+        await store.sync()
+        await store.pull()
+        #expect(editor.saves == 2)
+        #expect(try text("Home.md") == "typed before the sync")
+    }
+
     @Test func tasksAreSortedInTheFile() throws {
         try "# Plan\n- [ ] Open\n- [x] Done\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
         store.openSynchronously(root)
@@ -52,20 +118,20 @@ import Testing
         #expect(!store.sortTasks("Notes/Missing.md"))
     }
 
-    @Test func aTagIsRenamedInEveryNote() throws {
+    @Test func aTagIsRenamedInEveryNote() async throws {
         try "---\ntags: [work/alpha]\n---\n# Plan\n- [ ] Call #Work\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
         try "#work and `#work`".write(to: root.appending(path: "Home.md"), atomically: true, encoding: .utf8)
         try "#workshop".write(to: root.appending(path: "Other.md"), atomically: true, encoding: .utf8)
         store.openSynchronously(root)
         #expect(store.notes(tagged: "#work") == ["Home.md", "Notes/Plan.md"])
-        #expect(store.renameTag("work", to: "job") == 2)
+        #expect(await store.renameTag("work", to: "job") == 2)
         #expect(try text("Notes/Plan.md") == "---\ntags: [job/alpha]\n---\n# Plan\n- [ ] Call #job\n")
         #expect(try text("Home.md") == "#job and `#work`")
         #expect(try text("Other.md") == "#workshop")
         // The app's own edit is not news to the person who made it.
         store.openSynchronously(root)
         #expect(!store.isUpdatedSinceRead("Home.md"))
-        #expect(store.renameTag("work", to: "2026") == 0)
+        #expect(await store.renameTag("work", to: "2026") == 0)
     }
 
     @Test func hiddenFilesAreOnlyLeftOutOfTheLists() throws {
