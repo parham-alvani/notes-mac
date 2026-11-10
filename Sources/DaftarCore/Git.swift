@@ -8,15 +8,27 @@ public struct Git: Sendable {
     /// Found once: `/usr/bin/git` is a shim that asks for the developer tools.
     public var executable: URL
 
-    public init(root: URL, executable: URL? = nil) {
+    /// The seconds one git command may take. A pull over a connection
+    /// that went away would wait for ever, and a sync that never ends
+    /// keeps every later one from starting.
+    public var limit: TimeInterval
+
+    public init(root: URL, executable: URL? = nil, limit: TimeInterval = 300) {
         self.root = root
         self.executable = executable ?? Git.locate()
+        self.limit = limit
     }
+
+    /// The `ssh` git uses when the person set none: it never asks, gives
+    /// up on a host that does not answer, and notices a connection that died.
+    public static let ssh = "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
 
     public struct Failure: Error, CustomStringConvertible {
         public var arguments: [String]
         public var status: Int32
         public var output: String
+        /// The command was stopped at the limit (`Git.limit`).
+        public var timedOut = false
         public var description: String { "git \(arguments.joined(separator: " ")): \(output)" }
     }
 
@@ -37,7 +49,10 @@ public struct Git: Sendable {
         process.arguments = ["-C", root.path] + arguments
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_TERMINAL_PROMPT"] = "0"
-        environment["GIT_SSH_COMMAND"] = environment["GIT_SSH_COMMAND"] ?? "ssh -o BatchMode=yes"
+        environment["GIT_SSH_COMMAND"] = environment["GIT_SSH_COMMAND"] ?? Self.ssh
+        // Over HTTPS: under 1000 bytes a second for 30 seconds is a dead connection.
+        environment["GIT_HTTP_LOW_SPEED_LIMIT"] = environment["GIT_HTTP_LOW_SPEED_LIMIT"] ?? "1000"
+        environment["GIT_HTTP_LOW_SPEED_TIME"] = environment["GIT_HTTP_LOW_SPEED_TIME"] ?? "30"
         // An app started from Finder has a short PATH; git hooks and the
         // credential helper still have to be found.
         let path = environment["PATH"] ?? "/usr/bin:/bin"
@@ -49,9 +64,20 @@ public struct Git: Sendable {
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
 
+        let limit = limit
         return try await withCheckedThrowingContinuation { continuation in
             let output = OutputBuffer()
             let ended = DispatchSemaphore(value: 0)
+            // Past the limit git is told to end, and made to if it does not.
+            nonisolated(unsafe) let running = process
+            nonisolated(unsafe) let overdue = DispatchWorkItem {
+                guard running.isRunning else { return }
+                output.stopped = true
+                running.terminate()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                    if running.isRunning { kill(running.processIdentifier, SIGKILL) }
+                }
+            }
             pipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 if chunk.isEmpty {
@@ -66,9 +92,15 @@ public struct Git: Sendable {
                 // exits: the handler may still hold the last chunk. A helper
                 // that git started and that stays, such as an SSH master
                 // connection, can keep the pipe open, so not for ever.
+                overdue.cancel()
                 if ended.wait(timeout: .now() + 2) == .timedOut { pipe.fileHandleForReading.readabilityHandler = nil }
                 let text = trimmed ? output.text.trimmingCharacters(in: .whitespacesAndNewlines) : output.text
-                if process.terminationStatus == 0 {
+                if output.stopped {
+                    let said = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(throwing: Failure(
+                        arguments: arguments, status: process.terminationStatus,
+                        output: "it took longer than \(Int(limit)) seconds and was stopped" + (said.isEmpty ? "" : ": " + said), timedOut: true))
+                } else if process.terminationStatus == 0 {
                     continuation.resume(returning: text)
                 } else {
                     continuation.resume(throwing: Failure(arguments: arguments, status: process.terminationStatus, output: text))
@@ -76,6 +108,7 @@ public struct Git: Sendable {
             }
             do {
                 try process.run()
+                DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: overdue)
             } catch {
                 continuation.resume(throwing: error)
             }
@@ -503,6 +536,13 @@ public struct Git: Sendable {
 private final class OutputBuffer: @unchecked Sendable {
     private var data = Data()
     private let lock = NSLock()
+    private var wasStopped = false
+
+    /// The command went past its limit and was ended.
+    var stopped: Bool {
+        get { lock.withLock { wasStopped } }
+        set { lock.withLock { wasStopped = newValue } }
+    }
 
     func append(_ chunk: Data) {
         lock.withLock { data.append(chunk) }

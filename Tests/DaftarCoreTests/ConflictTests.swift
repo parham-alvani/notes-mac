@@ -289,6 +289,25 @@ import Testing
         #expect(try await repos.subjects(repos.mac).first == "mac")
     }
 
+    /// A git that never answers, as a pull over a dead connection: it is
+    /// ended at the limit, and the sync fails instead of never ending.
+    @Test func aCommandPastItsLimitIsStopped() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "daftar-slow-git-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let slow = folder.appending(path: "git")
+        try "#!/bin/sh\necho waiting for the remote\nexec sleep 60\n".write(to: slow, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: slow.path)
+        let started = Date()
+        let failure = await #expect(throws: Git.Failure.self) { try await Git(root: folder, executable: slow, limit: 1).run(["pull"]) }
+        #expect(failure?.timedOut == true)
+        #expect(failure?.output == "it took longer than 1 seconds and was stopped: waiting for the remote")
+        #expect(Date().timeIntervalSince(started) < 20)
+        // The defaults: no question, no wait for a host that is gone.
+        #expect(Git.ssh.contains("BatchMode=yes") && Git.ssh.contains("ConnectTimeout=") && Git.ssh.contains("ServerAliveInterval="))
+        #expect(Git(root: folder).limit == 300)
+    }
+
     @Test func changedPathsKeepAFirstLetterThatIsNotASCII() {
         let output = " M یادداشت.md\0R  new name.md\0old name.md\0?? 🎉.md\0"
         #expect(Git.changedPaths(output) == ["یادداشت.md", "new name.md", "🎉.md"])
