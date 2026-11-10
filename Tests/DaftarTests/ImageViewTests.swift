@@ -47,6 +47,37 @@ import WebKit
         return data as Data
     }
 
+    /// The pictures of a note are let go when the editor shows another:
+    /// before, every picture of every note opened stayed for the pane's
+    /// life, and a GIF's timer ran on in notes with no picture.
+    @Test func thePicturesOfANoteGoWithIt() throws {
+        try "No picture here.\n".write(to: root.appending(path: "Notes/Plain.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let controller = EditorController(store: store)
+        let scroll = NoteTextView.scrollableNoteView()
+        let view = scroll.documentView as! NoteTextView
+        view.controller = controller
+        controller.view = view
+        controller.load("Notes/Pictures.md")
+        #expect(controller.images.count >= 2)
+        let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        #expect(controller.animator.isRunning == moves)
+        controller.load("Notes/Plain.md")
+        #expect(controller.images.isEmpty)
+        #expect(controller.animator.count == 0)
+        #expect(!controller.animator.isRunning)
+        controller.animator.stop()
+    }
+
+    @Test func theCursorsLineIsCountedWithoutCopyingTheText() {
+        let text = "one\nدو 😀\n\nfour" as NSString
+        #expect(EditorController.line(of: 0, in: text) == 0)
+        #expect(EditorController.line(of: 3, in: text) == 0)
+        #expect(EditorController.line(of: 4, in: text) == 1)
+        #expect(EditorController.line(of: text.length - 4, in: text) == 3)
+        #expect(EditorController.line(of: 999, in: text) == 3)
+    }
+
     @Test func aPictureOpensInThePaneAndIsNeverEdited() {
         let model = WindowModel()
         model.open("Notes/Pictures.md", store: store)

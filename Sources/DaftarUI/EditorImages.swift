@@ -172,6 +172,19 @@ final class ImageAnimator {
         timer = nil
     }
 
+    /// The timer runs: a moving picture is in the note.
+    var isRunning: Bool { timer != nil }
+    /// How many pictures' frames are kept.
+    var count: Int { animations.count }
+
+    /// Another note is in the editor: the pictures of the one before go,
+    /// frames and all, and nothing ticks until this note shows a moving one.
+    func reset() {
+        stop()
+        animations = [:]
+        stills = []
+    }
+
     func tick() {
         guard let view, view.window?.occlusionState.contains(.visible) == true else { return }
         advance(to: Date().timeIntervalSince(start))

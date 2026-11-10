@@ -200,6 +200,10 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         headingBaseline = Sections.headings(in: text)
         headingLine = nil
         seenRevision = store.revision
+        // The pictures of the note before, and their frames, are not kept
+        // for the life of the pane; a picture changed on disk is read again.
+        images = [:]
+        animator.reset()
         guard let view else { return }
         view.textStorage?.delegate = self
         view.delegate = self
@@ -529,10 +533,22 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         cursorTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled, let self, let view = self.view else { return }
-            let location = min(view.selectedRange().location, (view.string as NSString).length)
-            let before = (view.string as NSString).substring(to: location)
-            self.onCursor?(before.utf8.reduce(0) { $1 == 10 ? $0 + 1 : $0 })
+            self.onCursor?(Self.line(of: view.selectedRange().location, in: view.string as NSString))
         }
+    }
+
+    /// The source line (from 0) [location] is on: the newlines before it,
+    /// found one by one, with no copy of the text above the cursor.
+    static func line(of location: Int, in text: NSString) -> Int {
+        let end = min(max(0, location), text.length)
+        var line = 0, from = 0
+        while from < end {
+            let found = text.range(of: "\n", options: .literal, range: NSRange(location: from, length: end - from))
+            guard found.location != NSNotFound else { break }
+            line += 1
+            from = NSMaxRange(found)
+        }
+        return line
     }
 
     /// The cursor at the start of source line [line], in the middle of the view.
@@ -1013,7 +1029,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
 
     // MARK: Images
 
-    private var images: [String: NSImage] = [:]
+    private(set) var images: [String: NSImage] = [:]
     /// Animated GIFs, WebPs and PNGs move (`EditorImages.swift`).
     let animator = ImageAnimator()
 
