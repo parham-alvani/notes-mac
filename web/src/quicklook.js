@@ -3,7 +3,7 @@
 // JavaScriptCore and hands Quick Look the finished HTML. No DOM here: what
 // reader.js does to the page after `render` is done on the string.
 
-import { render, hue, languageColor } from "./render.js";
+import { render, hue, languageColor, setRemoteImages } from "./render.js";
 
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -23,6 +23,10 @@ function unescapeHtml(text) {
  * them.
  */
 export function preview({ title = "", text = "", path = "", links = {}, properties = [] }) {
+  // A preview asks no site for a picture, whatever the app's setting: a
+  // glance at a file in the Finder tells no one, and nothing here can be
+  // clicked to ask. The placeholder says where the picture is.
+  setRemoteImages(false);
   let body = render(text, { path, links });
   body = body.replace(
     /<a class="tag" href="#" data-tag="([^"]*)">/g,
