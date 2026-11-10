@@ -40,9 +40,17 @@ struct FilesList: View {
     @ViewState private var dropTarget: String?
     @ViewState private var tagsOpen = false
     @ViewState private var updatedOpen = true
+    /// The task counts of the first two rows, kept until the vault changes or the day turns:
+    /// a selection, a drag over a folder or a section opened draws the sidebar again.
+    @ViewState private var groupsMemo = Memo<GroupsKey, VaultStore.TaskGroups>()
+
+    struct GroupsKey: Equatable {
+        var revision: Int
+        var today: Day
+    }
 
     var body: some View {
-        let groups = store.taskGroups()
+        let groups = groupsMemo.value(for: GroupsKey(revision: store.revision, today: .today())) { store.taskGroups() }
         List(selection: selection) {
             Section {
                 Label {
