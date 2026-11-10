@@ -14,7 +14,8 @@ public enum TaskBoard {
         /// The status, and the reason it is given with: a card dropped on
         /// Cancelled is asked for one first.
         case status(Character, reason: String? = nil)
-        /// The due date; nil takes it away.
+        /// The day the card is filed by, its due date or else its scheduled
+        /// one, set to this; nil takes both away. A task with no date gets a due one.
         case due(String?)
         /// The Tasks plugin's Postpone: see `TaskLine.postponed`.
         case postpone(TaskLine.Postpone)
@@ -123,8 +124,21 @@ public enum TaskBoard {
             let target = statuses.type(status) == statuses.type(fields.status) ? fields.status : status
             return TaskLine.settingStatus(raw, to: target, reason: reason, today: today, statuses: statuses)
         case .due(let day):
-            guard fields.due != day else { return nil }
-            fields.due = day
+            // A card is filed by its due date, else its scheduled one (`ParsedTask.day`): the
+            // column moves that date. A task with neither gets a due date; No Date takes both.
+            if let day {
+                if fields.due != nil || fields.scheduled == nil {
+                    guard fields.due != day else { return nil }
+                    fields.due = day
+                } else {
+                    guard fields.scheduled != day else { return nil }
+                    fields.scheduled = day
+                }
+            } else {
+                guard fields.due != nil || fields.scheduled != nil else { return nil }
+                fields.due = nil
+                fields.scheduled = nil
+            }
         case .postpone(let amount):
             guard let later = TaskLine.postponed(fields, by: amount, today: today, statuses: statuses) else { return nil }
             fields = later
