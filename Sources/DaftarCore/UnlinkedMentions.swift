@@ -55,7 +55,8 @@ public enum UnlinkedMentions {
     }
 
     /// [text] with the mention a link: `[[Name]]` when it is written as the
-    /// name is, `[[Name|as written]]` when not. Throws when the line no
+    /// name is, `[[Name|as written]]` when not (`[[Name\|as written]]` in
+    /// a table row). Throws when the line no
     /// longer holds it where it was found.
     public static func link(_ mention: Mention, to name: String, in text: String) throws -> String {
         var lines = text.components(separatedBy: "\n")
@@ -63,7 +64,9 @@ public enum UnlinkedMentions {
         let line = lines[mention.line] as NSString
         let range = NSRange(location: mention.column, length: mention.length)
         guard NSMaxRange(range) <= line.length, line.substring(with: range) == mention.text else { throw VaultEdits.Failure.textMoved }
-        let link = mention.text == name ? "[[\(name)]]" : "[[\(name)|\(mention.text)]]"
+        // In a table a bare `|` ends the cell: the bar is written `\|`, as Obsidian does.
+        let bar = MarkdownTable.isRow(lines[mention.line]) ? "\\|" : "|"
+        let link = mention.text == name ? "[[\(name)]]" : "[[\(name)\(bar)\(mention.text)]]"
         lines[mention.line] = line.replacingCharacters(in: range, with: link)
         return lines.joined(separator: "\n")
     }
