@@ -51,6 +51,16 @@ import Testing
             #expect(note.headings.allSatisfy { $0.line >= 0 && $0.line < lines })
             #expect(note.tasks.allSatisfy { $0.line >= 0 && $0.line < lines })
             #expect(note.tags.allSatisfy { !$0.isEmpty })
+            // Code spans come in order and apart, and a line with no `%%` is not a comment's.
+            for line in text.components(separatedBy: "\n") {
+                let spans = InlineCode.spans(in: line)
+                #expect(zip(spans, spans.dropFirst()).allSatisfy { $0.upperBound <= $1.lowerBound })
+                #expect(spans.allSatisfy { line[$0].hasPrefix("`") && line[$0].hasSuffix("`") })
+                _ = InlineCode.removed(from: line)
+                var open = false
+                let kept = Comments.strip(line, open: &open)
+                #expect(line.contains("%%") || (kept == line && !open))
+            }
             _ = MarkdownHighlighter.spans(in: text)
             _ = CalendarWeek.parse(text, path: "Calendar/2026-W39.md")
             _ = UnlinkedMentions.find(["Note", "word"], in: text)

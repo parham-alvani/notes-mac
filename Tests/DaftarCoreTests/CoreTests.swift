@@ -86,6 +86,29 @@ import Testing
         #expect(note.links[0].line == 7)
     }
 
+    @Test func percentSignsInCodeOpenNoComment() {
+        // `%%` in inline code is two percent signs: the rest of the note is still read.
+        let note = NoteParser.parse("- `%%` is a percent sign\n\n## After\n\n- [ ] still a task [[Kept]]\n")
+        #expect(note.headings.map(\.text) == ["After"])
+        #expect(note.tasks.map(\.text) == ["still a task [[Kept]]"])
+        #expect(note.links.map(\.target) == ["Kept"])
+        #expect(Sections.headings(in: "`a %% b`\n# One\n``%%``\n# Two").map(\.text) == ["One", "Two"])
+        // A real comment still hides its text, on one line and over several.
+        let hidden = NoteParser.parse("see %%[[Hidden]] `%%` [[Shown]]\n%%\n# Gone\n%% `%%` [[Too]]\n# Here")
+        #expect(hidden.links.map(\.target) == ["Shown", "Too"])
+        #expect(hidden.headings.map(\.text) == ["Here"])
+        var open = false
+        #expect(Comments.strip("a `%%` b %%c%% d", open: &open) == "a `%%` b  d")
+        #expect(!open)
+    }
+
+    @Test func linksInCodeAndMathAreNotLinks() {
+        let note = NoteParser.parse("``[[Double]]`` and ``a ` [[Inner]]`` and $[[Math]]$ and $$x [[Display]]$$ then [[Real]]\ncosts $5 and $10 for [[Paid]]")
+        #expect(note.links.map(\.target) == ["Real", "Paid"])
+        #expect(InlineCode.spans(in: "a `b` ``c ` d`` `open").count == 2)
+        #expect(InlineCode.removed(from: "\\`[[Escaped]]\\`") == "\\`[[Escaped]]\\`")
+    }
+
     @Test func aLineThatStartsWithInlineCodeOpensNoFence() {
         // The info string of a backtick fence holds no backtick, so this is a paragraph.
         let text = "```a``` is inline code\n\n## After\n\n- [ ] a task [[Kept]]\n"
