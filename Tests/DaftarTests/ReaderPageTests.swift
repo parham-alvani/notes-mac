@@ -20,6 +20,7 @@ import WebKit
         try FileManager.default.createDirectory(at: root.appending(path: "Tasks"), withIntermediateDirectories: true)
         try "# Page\n\nSome text.\n\n- [ ] here\n".write(to: root.appending(path: "Page.md"), atomically: true, encoding: .utf8)
         try "# Other\n\n- [ ] elsewhere\n".write(to: root.appending(path: "Tasks/Other.md"), atomically: true, encoding: .utf8)
+        try "# Query\n\n```tasks\nnot done\npath includes Other\n```\n".write(to: root.appending(path: "Query.md"), atomically: true, encoding: .utf8)
         store = VaultStore(settings: AppSettings(url: root.appending(path: "config/config.toml")), openVault: false)
         store.openSynchronously(root)
     }
@@ -71,5 +72,62 @@ import WebKit
         defer { window.orderOut(nil) }
         _ = try await run(web, "(() => { const base = document.createElement('base'); base.href = 'https://example.org/'; document.head.appendChild(base); return 1 })()")
         #expect(try await run(web, "document.baseURI") == "daftar://reader/index.html")
+    }
+
+    private func other() throws -> String { try String(contentsOf: root.appending(path: "Tasks/Other.md"), encoding: .utf8) }
+
+    /// A message from the page that names a task of another note is taken
+    /// only when a query of this show listed that task: a note cannot tick
+    /// a line of a file it does not show.
+    @Test func thePageTicksAnotherNotesTaskOnlyFromAQueryResult() async throws {
+        let (web, window) = try await page()
+        defer { window.orderOut(nil) }
+        let tick = "webkit.messageHandlers.daftar.postMessage({ kind: 'toggleTask', line: 2, status: ' ', path: 'Tasks/Other.md' }); 1"
+        _ = try await run(web, tick)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try other().contains("- [ ] elsewhere"))
+        // Its own task is its to tick.
+        _ = try await run(web, "webkit.messageHandlers.daftar.postMessage({ kind: 'toggleTask', line: 4, status: ' ', path: '' }); 1")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try String(contentsOf: root.appending(path: "Page.md"), encoding: .utf8).contains("- [x] here"))
+        window.orderOut(nil)
+
+        let (query, second) = try await page("Query.md")
+        defer { second.orderOut(nil) }
+        for _ in 0..<20 where try await run(query, "String(!!document.querySelector('.query-list input'))") != "true" {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        // A line the query did not list is still refused.
+        _ = try await run(query, "webkit.messageHandlers.daftar.postMessage({ kind: 'toggleTask', line: 0, status: ' ', path: 'Tasks/Other.md' }); 1")
+        _ = try await run(query, "document.querySelector('.query-list input').click(); 1")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try other().contains("- [x] elsewhere"))
+    }
+
+    @Test func thePageNamesOnlyWhatTheAppGaveIt() {
+        var trust = PageTrust()
+        #expect(trust.mayName(task: "A.md", line: 3, shown: "A.md"))
+        #expect(!trust.mayName(task: "B.md", line: 3, shown: "A.md"))
+        trust.tasks.insert(PageTrust.Task(path: "B.md", line: 3))
+        #expect(trust.mayName(task: "B.md", line: 3, shown: "A.md"))
+        #expect(!trust.mayName(task: "B.md", line: 4, shown: "A.md"))
+        #expect(!trust.detected.contains(PageTrust.Found(kind: "phone", value: "+19005550100")))
+    }
+
+    /// A phone number is called only when the app found it in the note on screen.
+    @Test func aNumberTheNoteDoesNotHoldIsNotCalled() async throws {
+        try "# Call\n\nRing +34 612 345 678 today.\n".write(to: root.appending(path: "Call.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        var coordinator: ReaderView.Coordinator?
+        let reader = ReaderView(request: ReaderRequest(path: "Call.md"), store: store, onOpen: { _, _, _ in }, onTag: { _ in }, onView: { coordinator = $0.navigationDelegate as? ReaderView.Coordinator })
+        let window = NSWindow(contentRect: CGRect(x: -4000, y: -4000, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: reader.environment(store))
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+        for _ in 0..<40 where coordinator?.trust.detected.isEmpty != false { try await Task.sleep(for: .milliseconds(150)) }
+        let found = try #require(coordinator?.trust.detected)
+        #expect(found.contains { $0.kind == "phone" })
+        #expect(!found.contains(PageTrust.Found(kind: "phone", value: "+19005550100")))
     }
 }

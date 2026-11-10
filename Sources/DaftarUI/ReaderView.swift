@@ -109,6 +109,8 @@ struct ReaderView: NSViewRepresentable {
         private var hasQuery = false
         /// Grows with each show, so a base that finishes late is dropped.
         private var showCount = 0
+        /// What the page may name in a message, from what the app gave it for the note on screen.
+        private(set) var trust = PageTrust()
         /// The pictures from the web the person asked for, in the note on screen.
         let remote = RemotePictures()
         /// `appearance.remote_images` when the page was loaded: its policy
@@ -168,6 +170,7 @@ struct ReaderView: NSViewRepresentable {
         private func show(_ request: ReaderRequest, keepScroll: Bool) {
             let store = parent.store
             hasQuery = false
+            trust = PageTrust()
             // A picture asked for in one note is not asked for in the next.
             if shown?.path != request.path { remote.forget() }
             shown = request
@@ -188,6 +191,8 @@ struct ReaderView: NSViewRepresentable {
                 return
             }
             let parsed = NoteParser.parse(text)
+            let detected = Detected.find(in: text)
+            trust.detected = Set(detected.map { PageTrust.Found(kind: $0.kind.rawValue, value: $0.value) })
             var note: [String: Any] = [
                 "path": request.path,
                 "title": Vault.title(of: request.path),
@@ -197,7 +202,7 @@ struct ReaderView: NSViewRepresentable {
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
                 "folds": store.places.folds(request.path),
-                "detected": Detected.find(in: text).map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
+                "detected": detected.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             note.merge(ReaderView.appearance(store.settings)) { $1 }
             if !keepScroll {
@@ -335,10 +340,10 @@ struct ReaderView: NSViewRepresentable {
                 guard let request = shown, let line = body["line"] as? Int,
                     let status = (body["status"] as? String)?.first
                 else { return }
-                // The page is drawn from notes, so a path from it is checked:
-                // only a note in the index can be written.
-                // A task in a query result is in its own note.
+                // The page is drawn from notes, so what it names is checked: the
+                // note on screen, or a task a query of this show answered with.
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
+                guard trust.mayName(task: path, line: line, shown: request.path) else { return }
                 parent.store.toggleTask(path: path, line: line, status: status)
             case "open":
                 let path = body["path"] as? String ?? ""
@@ -369,7 +374,10 @@ struct ReaderView: NSViewRepresentable {
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
             case "detected":
-                guard let kind = body["type"] as? String, let value = body["value"] as? String else { return }
+                // Only a number or an address the app itself found in the note on screen.
+                guard let kind = body["type"] as? String, let value = body["value"] as? String,
+                    trust.detected.contains(PageTrust.Found(kind: kind, value: value))
+                else { return }
                 Detected.open(kind: kind, value: value)
             case "section":
                 if let line = body["line"] as? Int { parent.onSection?(line < 0 ? nil : line) }
@@ -389,6 +397,7 @@ struct ReaderView: NSViewRepresentable {
             case "editTask":
                 guard let request = shown, let line = body["line"] as? Int else { return }
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
+                guard trust.mayName(task: path, line: line, shown: request.path) else { return }
                 parent.onEditTask(path, line)
             case "copy":
                 if let text = body["text"] as? String {
@@ -452,6 +461,7 @@ extension ReaderView.Coordinator {
         let found = query.run(index.tasksInOrder, today: .today()) { QueryTask($0, statuses: statuses) }
         var links: [String: String] = [:]
         let tasks: [[String: Any]] = found.map { task in
+            trust.tasks.insert(PageTrust.Task(path: task.path, line: task.task.line))
             for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
                 if let target = index.resolve(link.target, from: task.path) { links[link.target] = target }
             }
@@ -533,6 +543,33 @@ extension ReaderView.Coordinator {
         ]
         out["check"] = cell.check
         return out
+    }
+}
+
+/// What the page may name when it asks the app to act. The page is drawn
+/// from notes, so a path, a line or a phone number in a message is only
+/// taken when the app itself gave it to the page for the note on screen: a
+/// task of another note when a ` ```tasks ` query of this show answered with
+/// it, a number or an address when `Detected` found it in the note.
+struct PageTrust {
+    struct Task: Hashable {
+        var path: String
+        var line: Int
+    }
+
+    struct Found: Hashable {
+        var kind: String
+        var value: String
+    }
+
+    /// The tasks the queries of this show answered with.
+    var tasks: Set<Task> = []
+    /// The phone numbers and addresses found in the note on screen.
+    var detected: Set<Found> = []
+
+    /// A task of the note on screen, or one a query of this show listed.
+    func mayName(task path: String, line: Int, shown: String) -> Bool {
+        path == shown || tasks.contains(Task(path: path, line: line))
     }
 }
 
