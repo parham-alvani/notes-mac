@@ -32,8 +32,17 @@ public enum TaskMetadata {
     /// the metadata is always a suffix, and an emoji with prose after it is
     /// part of the sentence, as is a second field of a kind already found.
     public static func split(_ line: String) -> (text: String, meta: [Meta]) {
+        let read = fields(line)
+        return (read.text, read.meta)
+    }
+
+    /// [split], and where each field starts in [line]: the UTF-8 offset of
+    /// its symbol, for an edit that takes one field out and leaves the
+    /// rest of the line as it is written.
+    static func fields(_ line: String) -> (text: String, meta: [Meta], starts: [Int]) {
         var remaining = line
         var found: [Meta] = []
+        var starts: [Int] = []
         // Tags after the signifiers (`📅 2026-10-20 ⏫ #kit`) stay part of
         // the text, as the Tasks plugin keeps them.
         var tags: [String] = []
@@ -67,12 +76,33 @@ public enum TaskMetadata {
                 value = String(match.1)
             }
             found.append(Meta(emoji: symbol, value: value))
+            starts.append(remaining.utf8.distance(from: remaining.startIndex, to: range.lowerBound))
             kinds.insert(symbols[symbol]!)
             remaining = String(remaining[..<range.lowerBound])
             while remaining.last?.isWhitespace ?? false { remaining.removeLast() }
         }
         if !tags.isEmpty { remaining += " " + tags.joined(separator: " ") }
-        return (remaining, found.reversed())
+        return (remaining, found.reversed(), starts.reversed())
+    }
+
+    /// [line] without the fields of [emoji] that hold a date, and without
+    /// the spaces before each: only the fields, the trailing ones `split`
+    /// reads. The same emoji and date in the sentence is the sentence's.
+    static func removing(_ emoji: Set<String>, from line: String) -> String {
+        let read = fields(line)
+        var bytes = Array(line.utf8)
+        for (meta, start) in zip(read.meta, read.starts).reversed() where emoji.contains(meta.emoji) && !meta.value.isEmpty {
+            var end = start + meta.emoji.utf8.count
+            // The variation selector, then the spaces, then the date as it was read.
+            if bytes[end...].starts(with: [0xEF, 0xB8, 0x8F]) { end += 3 }
+            while end < bytes.count, bytes[end] == 0x20 || bytes[end] == 0x09 { end += 1 }
+            guard bytes[end...].starts(with: meta.value.utf8) else { continue }
+            end += meta.value.utf8.count
+            var from = start
+            while from > 0, bytes[from - 1] == 0x20 || bytes[from - 1] == 0x09 { from -= 1 }
+            bytes.removeSubrange(from..<end)
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -212,8 +242,8 @@ public enum TaskLine {
         }
         body = TaskReason.removed(from: body)
         if statuses.isClosed(status) {
-            let text = body.replacing(/[ \t]*(?:✅|❌)[ \t]*[0-9]{4}-[0-9]{2}-[0-9]{2}/, with: "")
-            return [prefix + "[ ] " + text + id]
+            // Only the done and cancelled fields go: "✅ 2026-01-01" in the sentence is the sentence's.
+            return [prefix + "[ ] " + TaskMetadata.removing([done, cancelledMark], from: body) + id]
         }
         if var lines = completeRecurring(prefix: prefix, body: body, today: today) {
             lines[lines.count - 1] += id

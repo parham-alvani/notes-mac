@@ -301,6 +301,15 @@ import Testing
         #expect(TaskLine.isTask("> 1. [/] numbered, in a quote"))
     }
 
+    @Test func reopeningTakesOnlyTheDateFieldOff() {
+        // The done date is a field at the end; the same words in the sentence stay.
+        #expect(TaskLine.toggled("- [x] Bought ✅ 2026-01-01 stickers ✅ 2026-11-01", today: "2026-11-10") == ["- [ ] Bought ✅ 2026-01-01 stickers"])
+        #expect(TaskLine.toggled("- [-] Note the ❌ 2026-01-01 rule ⏳ 2026-11-02 ❌ 2026-11-03 #kit ^b1", today: "2026-11-10")
+            == ["- [ ] Note the ❌ 2026-01-01 rule ⏳ 2026-11-02 #kit ^b1"])
+        #expect(TaskLine.toggled("- [x] Both ✅\u{FE0F} 2026-11-01 📅 2026-11-02", today: "2026-11-10") == ["- [ ] Both 📅 2026-11-02"])
+        #expect(TaskLine.toggled("- [x] No date ✅", today: "2026-11-10") == ["- [ ] No date ✅"])
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")
