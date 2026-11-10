@@ -99,6 +99,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// until it is opened again or the setting changes: no start at every
     /// update of the view.
     private(set) var neovimRefused = false
+    /// Where `nvim` is, from the setting; a test gives a machine without one.
+    var locateNeovim: (String) -> URL? = { NeovimClient.locate($0) }
     /// What the file said when it was last read or written.
     private var saved = ""
     private var saveTask: Task<Void, Never>?
@@ -233,7 +235,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private func startVim() {
         guard let path, let root = store.root, let view else { return }
         saveNow()
-        guard let session = NeovimSession(path: path, root: root, view: view, settings: store.settings) else {
+        guard let session = NeovimSession(path: path, root: root, view: view, settings: store.settings, locate: locateNeovim) else {
+            // Said once for the note, not at every update of the view.
+            neovimRefused = true
             store.notice = "Neovim mode is on, but there is no nvim. Install it with `brew install neovim`, or set `nvim` in the config file."
             return
         }
@@ -330,6 +334,23 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             shownMode = session.modeName
             view?.showCaretStyle()
             view?.redrawCursorLine()
+        }
+    }
+
+    /// The window closes. SwiftUI does not always take the editor's view
+    /// down then (as it does not on Quit), and what was typed in the last
+    /// second, or in Neovim since the last Escape, was in no file. The
+    /// plain editor saves at once; Neovim is asked to write and is kept
+    /// until it has, or until its limit.
+    func windowClosing() {
+        checkHeadings()
+        switch owner {
+        case .plain:
+            saveNow()
+        case .neovimRunning:
+            if let session { Task { await session.saveAndWait() } }
+        case .neovimStarting, .neovimDead:
+            break
         }
     }
 
@@ -1115,6 +1136,11 @@ final class NoteTextView: NSTextView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The window's closing saves the note: the view may never be taken down.
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: window)
+        }
         guard focusWhenShown, let window else { return }
         focusWhenShown = false
         DispatchQueue.main.async { [weak self] in
@@ -1122,6 +1148,8 @@ final class NoteTextView: NSTextView {
             window.makeFirstResponder(self)
         }
     }
+
+    @objc private func windowWillClose(_ notification: Notification) { controller?.windowClosing() }
 
     // MARK: Neovim mode
 

@@ -415,4 +415,35 @@ import Testing
         #expect((try? String(contentsOf: root.appending(path: "Other.md"), encoding: .utf8)) == "other\n")
         await session.stop()
     }
+
+    /// The window closes in the middle of an insert: Neovim writes before it goes.
+    @Test func closingTheWindowSavesWhatNeovimHolds() async throws {
+        let session = try await open("a\n")
+        keys("Ab")
+        #expect(await eventually { self.view.string == "ab\n" })
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(await eventually { self.file() == "ab\n" })
+        await session.stop()
+    }
+
+    /// No `nvim` on the Mac: it is said once for the note, and not looked
+    /// for again at every update of the view.
+    @Test func aMacWithoutNeovimIsToldOnce() throws {
+        var looked = 0
+        controller.locateNeovim = { _ in looked += 1; return nil }
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("N.md")
+        #expect(controller.session == nil)
+        #expect(store.notice?.contains("there is no nvim") == true)
+        store.notice = nil
+        controller.followVimSetting()
+        controller.followVimSetting()
+        #expect(looked == 1)
+        #expect(store.notice == nil)
+        // The plain editor has the note.
+        view.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        controller.saveNow()
+        #expect(file() == "xa\n")
+    }
 }

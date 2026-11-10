@@ -39,9 +39,9 @@ final class NeovimSession {
     /// A file opened inside Neovim, for Daftar to open: its full path.
     var onOpen: ((String) -> Void)?
 
-    /// Nil when there is no `nvim` to run.
-    init?(path: String, root: URL, view: NoteTextView, settings: AppSettings) {
-        guard let executable = NeovimClient.locate(settings.nvimPath) else { return nil }
+    /// Nil when there is no `nvim` to run: [locate] finds it, from the setting.
+    init?(path: String, root: URL, view: NoteTextView, settings: AppSettings, locate: (String) -> URL? = { NeovimClient.locate($0) }) {
+        guard let executable = locate(settings.nvimPath) else { return nil }
         let arguments = Self.arguments(config: settings.nvimConfig)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")

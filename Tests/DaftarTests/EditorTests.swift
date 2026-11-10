@@ -108,6 +108,18 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appending(path: "daftar-outside-\(root.lastPathComponent)").path))
     }
 
+    /// ⌘W inside the second after a key: the window's closing saves the note.
+    @Test func closingTheWindowSavesTheNote() throws {
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        end()
+        view.insertText("typed", replacementRange: view.selectedRange())
+        #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == "# Plan\n- [ ] first\n")
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == "# Plan\n- [ ] first\ntyped")
+    }
+
     @Test func aSlashCommandReplacesTheSlash() throws {
         // A window, off screen, gives the view its undo manager.
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
