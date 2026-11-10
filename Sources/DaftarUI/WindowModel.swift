@@ -306,10 +306,14 @@ final class WindowModel {
         }
     }
 
-    /// ⌥⌘S: today's scratch note, made when it is not there yet, in the editor.
+    /// ⌥⌘S: the scratchpad, the vault's one inbox note, made when it is not
+    /// there yet, in the editor with the cursor at its end. Opening it
+    /// writes nothing into it.
     func openScratchpad(store: VaultStore) {
         do {
-            open(try store.scratchpad(), store: store)
+            let path = try store.scratchpad()
+            let last = (store.text(of: path) ?? "").utf8.count { $0 == 10 }
+            open(path, line: last, store: store)
             editing = true
         } catch {
             store.notice = "The scratchpad could not be made: " + ((error as? VaultMoves.Failure)?.description ?? error.localizedDescription)

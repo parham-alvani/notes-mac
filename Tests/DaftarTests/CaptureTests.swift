@@ -88,23 +88,57 @@ import Testing
         #expect(HotKeySpec.parse(ConfigFile(text: ConfigFile.template).string("capture.hotkey") ?? "") != nil)
     }
 
-    /// ⌥⌘S: today's scratch note, in the folder the settings name, made
-    /// empty once and found the next time, as on Linux.
-    @Test func theScratchpadIsTodaysNoteInItsFolder() throws {
-        let day = Day(year: 2026, month: 10, day: 27)
-        #expect(store.settings.scratchpadFolder == "Scratchpad")
-        let path = try store.scratchpad(for: day)
-        #expect(path == "Scratchpad/2026-10-27.md")
+    /// ⌥⌘S: the scratchpad is one note, `Scratchpad.md`, found when it is
+    /// there and made empty when it is not; never a folder of dated notes.
+    @Test func theScratchpadIsOneNote() throws {
+        #expect(store.settings.scratchpadNote == "Scratchpad.md")
+        let path = try store.scratchpad()
+        #expect(path == "Scratchpad.md")
         #expect(try text(path) == "")
-        try "first thought\n".write(to: root.appending(path: path), atomically: true, encoding: .utf8)
-        #expect(try store.scratchpad(for: day) == path)
-        #expect(try text(path) == "first thought\n")
-        store.settings.scratchpadFolder = "/Notes/Scratch/"
-        #expect(try store.scratchpad(for: day) == "Notes/Scratch/2026-10-27.md")
-        store.settings.scratchpadFolder = ""
-        #expect(try store.scratchpad(for: day) == "2026-10-27.md")
-        #expect(ConfigFile(text: ConfigFile.template).string("scratchpad.folder") == "Scratchpad")
-        #expect(ConfigFile(text: try String(contentsOf: store.settings.url, encoding: .utf8)).string("scratchpad.folder") == "")
+        try "## 2026-11-07\n\n- first thought\n".write(to: root.appending(path: path), atomically: true, encoding: .utf8)
+        #expect(try store.scratchpad() == path)
+        #expect(try text(path) == "## 2026-11-07\n\n- first thought\n")
+        var isDirectory: ObjCBool = false
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "Scratchpad").path, isDirectory: &isDirectory))
+        #expect(!store.index.files.contains { $0.hasPrefix("Scratchpad/") })
+        // Another note, with or without `.md`, in a folder made for it; a name in another case is the same note.
+        store.settings.scratchpadNote = "/Notes/Inbox"
+        #expect(try store.scratchpad() == "Notes/Inbox.md")
+        store.settings.scratchpadNote = "notes/inbox.md"
+        #expect(try store.scratchpad() == "Notes/Inbox.md")
+        store.settings.scratchpadNote = ""
+        #expect(try store.scratchpad() == "Scratchpad.md")
+        store.settings.scratchpadNote = "../outside"
+        #expect(throws: (any Error).self) { try store.scratchpad() }
+        #expect(ConfigFile(text: ConfigFile.template).string("scratchpad.note") == "Scratchpad.md")
+        #expect(ConfigFile(text: ConfigFile.template).string("scratchpad.folder") == nil)
+    }
+
+    /// A settings file from before, with `scratchpad.folder`: the key is
+    /// not read and not written, and the scratchpad is the one note.
+    @Test func anOldScratchpadFolderIsLeftAlone() throws {
+        let url = root.appending(path: "old/config.toml")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let written = "[scratchpad]\nfolder = \"Daily\"\n"
+        try written.write(to: url, atomically: true, encoding: .utf8)
+        let old = VaultStore(settings: AppSettings(url: url), openVault: false)
+        old.openSynchronously(root)
+        #expect(old.settings.scratchpadNote == "Scratchpad.md")
+        #expect(try old.scratchpad() == "Scratchpad.md")
+        #expect(try String(contentsOf: url, encoding: .utf8) == written)
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "Daily").path))
+    }
+
+    /// The command opens the note in the editor, at its end, and writes nothing.
+    @Test func theCommandOpensTheScratchpadAtItsEnd() throws {
+        try "## 2026-11-07\n\n- first thought\n".write(to: root.appending(path: "Scratchpad.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let model = WindowModel()
+        model.openScratchpad(store: store)
+        #expect(model.path == "Scratchpad.md")
+        #expect(model.editing)
+        #expect(model.focused.cursorLine == 3)
+        #expect(try text("Scratchpad.md") == "## 2026-11-07\n\n- first thought\n")
     }
 
     /// The core's key codes are Carbon's.

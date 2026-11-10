@@ -267,9 +267,9 @@ struct CaptureSettings: View {
                 Text(problem ?? "The shortcut opens the capture panel from any app; it is written as ctrl+opt+n, cmd+shift+space or f13, and empty turns it off. “daily” is today's note, as ⌘3 opens it; a path such as Inbox.md names one note. The heading may hold the day, ## {{date:YYYY-MM-DD}}, so one note gets a section for each day. Return adds the line, ⌘↩ adds it as a task.")
             }
             Section {
-                TextField("Scratchpad folder", text: $settings.scratchpadFolder, prompt: Text("The top of the vault"))
+                TextField("Scratchpad note", text: $settings.scratchpadNote, prompt: Text("Scratchpad.md"))
             } footer: {
-                Text("⌥⌘S opens today's scratch note, Folder/YYYY-MM-DD.md, in the editor, and makes it empty when it is not there yet.")
+                Text("⌥⌘S opens the scratchpad, one inbox note, in the editor, and makes it empty when it is not there yet. To capture into it, name it as the note above.")
             }
         }
         .formStyle(.grouped)

@@ -568,13 +568,17 @@ final class VaultStore {
         return try createNote(named: name, in: parts.dropLast().joined(separator: "/"), text: body)
     }
 
-    /// [day]'s scratch note in the `scratchpad.folder` setting, made empty
-    /// when it is not there yet: `Scratchpad/2026-10-27.md`.
-    func scratchpad(for day: Day = .today()) throws -> String {
-        let folder = settings.scratchpadFolder.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let path = (folder.isEmpty ? "" : folder + "/") + day.description + ".md"
-        if index.files.contains(path) { return path }
-        return try createNote(named: day.description, in: folder)
+    /// The scratchpad: the one inbox note the `scratchpad.note` setting
+    /// names (`Scratchpad.md`), made empty when it is not there yet. Never
+    /// a note for each day and never a folder of them: the vault keeps one
+    /// inbox, as Daftar for Android does (`scratchpadPath`).
+    func scratchpad() throws -> String {
+        let named = settings.scratchpadNote.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let note = named.isEmpty ? "Scratchpad.md" : named
+        let path = Vault.isNote(note) ? note : note + ".md"
+        if let found = index.files.first(where: { Slugs.fold($0) == Slugs.fold(path) }) { return found }
+        let parts = path.split(separator: "/").map(String.init)
+        return try createNote(named: String(parts.last!.dropLast(3)), in: parts.dropLast().joined(separator: "/"))
     }
 
     /// The note a link to nothing names, made empty: `[[Folder/Name]]` in

@@ -303,9 +303,9 @@ public struct ConfigFile: Sendable, Equatable {
         font_size = 13
 
         [scratchpad]
-        # ⌥⌘S: today's scratch note, `<folder>/YYYY-MM-DD.md`, made empty
-        # when it is not there and opened in the editor.
-        folder = "Scratchpad"
+        # ⌥⌘S: the scratchpad, the vault's one inbox note, made empty when
+        # it is not there and opened in the editor. A path in the vault.
+        note = "Scratchpad.md"
 
         [capture]
         # Quick capture: a global shortcut opens a small panel, from any app,
