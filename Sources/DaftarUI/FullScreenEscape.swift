@@ -12,14 +12,15 @@ enum FullScreenEscape {
         typealias Original = @convention(c) (NSWindow, Selector, Any?) -> Void
         let original = unsafeBitCast(method_getImplementation(method), to: Original.self)
         let replacement: @convention(block) (NSWindow, Any?) -> Void = { window, sender in
-            if keeps(window) { return }
+            // AppKit sends `cancelOperation(_:)` on the main thread, where a window is read.
+            if MainActor.assumeIsolated({ keeps(window) }) { return }
             original(window, #selector(NSResponder.cancelOperation(_:)), sender)
         }
         method_setImplementation(method, imp_implementationWithBlock(replacement))
     }
 
     /// A Daftar window in full screen stays there.
-    nonisolated static func keeps(_ window: NSWindow) -> Bool {
+    @MainActor static func keeps(_ window: NSWindow) -> Bool {
         window.tabbingIdentifier == "daftar.main" && window.styleMask.contains(.fullScreen)
     }
 

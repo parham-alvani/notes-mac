@@ -241,7 +241,7 @@ struct ReaderView: NSViewRepresentable {
                     "properties": [[String]](), "keepScroll": keepScroll, "base": base,
                 ]
                 note.merge(ReaderView.appearance(store.settings)) { $1 }
-                _ = try? await view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+                view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             }
         }
 

@@ -272,8 +272,8 @@ struct DiffRow: View {
 
     private var spoken: Text {
         switch kind {
-        case .added: Text("Added, line \(new.map(String.init) ?? ""): ") + text
-        case .removed: Text("Removed, line \(old.map(String.init) ?? ""): ") + text
+        case .added: Text("Added, line \(new.map(String.init) ?? ""): \(text)")
+        case .removed: Text("Removed, line \(old.map(String.init) ?? ""): \(text)")
         case .same: text
         }
     }
