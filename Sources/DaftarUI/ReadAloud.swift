@@ -33,11 +33,7 @@ final class ReadAloud: NSObject, AVSpeechSynthesizerDelegate {
         self.view = view
         self.path = path
         Task {
-            let result = try? await view.callAsyncJavaScript("return daftar.speechBlocks()", arguments: [:], in: nil, in: .page)
-            let items = (result as? [[String: Any]] ?? []).compactMap { item -> (Int, String)? in
-                guard let index = item["index"] as? Int, let text = item["text"] as? String else { return nil }
-                return (index, text)
-            }
+            let items = await Self.blocks(in: view)
             guard self.path == path, !items.isEmpty else { return stop() }
             for (index, text) in items {
                 let utterance = AVSpeechUtterance(string: text)
@@ -46,6 +42,18 @@ final class ReadAloud: NSObject, AVSpeechSynthesizerDelegate {
                 blocks[ObjectIdentifier(utterance)] = index
                 synthesizer.speak(utterance)
             }
+        }
+    }
+
+    /// The page's blocks to read, from the reading cursor on: each with its
+    /// number on the page and the words to say. The call that gives back the
+    /// page's answer is the one with `contentWorld:`; the one with `in:` twice
+    /// takes a completion handler and returns nothing, so nothing was ever read.
+    static func blocks(in view: WKWebView) async -> [(index: Int, text: String)] {
+        let result = try? await view.callAsyncJavaScript("return daftar.speechBlocks()", arguments: [:], in: nil, contentWorld: .page)
+        return (result as? [[String: Any]] ?? []).compactMap { item in
+            guard let index = item["index"] as? Int, let text = item["text"] as? String else { return nil }
+            return (index, text)
         }
     }
 

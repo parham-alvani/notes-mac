@@ -164,4 +164,13 @@ import WebKit
         #expect(coordinator.hears(mainFrame: true))
         #expect(!coordinator.hears(mainFrame: false))
     }
+
+    /// Read aloud gets the page's blocks: the title is not one, the paragraph and the task are.
+    @Test func readAloudGetsThePagesBlocks() async throws {
+        let (web, window) = try await page()
+        defer { window.orderOut(nil) }
+        let blocks = await ReadAloud.blocks(in: web)
+        #expect(blocks.map(\.text) == ["Page", "Some text.", "here"])
+        #expect(blocks.map(\.index) == [0, 1, 2])
+    }
 }
