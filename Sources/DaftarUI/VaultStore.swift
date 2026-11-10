@@ -396,8 +396,17 @@ final class VaultStore {
     /// Bookmarks the file, or takes the bookmark away.
     func toggleBookmark(_ path: String) {
         guard let root else { return }
+        readBookmarks(root)
         bookmarks.toggle(path)
         saveBookmarks(root)
+    }
+
+    /// The file as it is now, before a change to it: a pull or Obsidian
+    /// may have written it since it was read, and what the store remembers
+    /// would write their bookmarks away.
+    private func readBookmarks(_ root: URL) {
+        let read = Bookmarks.load(root)
+        if read != bookmarks { bookmarks = read }
     }
 
     private func saveBookmarks(_ root: URL) {
@@ -520,6 +529,7 @@ final class VaultStore {
         tell(.moved(moves, touched: Set(touched)))
         changed(touched)
         requestSync()
+        readBookmarks(root)
         if bookmarks.follow(moves, folder: index.files.contains(to) ? nil : (from, to)) { saveBookmarks(root) }
         // The icons follow too, as Iconic makes them follow in Obsidian.
         if let data = try? Data(contentsOf: iconicFile(root)),
@@ -538,6 +548,7 @@ final class VaultStore {
         guard let root, let file = Self.file(path, in: root) else { return }
         await flushEditors()
         try FileManager.default.trashItem(at: file, resultingItemURL: nil)
+        readBookmarks(root)
         let before = bookmarks.entries
         bookmarks.remove(path)
         if bookmarks.entries != before { saveBookmarks(root) }

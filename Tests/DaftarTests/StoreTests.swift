@@ -147,6 +147,31 @@ import Testing
         #expect(store.filled(template: "Templates/Week.md", name: "Plan").hasPrefix("# Plan\nFrom "))
     }
 
+    /// A bookmark the phone made, pulled while the app runs, is still
+    /// there after a bookmark made here: the file is read before it is written.
+    @Test func aBookmarkIsAddedToTheFileAsItIsNow() throws {
+        store.toggleBookmark("Notes/Plan.md")
+        let file = root.appending(path: ".obsidian/bookmarks.json")
+        let pulled = """
+            {
+              "items": [
+                {
+                  "type": "file",
+                  "ctime": 7,
+                  "path": "Home.md",
+                  "title": "From the phone"
+                }
+              ]
+            }
+            """
+        try pulled.write(to: file, atomically: true, encoding: .utf8)
+        store.toggleBookmark("Notes/Plan.md")
+        #expect(Bookmarks.load(root).entries.map(\.path) == ["Home.md", "Notes/Plan.md"])
+        #expect(try String(contentsOf: file, encoding: .utf8).hasPrefix(String(pulled.dropLast(8))))
+        store.toggleBookmark("Notes/Plan.md")
+        #expect(try String(contentsOf: file, encoding: .utf8) == pulled)
+    }
+
     @Test func bookmarksFollowARename() async throws {
         store.toggleBookmark("Notes/Plan.md")
         #expect(store.bookmarks.contains("Notes/Plan.md"))

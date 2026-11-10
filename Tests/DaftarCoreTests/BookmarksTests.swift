@@ -48,8 +48,8 @@ import Testing
         try bookmarks.save(root)
         let again = Bookmarks.load(root)
         #expect(again.entries.map(\.path) == ["Home.md", "Projects/Alpha", "Other.md"])
-        #expect(again.items.contains { $0["type"] as? String == "search" && $0["query"] as? String == "tag:#work" })
-        #expect(again.items.last?["ctime"] as? Int == 10_000)
+        #expect(again.items.contains { $0["type"] == .string("search") && $0["query"] == .string("tag:#work") })
+        #expect(again.items.last?["ctime"] == .number("10000"))
     }
 
     @Test func followsMovesAndDeletes() throws {
@@ -63,7 +63,41 @@ import Testing
         bookmarks.remove("Projects/Gamma")
         #expect(bookmarks.entries.map(\.path) == ["Home.md"])
         // The group stays, empty, as Obsidian keeps it.
-        #expect(bookmarks.items.contains { $0["type"] as? String == "group" })
+        #expect(bookmarks.items.contains { $0["type"] == .string("group") })
+    }
+
+    /// The file is Obsidian's and the phone's too: a save keeps each
+    /// item's keys in the order they were written, and the keys beside `items`.
+    @Test func aSaveKeepsTheOrderOfTheKeys() throws {
+        let root = try makeVault()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appending(path: ".obsidian/bookmarks.json")
+        let written = """
+            {
+              "version": 2,
+              "items": [
+                {
+                  "type": "file",
+                  "ctime": 1,
+                  "path": "Home.md",
+                  "title": "خانه 🏠"
+                },
+                {
+                  "type": "search",
+                  "ctime": 5,
+                  "query": "tag:#work"
+                }
+              ]
+            }
+            """
+        try written.write(to: file, atomically: true, encoding: .utf8)
+        var bookmarks = Bookmarks.load(root)
+        try bookmarks.save(root)
+        #expect(try String(contentsOf: file, encoding: .utf8) == written)
+        bookmarks.toggle("Other.md", now: Date(timeIntervalSince1970: 10))
+        bookmarks.toggle("Other.md")
+        try bookmarks.save(root)
+        #expect(try String(contentsOf: file, encoding: .utf8) == written)
     }
 
     @Test func aFileItCannotReadIsNeverSavedOver() throws {
