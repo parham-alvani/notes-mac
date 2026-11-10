@@ -369,4 +369,19 @@ import Testing
         await settle(session, "ab\n", "typing with a swap file left over")
         await session.stop()
     }
+
+    /// A block is columns of the screen: on a Persian row, whose letters
+    /// are two bytes each, it holds the same letters across as on a Latin one.
+    @Test func aVisualBlockIsColumnsOnPersianRows() async throws {
+        let session = try await open("abcdef\nسیبم دنیا\nabcdef\n")
+        keys("l")
+        press("v", .control, ignoring: "v")
+        keys("jjll")
+        let block = [NSRange(location: 1, length: 3), NSRange(location: 8, length: 3), NSRange(location: 18, length: 3)]
+        let shown = await eventually { self.view.selectedRanges.map(\.rangeValue) == block }
+        #expect(shown, "\(view.selectedRanges)")
+        keys("d")
+        await settle(session, "aef\nس دنیا\naef\n", "the block that was shown is the block deleted")
+        await session.stop()
+    }
 }

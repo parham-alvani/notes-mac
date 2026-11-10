@@ -361,7 +361,18 @@ final class NeovimSession {
           local mode = vim.api.nvim_get_mode().mode
           local cursor = vim.api.nvim_win_get_cursor(0)
           local v = vim.fn.getpos('v')
-          vim.rpcnotify(chan, 'daftar_cursor', mode, cursor[1], cursor[2], v[2], v[3] - 1)
+          -- A block is columns of the screen, not bytes: a Persian letter is
+          -- two bytes and an emoji four. Neovim says what the block holds on
+          -- each row: its row, the byte its first letter starts at and the last byte of its last.
+          local block = vim.NIL
+          if mode:sub(1, 1) == '\\22' and vim.fn.getregionpos then
+            local ok, rows = pcall(vim.fn.getregionpos, v, vim.fn.getpos('.'), { type = '\\22', eol = true })
+            if ok then
+              block = {}
+              for _, row in ipairs(rows) do table.insert(block, { row[1][2], row[1][3] - 1, row[2][3] - 1 }) end
+            end
+          end
+          vim.rpcnotify(chan, 'daftar_cursor', mode, cursor[1], cursor[2], v[2], v[3] - 1, block)
         end
         vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'ModeChanged', 'BufEnter' }, { group = group, callback = send })
         -- zz, <C-e>, <C-d> and the rest move the window: the view follows.
@@ -421,7 +432,25 @@ final class NeovimSession {
             // Leaving insert mode is when a pending save can happen.
             if wasInserting, isNormal, saveSoon != nil { scheduleSave() }
             let cursor = mirror.offset(row: row, byteColumn: col)
-            if let vRow = note.params[3].intValue, let vCol = note.params[4].intValue, mode == "\u{16}" {
+            if mode == "\u{16}", note.params.count > 5, let rows = note.params[5].arrayValue {
+                // Visual block, as Neovim says it: on each row, from its
+                // first letter to its last, both whole.
+                let text = (view?.string ?? "") as NSString
+                let ranges = rows.compactMap { item -> NSRange? in
+                    guard let parts = item.arrayValue, parts.count == 3, let line = parts[0].intValue, let from = parts[1].intValue, let to = parts[2].intValue
+                    else { return nil }
+                    // A row too short for the block: nothing of it, at its end.
+                    guard from >= 0, to >= from else { return NSRange(location: mirror.offset(row: line, byteColumn: .max), length: 0) }
+                    // [to] is the last byte of the last letter: the end is the byte
+                    // after it, and never inside a letter of the view's.
+                    let start = mirror.offset(row: line, byteColumn: from)
+                    var end = mirror.offset(row: line, byteColumn: to + 1)
+                    if end > start, end <= text.length { end = max(end, NSMaxRange(text.rangeOfComposedCharacterSequence(at: end - 1))) }
+                    return NSRange(location: start, length: max(0, end - start))
+                }
+                view?.showSelections(ranges, cursor: cursor)
+            } else if let vRow = note.params[3].intValue, let vCol = note.params[4].intValue, mode == "\u{16}" {
+                // A Neovim too old to say the block (before `getregionpos`): the bytes of the two corners.
                 // Visual block: the same columns on every row, one range each.
                 let columns = (min(vCol, col), max(vCol, col))
                 let ranges = (min(vRow, row)...max(vRow, row)).map { line -> NSRange in
