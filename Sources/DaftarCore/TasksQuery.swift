@@ -183,7 +183,7 @@ public struct TasksQuery: Sendable {
                 } else {
                     query.notUnderstood.append(line)
                 }
-            } else if let match = low.wholeMatch(of: /limit (?:to )?(\d+)(?: tasks?)?/) {
+            } else if let match = low.wholeMatch(of: /limit (?:to )?([0-9]+)(?: tasks?)?/) {
                 query.limit = Int(match.1)
             } else if low.hasPrefix("sort by ") {
                 if let sort = sort(String(low.dropFirst("sort by ".count))) { query.sorts.append(sort) }
@@ -482,11 +482,11 @@ struct DateRange: Equatable {
         case "next month": self = month(first.adding(months: 1))
         case "last month": self = month(first.adding(months: -1))
         default:
-            if let match = text.wholeMatch(of: /in (\d+) days?/), let n = Int(match.1) {
+            if let match = text.wholeMatch(of: /in ([0-9]+) days?/), let n = Int(match.1) {
                 self.init(start: today.adding(days: n), end: today.adding(days: n))
-            } else if let match = text.wholeMatch(of: /(\d+) days? ago/), let n = Int(match.1) {
+            } else if let match = text.wholeMatch(of: /([0-9]+) days? ago/), let n = Int(match.1) {
                 self.init(start: today.adding(days: -n), end: today.adding(days: -n))
-            } else if let match = text.wholeMatch(of: /(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/) {
+            } else if let match = text.wholeMatch(of: /([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-9]{4}-[0-9]{2}-[0-9]{2})/) {
                 guard let a = Day(String(match.1)), let b = Day(String(match.2)), a <= b else { return nil }
                 self.init(start: a, end: b)
             } else if let day = Day(text) {

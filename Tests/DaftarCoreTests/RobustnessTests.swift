@@ -132,6 +132,32 @@ import Testing
         }
     }
 
+    /// Digits of every script where a number is read: `\d` takes them all and `Int` only ASCII, which once stopped the app.
+    @Test func digitsOfAnyScriptAreReadOrLeft() {
+        var random = Seeded(state: 14)
+        let digits = ["0", "1", "9", "۰", "۱", "۹", "٠", "٣", "०", "１", "𝟙"]
+        let marks = ["-", ":", "–", " ", "T", "Z", "\n", "## Monday ", " November\n", "- ", "All day ", "📅 ", "🔁 every ", " days", "in ", " ago", "d", "W", ".md", "- [ ] "]
+        for _ in 0..<4000 {
+            let text = (0..<Int.random(in: 0...14, using: &random)).map { _ in
+                Int.random(in: 0..<3, using: &random) == 0 ? marks.randomElement(using: &random)! : digits.randomElement(using: &random)!
+            }.joined()
+            for day in CalendarWeek.parse("## Monday 9 November\n" + text, path: "Calendar/2026-W46.md") {
+                #expect(day.meetings.allSatisfy { ($0.start == nil) == ($0.end == nil) })
+            }
+            _ = CalendarWeek.parse(text, path: "Calendar/" + text)
+            // What is read as a day or a date is one the calendar has.
+            if let day = Day(text) { #expect(Day.valid(day.year, day.month, day.day) == day || day.year < 1583) }
+            if let date = BaseEngine.parseDate(text) { #expect(date.0.timeIntervalSince1970.isFinite) }
+            _ = BaseSpan.parse(text)
+            _ = Recurrence(text)
+            _ = TaskLine.parse("- [ ] " + text, line: 0, section: "")
+            _ = TaskLine.toggled("- [ ] " + text, today: "2026-10-26")
+            _ = TasksQuery.parse("due " + text + "\nlimit " + text)
+            _ = Jalali.parse(text)
+            _ = PeriodicNotes(DailyNotes()).period(of: text)
+        }
+    }
+
     @Test func periodicNamesFromAnyFormatAndPath() {
         var random = Seeded(state: 5)
         let formats = ["YYYY-MM-DD", "YYYY-[W]ww", "GGGG-[W]WW", "YYYY-[Q]Q", "dddd, MMMM Do YYYY", "[", "]", "", "YYYY/MM/", "Do Do", "x"]

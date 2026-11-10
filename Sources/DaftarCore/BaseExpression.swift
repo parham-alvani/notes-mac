@@ -48,7 +48,7 @@ public struct BaseSpan: Sendable, Equatable {
         var found = false
         var rest = Substring(text.trimmingCharacters(in: .whitespaces))
         while !rest.isEmpty {
-            guard let match = rest.prefixMatch(of: /\s*([+-]?\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*,?/) else { return nil }
+            guard let match = rest.prefixMatch(of: /\s*([+-]?[0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)\s*,?/) else { return nil }
             guard let amount = Double(match.1) else { return nil }
             let name = String(match.2)
             guard let unit = units[name] ?? (name.count > 1 ? units[name.lowercased()] : nil) else { return nil }

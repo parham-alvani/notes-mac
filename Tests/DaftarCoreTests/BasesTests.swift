@@ -318,4 +318,16 @@ import Testing
         #expect(try evaluate("\"abc\".slice(0 / 0, 1 / 0)") == "abc")
         #expect(BaseSpan.parse("99999999999999999999 years") == nil)
     }
+
+    @Test func aDateIsARealDayInASCIIDigits() {
+        #expect(BaseEngine.parseDate("2026-11-10") != nil)
+        #expect(BaseEngine.parseDate("2026-11-10T09:30")?.1 == true)
+        // The calendar would roll these to another day; they stay the text they are.
+        #expect(BaseEngine.parseDate("2026-02-30") == nil)
+        #expect(BaseEngine.parseDate("2026-13-45") == nil)
+        #expect(BaseEngine.parseDate("2026-11-10T25:00") == nil)
+        // A Jalali date in Persian digits was the first of January of the year 1.
+        #expect(BaseEngine.parseDate("۱۴۰۵-۰۸-۰۵") == nil)
+        #expect(BaseSpan.parse("۳d") == nil)
+    }
 }

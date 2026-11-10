@@ -32,12 +32,12 @@ public enum CalendarWeek {
     public static let folder = "Calendar"
 
     public static func isWeekNote(_ path: String) -> Bool {
-        path.wholeMatch(of: /Calendar\/\d{4}-W\d{2}\.md/) != nil
+        path.wholeMatch(of: /Calendar\/[0-9]{4}-W[0-9]{2}\.md/) != nil
     }
 
     nonisolated(unsafe) private static let zoneLine = /Times are ([A-Za-z_]+\/[A-Za-z_\/+-]+|UTC)/
-    nonisolated(unsafe) private static let dayHeading = /^## \w+ (\d{1,2}) (\w+)\s*$/
-    nonisolated(unsafe) private static let event = /^- (All day|(\d{2}):(\d{2})–(?:\w{3} )?(\d{2}):(\d{2})) (.*)$/
+    nonisolated(unsafe) private static let dayHeading = /^## \w+ ([0-9]{1,2}) (\w+)\s*$/
+    nonisolated(unsafe) private static let event = /^- (All day|([0-9]{2}):([0-9]{2})–(?:\w{3} )?([0-9]{2}):([0-9]{2})) (.*)$/
     nonisolated(unsafe) private static let calendarsSuffix = /\s*\(((?:<[^>]+>(?:, )?)+)\)$/
     nonisolated(unsafe) private static let detail = /^\s{2,}- (\w+): (.*)$/
     private static let months = ["january", "february", "march", "april", "may", "june", "july", "august",
@@ -45,7 +45,7 @@ public enum CalendarWeek {
 
     /// The days of one week note. [path] gives the year, which the headings leave out.
     public static func parse(_ text: String, path: String) -> [CalendarDay] {
-        guard let match = path.firstMatch(of: /(\d{4})-W(\d{2})\.md$/), let isoYear = Int(match.1),
+        guard let match = path.firstMatch(of: /([0-9]{4})-W([0-9]{2})\.md$/), let isoYear = Int(match.1),
             let isoWeek = Int(match.2)
         else { return [] }
         let monday = mondayOf(isoYear: isoYear, week: isoWeek)
@@ -83,8 +83,11 @@ public enum CalendarWeek {
                 var meeting = Meeting(
                     day: day, start: nil, end: nil, title: unescape(rest), calendars: calendars, join: nil,
                     tentative: tentative, busyOnly: rest == "Busy", overlaps: nil)
-                if let h1 = found.2, let m1 = found.3, let h2 = found.4, let m2 = found.5,
-                    let start = time(day, Int(h1)!, Int(m1)!, zone), var end = time(day, Int(h2)!, Int(m2)!, zone)
+                // The digits are ASCII by the pattern; a time that is not one (`25:99`) leaves an all-day line.
+                if let h1 = found.2.flatMap({ Int($0) }), let m1 = found.3.flatMap({ Int($0) }),
+                    let h2 = found.4.flatMap({ Int($0) }), let m2 = found.5.flatMap({ Int($0) }),
+                    h1 < 24, h2 < 24, m1 < 60, m2 < 60,
+                    let start = time(day, h1, m1, zone), var end = time(day, h2, m2, zone)
                 {
                     // `23:00–Sat 01:00` ends on a later day.
                     while end <= start { end = end.addingTimeInterval(86_400) }

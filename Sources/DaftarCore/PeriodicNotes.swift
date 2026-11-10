@@ -369,14 +369,14 @@ public struct PeriodicNotes: Sendable {
 
     private static func regex(for token: String) -> String? {
         switch token {
-        case "YYYY", "gggg", "GGGG": #"(\d{4})"#
-        case "YY", "gg", "GG", "MM", "DD", "ww", "WW": #"(\d{2})"#
-        case "M", "D", "w", "W": #"(\d{1,2})"#
-        case "Mo", "Do", "wo", "Wo": #"(\d{1,2}(?:st|nd|rd|th))"#
-        case "Q", "d", "e", "E": #"(\d)"#
-        case "Qo", "do": #"(\d(?:st|nd|rd|th))"#
-        case "DDDD": #"(\d{3})"#
-        case "DDD": #"(\d{1,3})"#
+        case "YYYY", "gggg", "GGGG": #"([0-9]{4})"#
+        case "YY", "gg", "GG", "MM", "DD", "ww", "WW": #"([0-9]{2})"#
+        case "M", "D", "w", "W": #"([0-9]{1,2})"#
+        case "Mo", "Do", "wo", "Wo": #"([0-9]{1,2}(?:st|nd|rd|th))"#
+        case "Q", "d", "e", "E": #"([0-9])"#
+        case "Qo", "do": #"([0-9](?:st|nd|rd|th))"#
+        case "DDDD": #"([0-9]{3})"#
+        case "DDD": #"([0-9]{1,3})"#
         case "MMMM": names(MomentFormat.months)
         case "MMM": names(MomentFormat.months.map { String($0.prefix(3)) })
         case "dddd": names(MomentFormat.weekdays)

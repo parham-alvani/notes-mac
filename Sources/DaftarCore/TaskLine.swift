@@ -15,7 +15,7 @@ public enum TaskMetadata {
     }
 
     nonisolated(unsafe) private static let value = /^[0-9A-Za-z\/,:. -]{0,32}$/
-    nonisolated(unsafe) private static let dateValue = /^\d{4}-\d{2}-\d{2}$/
+    nonisolated(unsafe) private static let dateValue = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/
     nonisolated(unsafe) private static let trailingTags = /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/
     private static let dated: Set<String> = ["done", "created", "scheduled", "cancelled", "due", "start"]
 
@@ -159,7 +159,7 @@ public enum TaskReason {
 /// done, and every edit is a function of the line as it is now.
 public enum TaskLine {
     /// `- [ ] `, `* [x] `, `1. [/] `, and the same inside a quote or callout.
-    nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+)\[([^\]\n])\]\s*(.*)$/
+    nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\]\s*(.*)$/
 
     private static let done = "✅"
     private static let cancelledMark = "❌"
@@ -204,7 +204,7 @@ public enum TaskLine {
         }
         body = TaskReason.removed(from: body)
         if statuses.isClosed(status) {
-            let text = body.replacing(/[ \t]*(?:✅|❌)[ \t]*\d{4}-\d{2}-\d{2}/, with: "")
+            let text = body.replacing(/[ \t]*(?:✅|❌)[ \t]*[0-9]{4}-[0-9]{2}-[0-9]{2}/, with: "")
             return [prefix + "[ ] " + text + id]
         }
         if var lines = completeRecurring(prefix: prefix, body: body, today: today) {
@@ -282,7 +282,7 @@ public struct Recurrence: Sendable, Equatable {
     /// The most chained steps of a month or a year: 333 years of months.
     static let maxSteps = 4000
 
-    nonisolated(unsafe) private static let rule = /every(?:\s+(\d+))?\s+(?:(jalali)\s+(month|year)|(day|week|month|year))s?/
+    nonisolated(unsafe) private static let rule = /every(?:\s+([0-9]+))?\s+(?:(jalali)\s+(month|year)|(day|week|month|year))s?/
 
     public init?(_ rule: String) {
         var text = rule.trimmingCharacters(in: .whitespaces).lowercased()
@@ -362,7 +362,7 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return calendar
     }()
-    nonisolated(unsafe) private static let pattern = /(\d{4})-(\d{2})-(\d{2})/
+    nonisolated(unsafe) private static let pattern = /([0-9]{4})-([0-9]{2})-([0-9]{2})/
 
     public init(year: Int, month: Int, day: Int) {
         self.year = year
@@ -452,7 +452,7 @@ public struct TaskFields: Sendable, Equatable {
 }
 
 extension TaskLine {
-    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+)\[([^\]\n])\]\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
+    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\]\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
 
     /// The task on [raw], in parts; nil when the line is not a task.
     public static func fields(_ raw: String) -> TaskFields? {

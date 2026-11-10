@@ -297,6 +297,18 @@ import Testing
 }
 
 @Suite struct DayTests {
+    @Test func onlyASCIIDigitsAreADay() {
+        #expect(Day("2026-11-10") != nil)
+        #expect(Day("۲۰۲۶-۱۱-۱۰") == nil)
+        #expect(Day("٢٠٢٦-١١-١٠") == nil)
+        // A date in another script's digits is part of the sentence, not a due date with no day.
+        let task = TaskLine.parse("- [ ] pay rent 📅 ۲۰۲۶-۱۱-۱۰", line: 0, section: "")
+        #expect(task?.due == nil)
+        #expect(task?.text == "pay rent 📅 ۲۰۲۶-۱۱-۱۰")
+        #expect(Recurrence("every ۲ weeks") == nil)
+        #expect(TasksQuery.parse("due in ۳ days\nlimit ۵\ndue ٢٠٢٦-١١-١٠").notUnderstood.count == 3)
+    }
+
     @Test func parseAndArithmetic() {
         #expect(Day("2026-02-30") == nil)
         #expect(Day("2026-10-25")?.adding(days: 7).description == "2026-11-01")
@@ -348,6 +360,17 @@ import Testing
         #expect(calendar.component(.hour, from: start) == 10)
         let late = meetings[2]
         #expect(late.end!.timeIntervalSince(late.start!) == 2 * 3600)
+    }
+
+    @Test func digitsOfAnotherScriptAreNotATime() {
+        // `Int` reads ASCII digits only: a time in Persian digits is no event, and never a crash.
+        let text = "Times are Europe/Madrid.\n\n## Monday 9 November\n\n- ۱۰:۰۰–۱۱:۰۰ Standup\n- 25:99–26:00 Never\n- 10:00–11:00 Real\n\n## Tuesday ۱۰ November\n\n- All day Lost\n"
+        let days = CalendarWeek.parse(text, path: "Calendar/2026-W46.md")
+        #expect(days.count == 1)
+        #expect(days[0].meetings.map(\.title) == ["Never", "Real", "Lost"])
+        #expect(days[0].meetings.map(\.allDay) == [true, false, true])
+        #expect(!CalendarWeek.isWeekNote("Calendar/۲۰۲۶-W۴۶.md"))
+        #expect(CalendarWeek.parse(text, path: "Calendar/۲۰۲۶-W۴۶.md").isEmpty)
     }
 
     @Test func weekNotePath() {
