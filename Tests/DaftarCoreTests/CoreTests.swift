@@ -262,6 +262,23 @@ import Testing
         #expect(EditorCommands.toggleTask("- [ ] t ^abc", today: Day("2026-10-25")!) == ["- [x] t ✅ 2026-10-25 ^abc"])
     }
 
+    @Test func aSignifierWithAVariationSelectorIsRead() throws {
+        // Some keyboards write U+FE0F after an emoji; the Tasks plugin reads the date all the same.
+        let task = try #require(TaskLine.parse("- [ ] Water the plants ⏫\u{FE0F} 🔁\u{FE0F} every week ⏳\u{FE0F} 2026-11-10 📅\u{FE0F}2026-11-12", line: 0, section: ""))
+        #expect(task.text == "Water the plants")
+        #expect(task.priority == "⏫")
+        #expect(task.recurring == "every week")
+        #expect(task.scheduled == "2026-11-10")
+        #expect(task.due == "2026-11-12")
+        #expect(TaskLine.parse("- [x] Done ✅\u{FE0F} 2026-11-10", line: 0, section: "")?.done == "2026-11-10")
+        // Ticked, it repeats; written back, it is the plain form.
+        #expect(TaskLine.toggled("- [ ] Water 🔁\u{FE0F} every week ⏳\u{FE0F} 2026-11-10", today: "2026-11-10")?.first == "- [ ] Water 🔁 every week ⏳ 2026-11-17")
+        let fields = try #require(TaskLine.fields("- [ ] Water ⏳\u{FE0F} 2026-11-10"))
+        #expect(TaskLine.edited("- [ ] Water ⏳\u{FE0F} 2026-11-10", fields) == "- [ ] Water ⏳ 2026-11-10")
+        // An emoji in the sentence keeps its selector.
+        #expect(TaskLine.parse("- [ ] Buy ✅\u{FE0F} stickers 📅 2026-11-10", line: 0, section: "")?.text == "Buy ✅\u{FE0F} stickers")
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")

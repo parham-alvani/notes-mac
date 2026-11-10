@@ -45,7 +45,9 @@ public enum TaskMetadata {
         while true {
             var last: (String, Range<String.Index>)?
             for symbol in present {
-                if let range = remaining.range(of: symbol, options: .backwards),
+                // Literal: a symbol with a variation selector after it (`⏳\u{FE0F}`) is one
+                // character, which a search by characters does not find the symbol in.
+                if let range = remaining.range(of: symbol, options: [.backwards, .literal]),
                     last == nil || range.lowerBound > last!.1.lowerBound
                 {
                     last = (symbol, range)
@@ -53,6 +55,10 @@ public enum TaskMetadata {
             }
             guard let (symbol, range) = last, !kinds.contains(symbols[symbol]!) else { break }
             var value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
+            // The selector that asks for the emoji's coloured form says nothing: the plugin reads past it.
+            if value.unicodeScalars.first == "\u{FE0F}" {
+                value = String(String.UnicodeScalarView(value.unicodeScalars.dropFirst())).trimmingCharacters(in: .whitespaces)
+            }
             if !takes(symbol, value) {
                 guard let match = value.wholeMatch(of: trailingTags),
                     takes(symbol, String(match.1))
