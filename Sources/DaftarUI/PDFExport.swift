@@ -21,8 +21,10 @@ enum PDFExport {
     }
 
     /// The command's arguments for the note at [note] in the vault at [vault].
+    /// The note comes last, after `--`: a note at the vault's top whose name
+    /// starts with `-` (`-o.md`, `--help.md`) is a note, not an option.
     static func arguments(vault: URL, note: String, output: URL) -> [String] {
-        ["--vault", vault.path, "export", note, "-o", output.path]
+        ["--vault", vault.path, "export", "-o", output.path, "--", note]
     }
 
     /// What a failed run says: the last line of its stderr, without the

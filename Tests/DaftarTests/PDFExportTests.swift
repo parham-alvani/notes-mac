@@ -24,7 +24,11 @@ import Testing
 
     @Test func theCommandExportsTheNoteToTheChosenFile() {
         let arguments = PDFExport.arguments(vault: URL(filePath: "/Users/someone/vault"), note: "Companies/Acme/Acme.md", output: URL(filePath: "/Users/someone/Desktop/Acme.pdf"))
-        #expect(arguments == ["--vault", "/Users/someone/vault", "export", "Companies/Acme/Acme.md", "-o", "/Users/someone/Desktop/Acme.pdf"])
+        #expect(arguments == ["--vault", "/Users/someone/vault", "export", "-o", "/Users/someone/Desktop/Acme.pdf", "--", "Companies/Acme/Acme.md"])
+        // A note whose name starts with a dash is still the note: everything after `--` is.
+        let dashed = PDFExport.arguments(vault: URL(filePath: "/v"), note: "--help.md", output: URL(filePath: "/o.pdf"))
+        #expect(dashed.last == "--help.md")
+        #expect(dashed.firstIndex(of: "--") == dashed.count - 2)
     }
 
     @Test func aFailureIsTheLastLineOfStderr() {
@@ -49,14 +53,14 @@ import Testing
         let cli = folder.appending(path: "daftar-cli")
         let script = """
             #!/bin/sh
-            [ "$4" = "Missing.md" ] && { echo "daftar-cli: no note Missing.md" >&2; exit 1; }
-            echo "$@" > "$6"
+            [ "$7" = "Missing.md" ] && { echo "daftar-cli: no note Missing.md" >&2; exit 1; }
+            echo "$@" > "$5"
             """
         try script.write(to: cli, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
         let output = folder.appending(path: "Note.pdf")
         #expect(await PDFExport.run(cli: cli.path, vault: folder, note: "Note.md", output: output) == nil)
-        #expect(try String(contentsOf: output, encoding: .utf8) == "--vault \(folder.path) export Note.md -o \(output.path)\n")
+        #expect(try String(contentsOf: output, encoding: .utf8) == "--vault \(folder.path) export -o \(output.path) -- Note.md\n")
         #expect(await PDFExport.run(cli: cli.path, vault: folder, note: "Missing.md", output: output) == "no note Missing.md")
     }
 }
