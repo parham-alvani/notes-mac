@@ -289,6 +289,18 @@ import Testing
         #expect(TaskLine.parse("- [ ] Buy ✅\u{FE0F} stickers 📅 2026-11-10", line: 0, section: "")?.text == "Buy ✅\u{FE0F} stickers")
     }
 
+    @Test func aBoxWithNoSpaceAfterItIsNotATask() {
+        // A one-letter link in a list, `- [x](…)`, is not a done task named "(…)".
+        #expect(!TaskLine.isTask("- [x](https://example.com) a link"))
+        #expect(!TaskLine.isTask("- [A](Notes/A.md)"))
+        #expect(!TaskLine.isTask("- [ ]glued"))
+        #expect(TaskLine.fields("- [x](https://example.com)") == nil)
+        #expect(TaskLine.toggled("- [x](https://example.com)", today: "2026-11-10") == nil)
+        #expect(NoteParser.parse("- [x](https://example.com) a link\n- [ ] a task\n- [ ]").tasks.map(\.text) == ["a task", ""])
+        #expect(TaskLine.isTask("- [ ]\ta tab"))
+        #expect(TaskLine.isTask("> 1. [/] numbered, in a quote"))
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")

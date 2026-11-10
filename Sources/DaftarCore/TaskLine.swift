@@ -165,7 +165,9 @@ public enum TaskReason {
 /// done, and every edit is a function of the line as it is now.
 public enum TaskLine {
     /// `- [ ] `, `* [x] `, `1. [/] `, and the same inside a quote or callout.
-    nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\]\s*(.*)$/
+    /// A space or the line's end follows the box, as in Obsidian:
+    /// `- [x](https://example.com)` is a link in a list, not a task.
+    nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\](?=\s|$)\s*(.*)$/
 
     private static let done = "✅"
     private static let cancelledMark = "❌"
@@ -458,7 +460,7 @@ public struct TaskFields: Sendable, Equatable {
 }
 
 extension TaskLine {
-    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\]\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
+    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\](?=\s|$)\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
 
     /// The task on [raw], in parts; nil when the line is not a task.
     public static func fields(_ raw: String) -> TaskFields? {
