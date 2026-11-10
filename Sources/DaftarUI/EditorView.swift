@@ -20,6 +20,8 @@ struct EditorView: NSViewRepresentable {
     var jump: EditorJump?
     /// Neovim quit on its own -- `:wq`, `:q`, `ZZ` -- and the pane reads again.
     var onQuit: (() -> Void)?
+    /// Another note was opened inside Neovim (`:e`, `gf`): the pane opens it.
+    var onOpen: ((String) -> Void)?
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
@@ -37,6 +39,7 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.onExtract = onExtract
         context.coordinator.onHeadingsRenamed = onHeadingsRenamed
         context.coordinator.onQuit = onQuit
+        context.coordinator.onOpen = onOpen
         context.coordinator.lastJump = jump
         view.focusWhenShown = true
         return container
@@ -48,6 +51,7 @@ struct EditorView: NSViewRepresentable {
         controller.onCursor = onCursor
         controller.onHeadingsRenamed = onHeadingsRenamed
         controller.onQuit = onQuit
+        controller.onOpen = onOpen
         if controller.path != path {
             controller.saveNow()
             controller.load(path)
@@ -115,6 +119,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var onExtract: ((String, @escaping (String) -> Void) -> Void)?
     var onHeadingsRenamed: ((HeadingRename.Change) -> Void)?
     var onQuit: (() -> Void)?
+    var onOpen: ((String) -> Void)?
     /// The headings at the last look, to find one renamed; the start of the
     /// heading line the cursor is on; the outline's last jump.
     var headingBaseline: [Heading] = []
@@ -238,6 +243,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // Neovim owns the buffer: a rewrite must come through it, not around it.
         view.writingToolsBehavior = .none
         session.onChange = { [weak self] in self?.showStatus() }
+        session.onOpen = { [weak self] file in self?.openFromNeovim(file) }
         // A Neovim that is stopped and does not write in time: its buffer
         // is all there is of the last typing, and the store writes it.
         session.onUnwritten = { [store] path, text in
@@ -251,6 +257,18 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
         showStatus()
         Task { await session.start() }
+    }
+
+    /// A file opened inside Neovim: a file of the vault opens in the pane,
+    /// as a click on its link would; any other is not Daftar's to edit.
+    private func openFromNeovim(_ file: String) {
+        guard let path = store.vaultPath(of: URL(filePath: file)), store.url(of: path) != nil,
+            FileManager.default.fileExists(atPath: file), let onOpen
+        else {
+            store.notice = "\((file as NSString).lastPathComponent) is not a file of this vault, so it was not opened."
+            return
+        }
+        onOpen(path)
     }
 
     func stopVim(writing: Bool = true) {

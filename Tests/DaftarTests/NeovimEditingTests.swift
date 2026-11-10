@@ -399,4 +399,20 @@ import Testing
         await settle(session, "one\ntwo\nthreexy\n", "the buffer, whole, after the lengths differed")
         await session.stop()
     }
+
+    /// `:e Other.md` inside Neovim: the view shows one note, so Neovim stays
+    /// on it and Daftar is asked to open the other. Before, the keys went
+    /// to a buffer nothing showed, and the next save wrote it.
+    @Test func anotherFileOpenedInNeovimIsHandedToDaftar() async throws {
+        try "other\n".write(to: root.appending(path: "Other.md"), atomically: true, encoding: .utf8)
+        var opened: [String] = []
+        controller.onOpen = { opened.append($0) }
+        let session = try await open("a\n")
+        keys(":e Other.md\r")
+        #expect(await eventually { opened == ["Other.md"] })
+        keys("Ax\u{1B}")
+        await settle(session, "ax\n", "the keys still go to the note the view shows")
+        #expect((try? String(contentsOf: root.appending(path: "Other.md"), encoding: .utf8)) == "other\n")
+        await session.stop()
+    }
 }
