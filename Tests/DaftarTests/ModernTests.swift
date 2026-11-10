@@ -45,9 +45,9 @@ import Testing
     }
 
     @Test func theNeovimConfigCanBeAFile() {
-        #expect(NeovimSession.arguments(config: "user") == ["--cmd", "let g:daftar = 1"])
-        #expect(NeovimSession.arguments(config: "clean") == ["--cmd", "let g:daftar = 1", "--clean"])
-        #expect(NeovimSession.arguments(config: "~/.config/daftar/init.lua") == ["--cmd", "let g:daftar = 1", "-u", NSHomeDirectory() + "/.config/daftar/init.lua"])
+        #expect(NeovimSession.arguments(config: "user") == ["--cmd", "let g:daftar = 1", "-n"])
+        #expect(NeovimSession.arguments(config: "clean") == ["--cmd", "let g:daftar = 1", "-n", "--clean"])
+        #expect(NeovimSession.arguments(config: "~/.config/daftar/init.lua") == ["--cmd", "let g:daftar = 1", "-n", "-u", NSHomeDirectory() + "/.config/daftar/init.lua"])
     }
 
     @Test func readingAgainOpensWhereTheEditorWas() throws {

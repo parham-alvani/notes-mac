@@ -238,6 +238,17 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // Neovim owns the buffer: a rewrite must come through it, not around it.
         view.writingToolsBehavior = .none
         session.onChange = { [weak self] in self?.showStatus() }
+        // A Neovim that is stopped and does not write in time: its buffer
+        // is all there is of the last typing, and the store writes it.
+        session.onUnwritten = { [store] path, text in
+            guard store.text(of: path) != text else { return }
+            do {
+                try store.write(text, to: path)
+                store.notice = "Neovim did not answer, so Daftar wrote \(Vault.title(of: path)) itself."
+            } catch {
+                store.notice = "\(Vault.title(of: path)) could not be saved: \(error.localizedDescription)"
+            }
+        }
         showStatus()
         Task { await session.start() }
     }
@@ -275,15 +286,24 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             // view takes the file, so `:q!` leaves no text here to save.
             // A Neovim that was killed wrote nothing, and what the view
             // shows is all there is of the typing: that is saved.
-            if let onQuit {
-                let crashed = session.crashed
+            if session.crashed {
+                // Killed, or ended because it did not answer: the note
+                // stays open, in the plain editor, with all that was typed.
+                neovimRefused = true
                 stopVim(writing: false)
-                if !crashed { takeDisk() }
+                saveNow()
+                store.notice = "Neovim stopped, so this note is in the plain editor. What you typed is kept."
+                return
+            }
+            if let onQuit {
+                stopVim(writing: false)
+                takeDisk()
                 onQuit()
                 return
             }
             container?.setStatus("Neovim ended. Open the note again to start it.", mode: "NEOVIM")
-        case .starting: container?.setStatus("Starting Neovim…", mode: "NEOVIM")
+        // What Neovim says as it starts -- an error in the config, a question -- shows too.
+        case .starting: container?.setStatus(session.status.isEmpty ? "Starting Neovim…" : session.status, mode: "NEOVIM")
         case .running: container?.setStatus(session.status, mode: session.modeName)
         }
         // The block cursor and the bar differ: the cursor's line is drawn

@@ -56,7 +56,10 @@ final class NeovimSession {
     /// `nvim_config`: "user" is your init.lua, "clean" is none, and any
     /// other value is a Lua or Vim file to start with instead, as `-u`.
     static func arguments(config: String) -> [String] {
-        var arguments = ["--cmd", "let g:daftar = 1"]
+        // `-n`: no swap file. Daftar saves a second after each change, and
+        // a swap file left by a Neovim that died made the next one ask
+        // what to do with it, before any key could reach it.
+        var arguments = ["--cmd", "let g:daftar = 1", "-n"]
         switch config.trimmingCharacters(in: .whitespaces) {
         case "clean": arguments.append("--clean")
         case "user", "": break
@@ -74,8 +77,36 @@ final class NeovimSession {
         }
     }
 
-    /// Neovim was killed, and did not quit: what the view shows was not all written.
-    var crashed: Bool { client.crashed }
+    /// Neovim was killed, or was ended because it did not answer, and did
+    /// not quit: what the view shows was not all written.
+    var crashed: Bool { client.crashed || unanswered }
+
+    /// How long Neovim has to start, to write when asked and waited for,
+    /// and to write as it is stopped. A Neovim that waits at a question,
+    /// or in a plugin that never returns, is ended then: nothing in the
+    /// app waits for it for ever.
+    static var startLimit = Duration.seconds(15)
+    static var saveLimit = Duration.seconds(5)
+    static var stopLimit = Duration.seconds(3)
+
+    /// Neovim was ended at one of the limits.
+    private(set) var unanswered = false
+    /// The buffer a stopped Neovim did not write in time, for the store to
+    /// write: its path and its text. The view is another note's by then.
+    var onUnwritten: ((String, String) -> Void)?
+
+    /// [work], which waits for Neovim; past [limit] Neovim is ended, and
+    /// every request that waits for it fails.
+    private func within<T>(_ limit: Duration, _ work: () async throws -> T) async rethrows -> T {
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: limit)
+            guard !Task.isCancelled, let self else { return }
+            self.unanswered = true
+            self.client.stop()
+        }
+        defer { watchdog.cancel() }
+        return try await work()
+    }
 
     /// Neovim's process, for a test that kills it.
     var processIdentifier: Int32 { client.processIdentifier }
@@ -97,6 +128,7 @@ final class NeovimSession {
 
     func start() async {
         do {
+          try await within(Self.startLimit) {
             client.onRequest = { [weak self] method, params in
                 await self?.answer(method, params) ?? .nil
             }
@@ -129,9 +161,11 @@ final class NeovimSession {
             }
             for (method, params) in waiting { client.notify(method, params) }
             waiting = []
+          }
         } catch {
-            state = .failed(String(describing: error))
-            status = "Neovim did not start: \(error)"
+            let reason = unanswered ? "It did not answer in \(Self.startLimit.components.seconds) seconds." : String(describing: error)
+            state = .failed(reason)
+            status = "Neovim did not start: \(reason)"
         }
         onChange?()
     }
@@ -576,7 +610,10 @@ final class NeovimSession {
     func saveAndWait() async {
         saveSoon?.cancel()
         guard case .running = state else { return }
-        _ = try? await client.request("nvim_command", ["silent! update"])
+        _ = try? await within(Self.saveLimit) { try await client.request("nvim_command", ["silent! update"]) }
+        // It did not write in time and was ended: the editor hears it now,
+        // before the caller reads the file, and saves what the view shows.
+        if unanswered { ended() }
     }
 
     /// Where the cursor goes once Neovim runs: the line the reader was on.
@@ -640,7 +677,8 @@ final class NeovimSession {
         detach()
         saveSoon?.cancel()
         if writing, case .running = state {
-            _ = try? await client.request("nvim_command", ["silent! update"])
+            _ = try? await within(Self.stopLimit) { try await client.request("nvim_command", ["silent! update"]) }
+            if unanswered { onUnwritten?(path, mirror.text) }
         }
         state = .ended
         listen?.cancel()

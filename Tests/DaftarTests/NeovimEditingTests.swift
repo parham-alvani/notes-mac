@@ -226,7 +226,8 @@ import Testing
         _ = session
     }
 
-    /// A Neovim that is killed wrote nothing: the typing the view shows is saved.
+    /// A Neovim that is killed wrote nothing: the typing the view shows is
+    /// saved, and the note stays open in the plain editor.
     @Test func aKilledNeovimLosesNoTyping() async throws {
         var quit = 0
         controller.onQuit = { quit += 1 }
@@ -234,9 +235,60 @@ import Testing
         keys("Ab")
         #expect(await eventually { self.view.string == "ab\n" })
         kill(session.processIdentifier, SIGKILL)
-        #expect(await eventually { quit == 1 })
-        controller.saveNow()
+        #expect(await eventually { self.controller.session == nil })
         #expect(file() == "ab\n")
+        #expect(quit == 0)
+        #expect(controller.owner == .plain)
+    }
+
+    /// A Neovim that never answers -- at a question, in a plugin -- does
+    /// not leave the editor at "Starting Neovim…" for ever.
+    @Test func aNeovimThatNeverAnswersGivesWayToThePlainEditor() async throws {
+        let script = root.appending(path: "config/stuck")
+        try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexec sleep 30\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        store.settings.nvimPath = script.path
+        NeovimSession.startLimit = .milliseconds(300)
+        defer { NeovimSession.startLimit = .seconds(15) }
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("N.md")
+        #expect(controller.owner == .neovimStarting)
+        #expect(await eventually { self.controller.session == nil })
+        #expect(controller.owner == .plain)
+    }
+
+    /// A save that is waited for (Sort Tasks, a property, quit) and a
+    /// Neovim that does not write: it is ended, and the typing is saved
+    /// from the view.
+    @Test func aSaveNeovimDoesNotAnswerIsMadeByTheEditor() async throws {
+        NeovimSession.saveLimit = .milliseconds(400)
+        defer { NeovimSession.saveLimit = .seconds(5) }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}")
+        #expect(await eventually { self.view.string == "ab\n" })
+        keys(":lua vim.uv.sleep(30000)\r")
+        try await Task.sleep(for: .milliseconds(100))
+        await controller.flush()
+        #expect(file() == "ab\n")
+        #expect(controller.session == nil)
+        #expect(controller.owner == .plain)
+        _ = session
+    }
+
+    /// The same as the editor leaves the note: the buffer is written by the store.
+    @Test func aStopNeovimDoesNotAnswerStillWritesTheBuffer() async throws {
+        NeovimSession.stopLimit = .milliseconds(400)
+        defer { NeovimSession.stopLimit = .seconds(3) }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}")
+        #expect(await eventually { self.view.string == "ab\n" })
+        keys(":lua vim.uv.sleep(30000)\r")
+        try await Task.sleep(for: .milliseconds(100))
+        controller.stopVim()
+        #expect(await eventually { self.file() == "ab\n" })
+        _ = session
     }
 
     /// A Neovim that does not start leaves the plain editor, which saves:
@@ -285,6 +337,36 @@ import Testing
         let session = try await open("item 9\n")
         press("\u{01}", .control, ignoring: "ش", keyCode: 0)
         await settle(session, "item 10\n", "ctrl-a on the Persian layout")
+        await session.stop()
+    }
+
+    /// A Neovim that died with a changed buffer leaves its swap file, and
+    /// the next Neovim asked what to do with it, of a person who could not
+    /// answer: the keys wait until Neovim runs. Neovim runs without swap
+    /// files (`-n`); Daftar saves a second after each change.
+    @Test func aLeftoverSwapFileDoesNotStopNeovim() async throws {
+        let state = root.appending(path: "state")
+        setenv("XDG_STATE_HOME", state.path, 1)
+        defer { unsetenv("XDG_STATE_HOME") }
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        // A Neovim of another program, with swap files, killed in the middle of an edit.
+        let other = NeovimClient(executable: try #require(NeovimClient.locate()), arguments: ["--clean"], directory: root)
+        try other.start()
+        try await other.request("nvim_ui_attach", [80, 24, [:]])
+        try await other.request("nvim_command", ["edit N.md"])
+        try await other.request("nvim_buf_set_lines", [0, 0, 0, false, ["changed"]])
+        try await other.request("nvim_command", ["preserve"])
+        kill(other.processIdentifier, SIGKILL)
+        for _ in 0..<100 where other.isRunning { try await Task.sleep(for: .milliseconds(20)) }
+        let swaps = (try? FileManager.default.subpathsOfDirectory(atPath: state.path))?.filter { $0.hasSuffix(".swp") } ?? []
+        try #require(!swaps.isEmpty, "the made-up crash left a swap file")
+
+        store.openSynchronously(root)
+        controller.load("N.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        keys("Ab\u{1B}")
+        await settle(session, "ab\n", "typing with a swap file left over")
         await session.stop()
     }
 }
