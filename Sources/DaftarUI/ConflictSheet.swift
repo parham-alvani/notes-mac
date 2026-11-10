@@ -53,7 +53,7 @@ struct ConflictSheet: View {
                 }
             }
         } message: {
-            Text("The pull stops and your notes are as they were before it. Your changes stay committed on this Mac, and the next sync tries the pull again.")
+            Text("The pull stops and your commits are as they were before it. What you wrote in other notes since the pull stopped is kept; the choices made here are not. The next sync tries the pull again.")
         }
     }
 

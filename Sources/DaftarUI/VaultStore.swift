@@ -825,15 +825,19 @@ final class VaultStore {
     }
 
     /// Ends the open rebase: the branch is as it was before the pull, and
-    /// the next sync pulls again.
+    /// the next sync pulls again. What the person wrote in other notes
+    /// while the conflict was open stays (`Git.abortRebase`).
     func abortConflicts() async {
         guard let root, rebasing, !syncing else { return }
+        // What the editors hold is on disk before the tree is reset.
+        await flushEditors()
         syncing = true
         defer { syncing = false }
         do {
-            try await Git(root: root).abortRebase()
+            let copies = try await Git(root: root).abortRebase()
             syncError = nil
-            notice = "The sync was stopped. Your commits are as they were before the pull."
+            notice = "The sync was stopped. Your commits are as they were before the pull, and what you wrote since is kept."
+                + (copies.isEmpty ? "" : " A copy was made of \(copies.joined(separator: ", ")).")
         } catch {
             notice = "The sync could not be stopped: \(error)"
         }

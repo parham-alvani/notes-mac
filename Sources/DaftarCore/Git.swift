@@ -322,8 +322,81 @@ public struct Git: Sendable {
     }
 
     /// Ends the open rebase and puts the branch back as it was before the pull.
-    public func abortRebase() async throws {
+    /// The abort resets the tree, so what the person wrote in other files
+    /// while the rebase was open is read first and written back after it:
+    /// a note edited, added or deleted during the stop stays so. A file
+    /// still in conflict is not kept; its choice is made again at the next
+    /// pull. Returns the copies made beside a file that the pull's own
+    /// stash also changed, where neither text may go over the other.
+    @discardableResult
+    public func abortRebase() async throws -> [String] {
+        let kept = try await editedDuringStop()
         try await run(["rebase", "--abort"])
+        return try await putBack(kept)
+    }
+
+    /// A tracked file that differs from the rebase's commit and is not in
+    /// conflict: its bytes, or nil when the person deleted it.
+    struct Kept {
+        var path: String
+        var data: Data?
+    }
+
+    /// The codes of `git status` for a file with unresolved conflicts.
+    private static let unmerged: Set<String> = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+
+    func editedDuringStop() async throws -> [Kept] {
+        let output = try await run(["status", "--porcelain=v1", "-z", "--no-renames"], trimmed: false)
+        var kept: [Kept] = []
+        for record in output.utf8.split(separator: 0, omittingEmptySubsequences: true) where record.count > 3 {
+            let code = String(decoding: record.prefix(2), as: UTF8.self)
+            // An untracked file stays through an abort by itself.
+            guard code != "??", code != "!!", !Self.unmerged.contains(code) else { continue }
+            let path = String(decoding: record.dropFirst(3), as: UTF8.self)
+            let file = root.appending(path: path)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) {
+                // A submodule or a folder in a file's place is not a note to keep.
+                guard !isDirectory.boolValue, let data = try? Data(contentsOf: file) else { continue }
+                kept.append(Kept(path: path, data: data))
+            } else {
+                kept.append(Kept(path: path, data: nil))
+            }
+        }
+        return kept
+    }
+
+    func putBack(_ kept: [Kept]) async throws -> [String] {
+        guard !kept.isEmpty else { return [] }
+        // After the abort the tree is clean but for what the pull's own
+        // stash put back: a file it changed has two texts now.
+        let stashed = Set(try await changes())
+        var copies: [String] = []
+        var failure: (any Error)?
+        for file in kept {
+            let url = root.appending(path: file.path)
+            do {
+                guard let data = file.data else {
+                    if !stashed.contains(file.path), FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+                    continue
+                }
+                if (try? Data(contentsOf: url)) == data { continue }
+                var target = url
+                if stashed.contains(file.path) {
+                    let name = url.deletingPathExtension().lastPathComponent + " (edited during the stopped sync)"
+                    let ext = url.pathExtension
+                    target = url.deletingLastPathComponent().appending(path: ext.isEmpty ? name : name + "." + ext)
+                    let folder = (file.path as NSString).deletingLastPathComponent
+                    copies.append((folder.isEmpty ? "" : folder + "/") + target.lastPathComponent)
+                }
+                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: target, options: .atomic)
+            } catch {
+                failure = failure ?? error
+            }
+        }
+        if let failure { throw failure }
+        return copies
     }
 
     /// A commit that changed a note.

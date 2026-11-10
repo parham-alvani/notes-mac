@@ -185,6 +185,31 @@ import Testing
         #expect(repos.read(repos.mac, "N.md") == "mac\n")
     }
 
+    /// The person goes on working while the conflict waits: a note edited,
+    /// added to the index or deleted then is as they left it after the abort.
+    @Test func abortKeepsWhatWasWrittenDuringTheStop() async throws {
+        let repos = try await Repos()
+        defer { repos.remove() }
+        try await diverge(repos, files: [
+            "N.md": ("x\n", "phone\n", "mac\n"), "Tasks.md": ("- [ ] one\n", "- [ ] one\n", "- [ ] one\n"),
+            "Old.md": ("old\n", "old\n", "old\n"),
+        ])
+        await #expect(throws: Git.Stopped.self) { try await repos.mac.sync(message: "mac") }
+        try repos.write(repos.mac, "Tasks.md", "- [x] one\n")
+        try repos.write(repos.mac, "New.md", "new\n")
+        try repos.write(repos.mac, "Staged.md", "staged\n")
+        try await repos.mac.run(["add", "--", "Staged.md"])
+        try FileManager.default.removeItem(at: repos.mac.root.appending(path: "Old.md"))
+        #expect(try await repos.mac.abortRebase().isEmpty)
+        #expect(try await !repos.mac.rebaseInProgress())
+        #expect(try await repos.subjects(repos.mac) == ["mac", "first"])
+        #expect(repos.read(repos.mac, "N.md") == "mac\n")
+        #expect(repos.read(repos.mac, "Tasks.md") == "- [x] one\n")
+        #expect(repos.read(repos.mac, "New.md") == "new\n")
+        #expect(repos.read(repos.mac, "Staged.md") == "staged\n")
+        #expect(repos.read(repos.mac, "Old.md") == nil)
+    }
+
     @Test func otherFilesKeepOneSideAndADeletionIsASide() async throws {
         let repos = try await Repos()
         defer { repos.remove() }
