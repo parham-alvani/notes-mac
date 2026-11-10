@@ -788,10 +788,9 @@ final class VaultStore {
     /// block changed since it was listed.
     @discardableResult
     func addBlockId(_ id: String, to path: String, line: Int, text: String) -> Bool {
-        afterEditors { self.addBlockIdNow(id, to: path, line: line, text: text) }
-    }
-
-    private func addBlockIdNow(_ id: String, to path: String, line: Int, text: String) -> Bool {
+        // Not through `afterEditors`: its callers need the answer at once
+        // (the link is copied only when the id went in), and the one that
+        // can meet an editor saves the editors itself first.
         guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
         do {
             try ownEdit(path, in: root) { try BlockRefs.addId(id, toBlockAt: line, expected: text, in: $0) }
