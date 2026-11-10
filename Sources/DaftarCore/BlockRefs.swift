@@ -22,7 +22,8 @@ public enum BlockRefs {
     nonisolated(unsafe) private static let trailingId = /\s\^([A-Za-z0-9-]+)\s*$/
     nonisolated(unsafe) private static let ownLineId = /^\s*\^([A-Za-z0-9-]+)\s*$/
     nonisolated(unsafe) private static let itemMark = /^\s*(?:[-*+]|\d+[.)])(?:\s+\[[^\]]\])?(?:\s+|$)/
-    nonisolated(unsafe) private static let heading = /^\s{0,3}(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/
+    /// As `NoteParser.heading` reads a heading: the closing `#` run only after a space.
+    nonisolated(unsafe) private static let heading = /^\s{0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/
     nonisolated(unsafe) private static let fence = /^\s*(```+|~~~+)/
 
     /// The letters an id is made of.
@@ -74,7 +75,7 @@ public enum BlockRefs {
                 continue
             }
             if trimmed.hasPrefix("#"), let match = line.wholeMatch(of: heading) {
-                blocks.append(Block(kind: .heading, start: index, end: index, id: nil, text: String(match.2)))
+                blocks.append(Block(kind: .heading, start: index, end: index, id: nil, text: match.2.allSatisfy { $0 == "#" } ? "" : String(match.2)))
                 index += 1
                 continue
             }

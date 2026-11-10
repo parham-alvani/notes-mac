@@ -66,7 +66,16 @@ public struct ParsedTask: Sendable, Equatable, Hashable {
 }
 
 public enum NoteParser {
-    nonisolated(unsafe) static let heading = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/
+    nonisolated(unsafe) private static let headingLine = /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/
+
+    /// The level and the text of a `#` heading line, or nil. A closing run
+    /// of `#` comes off only after a space, as CommonMark has it: `## C#`
+    /// is the heading "C#", `## Title ##` is "Title", and `## ##` has no text.
+    static func heading(_ line: String) -> (level: Int, text: String)? {
+        guard line.hasPrefix("#"), let match = line.firstMatch(of: headingLine) else { return nil }
+        let text = match.2.allSatisfy { $0 == "#" } ? "" : String(match.2)
+        return (match.1.count, text)
+    }
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
     nonisolated(unsafe) private static let markdownLink = /(!?)\[[^\]\n]*\]\(<?([^)>\s]+)>?\)/
     nonisolated(unsafe) private static let tag = /(?:^|\s)#([\p{L}\p{N}_\/-]+)/
@@ -123,9 +132,8 @@ public enum NoteParser {
             let line = Comments.strip(raw, open: &inComment)
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
 
-            if line.hasPrefix("#"), let match = line.firstMatch(of: heading) {
-                let text = String(match.2)
-                note.headings.append(Heading(level: match.1.count, text: text, line: index))
+            if let (level, text) = heading(line) {
+                note.headings.append(Heading(level: level, text: text, line: index))
                 section = text
             }
             let code = InlineCode.removed(from: line)

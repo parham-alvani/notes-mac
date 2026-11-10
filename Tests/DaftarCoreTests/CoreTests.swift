@@ -124,6 +124,16 @@ import Testing
         #expect(fenced.links.isEmpty)
     }
 
+    @Test func aHeadingMayEndInAHash() {
+        // The closing `#` run comes off only after a space: C# keeps its sharp.
+        let text = "## C#\n## F# and C#\n## Closed ##\n## Closed too ##  \n## ##\n### Plain"
+        let wanted = ["C#", "F# and C#", "Closed", "Closed too", "", "Plain"]
+        #expect(NoteParser.parse(text).headings.map(\.text) == wanted)
+        #expect(Sections.headings(in: text).map(\.text) == wanted)
+        #expect(BlockRefs.blocks(in: text).map(\.text) == wanted)
+        #expect(NoteParser.parse("## C#\n- [ ] learn it").tasks.first?.section == "C#")
+    }
+
     @Test func tagsHeadingsAndTasks() {
         let note = NoteParser.parse(text)
         #expect(note.tags.contains("inline-tag"))

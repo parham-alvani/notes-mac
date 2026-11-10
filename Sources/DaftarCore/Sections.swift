@@ -36,8 +36,8 @@ public enum Sections {
             }
             if fenceMarker != nil { continue }
             let line = Comments.strip(raw, open: &inComment)
-            if line.hasPrefix("#"), let match = line.firstMatch(of: NoteParser.heading) {
-                headings.append(Heading(level: match.1.count, text: String(match.2), line: index))
+            if let (level, text) = NoteParser.heading(line) {
+                headings.append(Heading(level: level, text: text, line: index))
             }
         }
         return headings
