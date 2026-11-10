@@ -521,13 +521,20 @@ public final class BaseEngine {
 
     nonisolated(unsafe) private static let datePattern = /^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.[0-9]+)?)?)?(Z)?$/
 
+    /// Made once: a date is read for each property of each row, and again in a sort's
+    /// comparisons. It follows the Mac's time zone as it changes.
+    private static let localCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }()
+
     /// `2026-10-25`, `2026-10-25T09:30`, `2026-10-25 09:30:00`, in the local
     /// time zone unless it ends in `Z`. ASCII digits and a real day only: `۱۴۰۵-۰۸-۰۵`
     /// and `2026-02-30` stay text.
     static func parseDate(_ text: String) -> (Date, Bool)? {
         guard let match = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: datePattern) else { return nil }
-        var calendar = Calendar(identifier: .gregorian)
-        if match.7 != nil { calendar.timeZone = TimeZone(identifier: "UTC")! }
+        let calendar = match.7 != nil ? Day.utc : localCalendar
         // A day the calendar does not have (`2026-02-30`) is text, not the day the calendar would roll it to.
         guard let year = Int(match.1), let month = Int(match.2), let day = Int(match.3), Day.of(year: year, month: month, day: day) != nil
         else { return nil }

@@ -32,8 +32,18 @@ public enum CalendarWeek {
     public static let folder = "Calendar"
 
     public static func isWeekNote(_ path: String) -> Bool {
-        path.wholeMatch(of: /Calendar\/[0-9]{4}-W[0-9]{2}\.md/) != nil
+        path.wholeMatch(of: weekNote) != nil
     }
+
+    // Made once: a pattern or a calendar made for each note, or for each
+    // meeting's two times, was time the index spent at every launch.
+    nonisolated(unsafe) private static let weekNote = /Calendar\/[0-9]{4}-W[0-9]{2}\.md/
+    nonisolated(unsafe) private static let weekName = /([0-9]{4})-W([0-9]{2})\.md$/
+    private static let isoWeeks: Calendar = {
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }()
 
     nonisolated(unsafe) private static let zoneLine = /Times are ([A-Za-z_]+\/[A-Za-z_\/+-]+|UTC)/
     nonisolated(unsafe) private static let dayHeading = /^## \w+ ([0-9]{1,2}) (\w+)\s*$/
@@ -45,11 +55,13 @@ public enum CalendarWeek {
 
     /// The days of one week note. [path] gives the year, which the headings leave out.
     public static func parse(_ text: String, path: String) -> [CalendarDay] {
-        guard let match = path.firstMatch(of: /([0-9]{4})-W([0-9]{2})\.md$/), let isoYear = Int(match.1),
+        guard let match = path.firstMatch(of: weekName), let isoYear = Int(match.1),
             let isoWeek = Int(match.2)
         else { return [] }
         let monday = mondayOf(isoYear: isoYear, week: isoWeek)
-        let zone = text.firstMatch(of: zoneLine).flatMap { TimeZone(identifier: String($0.1)) } ?? .current
+        // One calendar for the note's zone, for every time in it.
+        var clock = Calendar(identifier: .gregorian)
+        clock.timeZone = text.firstMatch(of: zoneLine).flatMap { TimeZone(identifier: String($0.1)) } ?? .current
 
         var days: [CalendarDay] = []
         for line in text.components(separatedBy: "\n") {
@@ -87,7 +99,7 @@ public enum CalendarWeek {
                 if let h1 = found.2.flatMap({ Int($0) }), let m1 = found.3.flatMap({ Int($0) }),
                     let h2 = found.4.flatMap({ Int($0) }), let m2 = found.5.flatMap({ Int($0) }),
                     h1 < 24, h2 < 24, m1 < 60, m2 < 60,
-                    let start = time(day, h1, m1, zone), var end = time(day, h2, m2, zone)
+                    let start = time(day, h1, m1, clock), var end = time(day, h2, m2, clock)
                 {
                     // `23:00–Sat 01:00` ends on a later day.
                     while end <= start { end = end.addingTimeInterval(86_400) }
@@ -112,23 +124,17 @@ public enum CalendarWeek {
 
     /// The path of the week note that holds [day].
     public static func path(for day: Day) -> String {
-        var calendar = Calendar(identifier: .iso8601)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let parts = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: day.date)
+        let parts = isoWeeks.dateComponents([.yearForWeekOfYear, .weekOfYear], from: day.date)
         return String(format: "\(folder)/%04d-W%02d.md", parts.yearForWeekOfYear!, parts.weekOfYear!)
     }
 
     static func mondayOf(isoYear: Int, week: Int) -> Day {
-        var calendar = Calendar(identifier: .iso8601)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let date = calendar.date(from: DateComponents(weekday: 2, weekOfYear: week, yearForWeekOfYear: isoYear))!
+        let date = isoWeeks.date(from: DateComponents(weekday: 2, weekOfYear: week, yearForWeekOfYear: isoYear))!
         return Day(date: date)
     }
 
-    private static func time(_ day: Day, _ hour: Int, _ minute: Int, _ zone: TimeZone) -> Date? {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = zone
-        return calendar.date(from: DateComponents(year: day.year, month: day.month, day: day.day, hour: hour, minute: minute))
+    private static func time(_ day: Day, _ hour: Int, _ minute: Int, _ calendar: Calendar) -> Date? {
+        calendar.date(from: DateComponents(year: day.year, month: day.month, day: day.day, hour: hour, minute: minute))
     }
 
     /// The week notes escape markdown in titles so the vault's lint passes.

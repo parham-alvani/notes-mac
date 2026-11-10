@@ -195,7 +195,9 @@ public struct PeriodicNotes: Sendable {
     private let iso: Bool
     /// The token each capture group stands for, in order.
     private let groups: [String]
-    private let pattern: String
+    /// The format as a pattern, compiled once: a journal's every path is asked of it
+    /// (`nearest`, `yearsAgo`). Nil when the format makes no pattern.
+    private let pattern: NSRegularExpression?
 
     private static let dayTokens: Set = ["D", "DD", "Do", "DDD", "DDDD", "d", "dd", "ddd", "dddd", "do", "e", "E"]
     private static let weekTokens: Set = ["w", "ww", "wo", "W", "WW", "Wo"]
@@ -211,10 +213,11 @@ public struct PeriodicNotes: Sendable {
             : has(["Q", "Qo"]) ? .quarter : .year
         iso = has(Self.isoTokens)
         var groups: [String] = []
-        pattern = "^" + tokens.map { token in
+        let source = "^" + tokens.map { token in
             if let regex = Self.regex(for: token) { groups.append(token); return regex }
             return NSRegularExpression.escapedPattern(for: MomentFormat.literal(token))
         }.joined() + "$"
+        pattern = try? NSRegularExpression(pattern: source)
         self.groups = groups
     }
 
@@ -246,9 +249,8 @@ public struct PeriodicNotes: Sendable {
 
     /// The period [path] is the note of, by its start; nil when it is not a daily note.
     public func period(of path: String) -> Day? {
-        guard let name = name(of: path),
-            let regex = try? NSRegularExpression(pattern: pattern),
-            let match = regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name))
+        guard let name = name(of: path), let pattern,
+            let match = pattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name))
         else { return nil }
         var fields: [String: String] = [:]
         for (index, token) in groups.enumerated() {

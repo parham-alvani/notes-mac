@@ -163,4 +163,15 @@ import Testing
         #expect(Templates(folder: "Meta/Templates/").templates(in: paths) == ["Meta/Templates/Day.md", "Meta/Templates/Week.md"])
         #expect(Templates().templates(in: paths) == ["Templates/Other.md"])
     }
+
+    @Test func theFormatIsReadOnceForEveryPath() {
+        // The pattern is the format's, made with the notes: every path is asked of the same one.
+        let notes = PeriodicNotes(DailyNotes(folder: "Journal", format: "YYYY-MM-DD"))
+        let paths = (1...28).map { String(format: "Journal/2026-02-%02d.md", $0) } + ["Journal/2026-02-30.md", "Journal/۲۰۲۶-۰۲-۰۱.md", "Other/2026-02-01.md"]
+        #expect(paths.compactMap { notes.period(of: $0) }.count == 28)
+        #expect(notes.nearest(paths, from: "Journal/2026-02-10.md", step: 1) == "Journal/2026-02-11.md")
+        #expect(notes.nearest(paths, from: "Journal/2026-02-01.md", step: -1) == nil)
+        #expect(CalendarWeek.path(for: Day("2027-01-03")!) == "Calendar/2026-W53.md")
+        #expect(CalendarWeek.mondayOf(isoYear: 2026, week: 53) == Day("2026-12-28")!)
+    }
 }
