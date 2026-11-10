@@ -312,11 +312,28 @@ struct SettingsView: View {
         }
         .frame(width: 520)
         .tint(Palette.accent)
+        .safeAreaInset(edge: .bottom) { SettingsProblem() }
     }
 
     /// The Neovim config beside Daftar's own settings file, as the file names it.
     static func daftarInit(_ settings: AppSettings) -> String {
         settings.url.deletingLastPathComponent().appending(path: "init.lua").path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+    }
+}
+
+/// Why a change in this window was not kept in the settings file, when it was not.
+private struct SettingsProblem: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        if let problem = store.settings.problem {
+            Label(problem, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(Palette.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20).padding(.vertical, 10)
+                .accessibilityLabel("Settings not saved. \(problem)")
+        }
     }
 }
 

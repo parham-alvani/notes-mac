@@ -15,8 +15,14 @@ final class AppSettings {
     @ObservationIgnored private var file = ConfigFile(text: ConfigFile.template)
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var loading = false
+    /// The file is there and could not be read (its bytes are not UTF-8, or
+    /// no permission). The app then runs on the defaults and never writes:
+    /// what it holds is the template, not the person's file.
+    @ObservationIgnored private var unreadable = false
+    /// Why the last change was not kept in the file, for the person to read; nil when it was.
+    private(set) var problem: String?
 
-    var vaultPath: String? { didSet { write("vault", .string(vaultPath ?? "")) } }
+    var vaultPath: String? { didSet { writeVault() } }
     var appearance: Appearance { didSet { write("appearance.theme", .string(appearance.rawValue)); applyAppearance() } }
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
     var font: String { didSet { write("appearance.font", .string(font)) } }
@@ -180,7 +186,13 @@ final class AppSettings {
             try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? Data(ConfigFile.template.utf8).write(to: url, options: .atomic)
         }
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            unreadable = manager.fileExists(atPath: url.path)
+            if unreadable { problem = "The settings file could not be read, so Daftar uses its defaults and does not change the file: \(Self.shown(url))." }
+            return
+        }
+        if unreadable { problem = nil }
+        unreadable = false
         file = ConfigFile(text: text)
         loading = true
         defer { loading = false }
@@ -234,9 +246,34 @@ final class AppSettings {
 
     private func write(_ path: String, _ value: ConfigFile.Value) {
         guard !loading, file[path] != value else { return }
-        file.set(path, value)
-        try? Data(file.text.utf8).write(to: url, options: .atomic)
+        guard !unreadable else {
+            // The file was never read: writing would put the template where the person's settings are.
+            problem = "The settings file could not be read, so this change is not kept: \(Self.shown(url))."
+            return
+        }
+        var changed = file
+        changed.set(path, value)
+        do {
+            try Data(changed.text.utf8).write(to: url, options: .atomic)
+            file = changed
+            problem = nil
+        } catch {
+            // Not kept in `file` either: what the app holds stays what the file says.
+            problem = "The setting was not saved to \(Self.shown(url)): \(error.localizedDescription)"
+        }
     }
+
+    /// The vault's folder, written as the person writes paths: under the
+    /// home folder with `~`, so the file is the same on every Mac. A path
+    /// the file already names, by either spelling, is not written again.
+    private func writeVault() {
+        let now = vaultPath ?? ""
+        let written = file.string("vault") ?? ""
+        if (written as NSString).expandingTildeInPath == now { return }
+        write("vault", .string((now as NSString).abbreviatingWithTildeInPath))
+    }
+
+    private static func shown(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }
 
     /// The file is written atomically -- by this app and by most editors -- so
     /// the watch is on the folder, and any change there reads the file again.
@@ -246,7 +283,10 @@ final class AppSettings {
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: folder, eventMask: .write, queue: .main)
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let text = try? String(contentsOf: self.url, encoding: .utf8), text != self.file.text else { return }
+                guard let self else { return }
+                // A file that could not be read is tried again at each change of the folder.
+                let text = try? String(contentsOf: self.url, encoding: .utf8)
+                guard self.unreadable || (text != nil && text != self.file.text) else { return }
                 self.load()
             }
         }

@@ -106,6 +106,10 @@ struct ContentView: View {
             if ReadAloud.shared.path != nil, ReadAloud.shared.path != path, model.readerView === ReadAloud.shared.view { ReadAloud.shared.stop() }
         }
         .onOpenURL { url in model.handle(url, store: store) }
+        // A setting that could not be saved is said, not dropped in silence.
+        .onChange(of: store.settings.problem, initial: true) { _, problem in
+            if let problem { store.notice = problem }
+        }
         // A note chosen in Spotlight.
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             if let path = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String, store.index.files.contains(path) {
