@@ -62,6 +62,30 @@ import Testing
         #expect(try await mac.run(["rev-list", "--count", "@{upstream}..HEAD"]) == "0")
     }
 
+    /// Pull, with the mac's change not committed: the sheet has the file,
+    /// there is nothing to abort, and the choice leaves the change as it was.
+    @Test func aPullOverChangesThatDoNotFitWaitsForTheChoice() async throws {
+        defer { try? FileManager.default.removeItem(at: base) }
+        let store = store()
+        await store.pull()
+        #expect(store.rebasing && store.unstashing)
+        #expect(store.conflicts.map(\.path) == ["Plan.md"])
+        #expect(store.conflictStops == 1)
+        await store.abortConflicts()
+        #expect(store.rebasing)
+        // Found again by a store opened later.
+        let later = self.store()
+        await later.refreshConflicts(show: true)
+        #expect(later.rebasing && later.unstashing && later.conflictStops == 1)
+
+        #expect(await store.finishConflicts([(store.conflicts[0], .keepMine)]))
+        #expect(!store.rebasing && !store.unstashing && store.conflicts.isEmpty && store.syncError == nil)
+        #expect(try String(contentsOf: mac.root.appending(path: "Plan.md"), encoding: .utf8) == "# Plan\nmac line\n")
+        await store.sync()
+        #expect(store.syncError == nil)
+        #expect(try await mac.run(["rev-list", "--count", "@{upstream}..HEAD"]) == "0")
+    }
+
     @Test func aRebaseLeftOpenIsFoundAndAborted() async throws {
         defer { try? FileManager.default.removeItem(at: base) }
         try await mac.run(["commit", "-qam", "mac"])

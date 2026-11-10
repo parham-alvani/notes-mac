@@ -87,23 +87,38 @@ public struct Git: Sendable {
     }
 
     /// Pulls with a rebase, keeping local changes aside while it does. A
-    /// rebase that stops on a conflict stays open and throws `Stopped`.
+    /// rebase that stops on a conflict stays open and throws `Stopped`, and
+    /// so do local changes that do not fit on what the pull brought.
     public func pull() async throws {
         try await refuseOpenOperation()
         try await pullRebase()
     }
 
-    /// Throws `Stopped` while a rebase is open, and a `Failure` while a
-    /// merge, a cherry-pick or a revert that git left open, or files still
-    /// marked as conflicted, would be committed with their marks.
+    /// Throws `Stopped` while a rebase is open or files are still marked
+    /// as conflicted, and a `Failure` while a merge, a cherry-pick or a
+    /// revert that git left open would be committed with its marks.
     private func refuseOpenOperation() async throws {
         if try await rebaseInProgress() { throw Stopped(conflicts: try await conflicts()) }
         if let operation = try await otherOperationInProgress() {
             throw Failure(arguments: ["sync"], status: -1, output: "a \(operation) is in progress: finish or abort it with git first")
         }
-        if try await !conflicts().isEmpty {
-            throw Failure(arguments: ["sync"], status: -1, output: "files have unresolved conflicts: resolve them first")
-        }
+        let left = try await conflicts()
+        if !left.isEmpty { throw Stopped(conflicts: left, unstashed: true) }
+    }
+
+    /// What waits for the person's choice.
+    public enum Stop: Sendable, Equatable {
+        /// A rebase stopped on a conflict and is open.
+        case rebase
+        /// No operation is open, but files are marked as conflicted: the
+        /// changes a pull kept aside did not fit on what it brought.
+        case unstash
+    }
+
+    public func openStop() async throws -> Stop? {
+        if try await rebaseInProgress() { return .rebase }
+        if try await otherOperationInProgress() != nil { return nil }
+        return try await conflicts().isEmpty ? nil : .unstash
     }
 
     /// A merge, cherry-pick or revert that git left open, by its name.
@@ -122,6 +137,11 @@ public struct Git: Sendable {
             guard try await rebaseInProgress() else { throw error }
             throw Stopped(conflicts: try await conflicts())
         }
+        // `--autostash` puts the local changes back after the rebase, and
+        // git says nothing went wrong (exit 0) when they do not fit: the
+        // files have conflict marks, and the changes stay in the stash.
+        let left = try await conflicts()
+        if !left.isEmpty { throw Stopped(conflicts: left, unstashed: true) }
     }
 
     public struct Status: Sendable, Equatable {
@@ -203,9 +223,20 @@ public struct Git: Sendable {
     /// until the person resolves it or aborts it.
     public struct Stopped: Error, CustomStringConvertible {
         public var conflicts: [Conflicted]
-        public init(conflicts: [Conflicted]) { self.conflicts = conflicts }
+        /// No rebase is open: the pull is done, and the changes it kept
+        /// aside (not committed yet) did not fit on it.
+        public var unstashed: Bool
+        public init(conflicts: [Conflicted], unstashed: Bool = false) {
+            self.conflicts = conflicts
+            self.unstashed = unstashed
+        }
         public var description: String {
-            conflicts.count == 1 ? "The pull stopped on a conflict in \(conflicts[0].path)." : "The pull stopped on conflicts in \(conflicts.count) files."
+            if unstashed {
+                return conflicts.count == 1
+                    ? "The pull changed \(conflicts[0].path), and so did you since the last commit."
+                    : "The pull changed \(conflicts.count) files that you changed too since the last commit."
+            }
+            return conflicts.count == 1 ? "The pull stopped on a conflict in \(conflicts[0].path)." : "The pull stopped on conflicts in \(conflicts.count) files."
         }
     }
 
@@ -325,6 +356,23 @@ public struct Git: Sendable {
         let open = try await continueRebase()
         if open.isEmpty { try await pushIfAhead() }
         return open
+    }
+
+    /// Resolves [resolutions] where a pull's kept-aside changes did not
+    /// fit (`Stop.unstash`). The sides are as in a rebase: the upstream is
+    /// "ours" and the person's changes "theirs". With every file resolved
+    /// the changes are unstaged again, as they were before the pull, and
+    /// the stash the pull left them in is dropped. Returns what is open still.
+    public func finishUnstash(_ resolutions: [(Conflicted, Resolution)]) async throws -> [Conflicted] {
+        for (file, resolution) in resolutions { try await resolve(file, resolution) }
+        let open = try await conflicts()
+        guard open.isEmpty else { return open }
+        try await run(["reset", "-q"])
+        // Only the pull's own stash: another one is the person's.
+        if try await run(["stash", "list", "-n", "1", "--format=%gs"]) == "autostash" {
+            try await run(["stash", "drop", "-q", "stash@{0}"])
+        }
+        return []
     }
 
     /// Ends the open rebase and puts the branch back as it was before the pull.

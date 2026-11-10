@@ -28,9 +28,12 @@ struct ConflictSheet: View {
                 detail.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack {
-                Button("Abort Sync…", role: .destructive) { confirmAbort = true }
-                    .buttonStyle(.glass)
-                    .help("Stop the pull. Your commits stay as they were before it, and the next sync pulls again.")
+                // Changes that did not fit after a pull: the pull is done, there is nothing to abort.
+                if !store.unstashing {
+                    Button("Abort Sync…", role: .destructive) { confirmAbort = true }
+                        .buttonStyle(.glass)
+                        .help("Stop the pull. Your commits stay as they were before it, and the next sync pulls again.")
+                }
                 Spacer()
                 Text(remaining == 0 ? "Every file is resolved." : remaining == 1 ? "1 file to resolve" : "\(remaining) files to resolve")
                     .font(.callout).foregroundStyle(.secondary)
@@ -68,7 +71,9 @@ struct ConflictSheet: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Sync Conflicts").font(.title3.weight(.semibold))
-                Text("These files changed on the remote and on this Mac. Choose what to keep; the sync waits until you finish.")
+                Text(store.unstashing
+                    ? "The pull changed these files, and so did you since the last commit. Choose what to keep; the sync waits until you finish."
+                    : "These files changed on the remote and on this Mac. Choose what to keep; the sync waits until you finish.")
                     .font(.callout).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()

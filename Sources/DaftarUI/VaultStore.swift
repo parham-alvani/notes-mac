@@ -45,9 +45,13 @@ final class VaultStore {
     private(set) var isRepository = false
     /// The branch and how it stands, refreshed after each sync and file change.
     private(set) var gitStatus: Git.Status?
-    /// A pull's rebase stopped on a conflict and is still open. No sync runs
+    /// A pull's rebase stopped on a conflict and is still open, or the
+    /// changes a pull kept aside did not fit ([unstashing]). No sync runs
     /// until the person resolves it or aborts it.
     private(set) var rebasing = false
+    /// The stop is not a rebase: the pull is done, and the changes not yet
+    /// committed left conflict marks. There is nothing to abort.
+    private(set) var unstashing = false
     /// The files the open rebase stopped on.
     private(set) var conflicts: [Git.Conflicted] = []
     /// Grows each time a sync finds the rebase open, so the window in front
@@ -126,7 +130,7 @@ final class VaultStore {
             isRepository = await Git(root: url).isRepository()
             guard isRepository else { return }
             // A rebase left open, by Daftar or in a terminal, is shown, not pulled over.
-            if (try? await Git(root: url).rebaseInProgress()) == true {
+            if (try? await Git(root: url).openStop()) != nil {
                 await refreshConflicts(show: true)
             } else if settings.pullOnLaunch {
                 await run { try await Git(root: url).pull() }
@@ -773,6 +777,7 @@ final class VaultStore {
             syncError = nil
         } catch let stopped as Git.Stopped {
             rebasing = true
+            unstashing = stopped.unstashed
             conflicts = stopped.conflicts
             conflictStops += 1
             syncError = stopped.description
@@ -788,13 +793,21 @@ final class VaultStore {
     func refreshConflicts(show: Bool = false) async {
         guard let root, isRepository else { return }
         let git = Git(root: root)
-        rebasing = (try? await git.rebaseInProgress()) ?? false
-        conflicts = rebasing ? ((try? await git.conflicts()) ?? []) : []
+        await readStop(git)
         if rebasing, show { conflictStops += 1 }
         await refreshStatus()
     }
 
-    /// Resolves every file as chosen, goes on with the rebase and pushes.
+    private func readStop(_ git: Git) async {
+        let stop = try? await git.openStop()
+        rebasing = stop != nil
+        unstashing = stop == .unstash
+        conflicts = rebasing ? ((try? await git.conflicts()) ?? []) : []
+    }
+
+    /// Resolves every file as chosen, goes on with the rebase and pushes;
+    /// where the stop is not a rebase, the changes are as they were before
+    /// the pull, not committed, and the next sync commits them.
     /// Returns false when the next replayed commit stopped on a conflict too,
     /// or something failed; `conflicts` then holds what is open.
     func finishConflicts(_ resolutions: [(Git.Conflicted, Git.Resolution)]) async -> Bool {
@@ -803,10 +816,11 @@ final class VaultStore {
         defer { syncing = false }
         let git = Git(root: root)
         do {
-            let open = try await git.finishRebase(resolutions)
+            let open = unstashing ? try await git.finishUnstash(resolutions) : try await git.finishRebase(resolutions)
             changed(Set(resolutions.map(\.0.path)))
             if open.isEmpty {
                 rebasing = false
+                unstashing = false
                 conflicts = []
                 lastSync = Date()
                 syncError = nil
@@ -817,8 +831,7 @@ final class VaultStore {
         } catch {
             syncError = String(describing: error)
             notice = "The sync could not go on: \(error)"
-            rebasing = (try? await git.rebaseInProgress()) ?? false
-            conflicts = rebasing ? ((try? await git.conflicts()) ?? []) : []
+            await readStop(git)
         }
         await refreshStatus()
         return !rebasing
@@ -828,7 +841,7 @@ final class VaultStore {
     /// the next sync pulls again. What the person wrote in other notes
     /// while the conflict was open stays (`Git.abortRebase`).
     func abortConflicts() async {
-        guard let root, rebasing, !syncing else { return }
+        guard let root, rebasing, !unstashing, !syncing else { return }
         // What the editors hold is on disk before the tree is reset.
         await flushEditors()
         syncing = true

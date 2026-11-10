@@ -231,6 +231,32 @@ import Testing
         #expect(repos.read(repos.phone, "Tasks.md") == "- [x] one\n")
     }
 
+    /// A pull over changes not committed yet: git keeps them aside and puts
+    /// them back, and when they do not fit it leaves conflict marks and
+    /// says all went well. That is a stop, resolved as a rebase's is.
+    @Test func aPullWhoseKeptChangesDoNotFitStops() async throws {
+        let repos = try await Repos()
+        defer { repos.remove() }
+        try await diverge(repos, files: ["N.md": ("x\n", "phone\n", "mac\n"), "Other.md": ("a\n", "a\n", "a mac\n")])
+        let stopped = await #expect(throws: Git.Stopped.self) { try await repos.mac.pull() }
+        #expect(stopped?.unstashed == true)
+        #expect(stopped?.conflicts == [Git.Conflicted(path: "N.md", remote: .changed, mine: .changed)])
+        #expect(try await repos.mac.openStop() == .unstash)
+        #expect(ConflictText.conflicts(in: repos.read(repos.mac, "N.md") ?? "").map(\.mine) == ["mac\n"])
+        // Nothing commits the marks.
+        let again = await #expect(throws: Git.Stopped.self) { try await repos.mac.sync(message: "marks") }
+        #expect(again?.unstashed == true)
+        #expect(try await repos.subjects(repos.mac) == ["phone", "first"])
+
+        #expect(try await repos.mac.finishUnstash(try #require(stopped?.conflicts).map { ($0, .keepMine) }).isEmpty)
+        #expect(try await repos.mac.openStop() == nil)
+        #expect(repos.read(repos.mac, "N.md") == "mac\n")
+        #expect(repos.read(repos.mac, "Other.md") == "a mac\n")
+        #expect(try await repos.mac.run(["stash", "list"]).isEmpty)
+        #expect(try await repos.mac.sync(message: "mac"))
+        #expect(try await repos.subjects(repos.mac) == ["mac", "phone", "first"])
+    }
+
     @Test func otherFilesKeepOneSideAndADeletionIsASide() async throws {
         let repos = try await Repos()
         defer { repos.remove() }
