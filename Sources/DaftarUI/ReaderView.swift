@@ -329,7 +329,12 @@ struct ReaderView: NSViewRepresentable {
             reload()
         }
 
+        /// The app listens to the reader's page only: a frame holds a file of
+        /// the vault (a PDF, a page someone saved), which has nothing to ask.
+        func hears(mainFrame: Bool) -> Bool { mainFrame }
+
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard hears(mainFrame: message.frameInfo.isMainFrame) else { return }
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
             switch kind {
             case "ready":
@@ -423,6 +428,7 @@ struct ReaderView: NSViewRepresentable {
         func userContentController(
             _ controller: WKUserContentController, didReceive message: WKScriptMessage
         ) async -> (Any?, String?) {
+            guard hears(mainFrame: message.frameInfo.isMainFrame) else { return (nil, nil) }
             guard let body = message.body as? [String: Any] else { return (nil, nil) }
             if message.name == "remoteImage" {
                 // A click on a placeholder: this one address may be asked for, by the way the page's policy lets in.
@@ -615,7 +621,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         // A video or a sound is read in parts: `Range: bytes=start-end`.
         // A page or a picture with script in it runs with no rights of its own.
-        let sandbox = ["text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml"].contains(type)
+        let sandbox = Self.isDocument(type)
         var policy = url.scheme == "vault" && sandbox ? ["Content-Security-Policy": "sandbox; default-src 'none'; img-src vault: data:; style-src 'unsafe-inline'"] : [:]
         if url.scheme == "daftar", url.path == ReaderView.page.path, !store.settings.remoteImages {
             policy["Content-Security-Policy"] = Self.noRemotePictures
@@ -639,6 +645,15 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
             task.didReceive(data)
         }
         task.didFinish()
+    }
+
+    /// Whether WebKit shows a file of this type as a document, which can
+    /// hold script: HTML, a web archive, and every kind of XML (a feed and
+    /// an SVG are XML that may carry XHTML's `<script>`). By rule, not by a
+    /// list of types: a type nobody listed is the one that gets through.
+    static func isDocument(_ type: String) -> Bool {
+        let type = type.lowercased()
+        return type == "text/html" || type.contains("xml") || type.contains("webarchive") || type == "multipart/related"
     }
 
     /// `bytes=0-`, `bytes=100-199` or `bytes=-500`, inside a file of [size].

@@ -130,4 +130,38 @@ import WebKit
         #expect(found.contains { $0.kind == "phone" })
         #expect(!found.contains(PageTrust.Found(kind: "phone", value: "+19005550100")))
     }
+
+    /// A file of the vault shown in a frame runs nothing: a feed, a web
+    /// archive or any other XML is a document WebKit would run script in.
+    @Test func aFileOfTheVaultInAFrameRunsNoScript() async throws {
+        #expect(SchemeHandler.isDocument("text/html"))
+        #expect(SchemeHandler.isDocument("image/svg+xml"))
+        #expect(SchemeHandler.isDocument("application/rss+xml"))
+        #expect(SchemeHandler.isDocument("application/xhtml+xml"))
+        #expect(SchemeHandler.isDocument("Application/XML"))
+        #expect(SchemeHandler.isDocument("application/x-webarchive"))
+        #expect(SchemeHandler.isDocument("multipart/related"))
+        #expect(!SchemeHandler.isDocument("application/pdf"))
+        #expect(!SchemeHandler.isDocument("image/png"))
+        #expect(!SchemeHandler.isDocument("video/mp4"))
+
+        let script = "window.webkit.messageHandlers.daftar.postMessage({ kind: 'toggleTask', line: 4, status: ' ', path: '' })"
+        let feed = "<?xml version=\"1.0\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><script>\(script)</script>feed</body></html>\n"
+        try feed.write(to: root.appending(path: "feed.rss"), atomically: true, encoding: .utf8)
+        let (web, window) = try await page()
+        defer { window.orderOut(nil) }
+        _ = try await run(web, "(() => { const frame = document.createElement('iframe'); frame.src = 'vault:///feed.rss'; document.body.appendChild(frame); return 1 })()")
+        try await Task.sleep(for: .milliseconds(800))
+        #expect(try String(contentsOf: root.appending(path: "Page.md"), encoding: .utf8).contains("- [ ] here"))
+    }
+
+    /// The app listens to the reader's page, not to a frame in it.
+    @Test func aFrameIsNotHeard() async throws {
+        // A plain page of the vault, as a frame: with no sandbox it would run its script.
+        let (web, window) = try await page()
+        defer { window.orderOut(nil) }
+        let coordinator = try #require(web.navigationDelegate as? ReaderView.Coordinator)
+        #expect(coordinator.hears(mainFrame: true))
+        #expect(!coordinator.hears(mainFrame: false))
+    }
 }
