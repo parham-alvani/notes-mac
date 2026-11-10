@@ -14,7 +14,8 @@ const AUDIO = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus)$/i;
 const CALLOUT = /^\[!([\w-]+)\]([+-]?)[ \t]*(.*)$/;
 const BLOCK_ID = /\s\^([A-Za-z0-9-]+)\s*$/;
 const OWN_BLOCK_ID = /^\^([A-Za-z0-9-]+)$/;
-const TASK = /^\[([^\]\n])\][ \t]+/;
+// A box with nothing after it is a task too, as the parser reads it; `[x]text` is not.
+const TASK = /^\[([^\]\n])\](?:[ \t]+|$)/;
 const TAG = /^#([\p{L}\p{N}_\/-]+)/u;
 
 /** Done or cancelled. In progress and any custom status are still open. */
@@ -515,7 +516,8 @@ function tasks(md) {
       const first = inline.children[0];
       if (first?.type !== "text") continue;
       const match = TASK.exec(first.content);
-      if (!match) continue;
+      // The whole line decides: `[x]**bold**` has a first text of `[x]` alone, and is no task.
+      if (!match || !TASK.test(inline.content)) continue;
       const status = match[1];
       first.content = first.content.slice(match[0].length);
       const box = new state.Token("task_checkbox", "", 0);

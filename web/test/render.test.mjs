@@ -310,3 +310,10 @@ test("math KaTeX cannot draw is shown as its source, and the note is drawn", () 
   }
   assert.match(render("```math\n\\frac{1}{2}\n```"), /class="math math-block"><span class="katex-display">/);
 });
+
+test("a box with nothing after it is a task, and a box glued to its text is not", () => {
+  assert.match(render("- [ ]\n"), /<li class="task-list-item" data-task=" "/);
+  assert.match(render("- [x]\n"), /<li class="task-list-item is-checked" data-task="x"/);
+  assert.doesNotMatch(render("- [x]done\n"), /task-list-item/);
+  assert.doesNotMatch(render("- [x]**done**\n"), /task-list-item/);
+});
