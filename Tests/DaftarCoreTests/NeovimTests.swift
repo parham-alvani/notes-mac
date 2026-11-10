@@ -144,6 +144,31 @@ import Testing
 }
 
 /// Random edits: the mirror and a plain copy of the text never differ.
+/// The pipe to a process that is gone: `true` stands for a Neovim that left.
+@Suite struct NeovimPipeTests {
+    private func gone() async throws -> NeovimClient {
+        let client = NeovimClient(executable: URL(filePath: "/usr/bin/true"))
+        try client.start()
+        for _ in 0..<100 where client.isRunning { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(100))
+        return client
+    }
+
+    /// Before, the write raised SIGPIPE and the app (here the tests) ended.
+    @Test func aWriteAfterNeovimLeftIsAnErrorNotASignal() async throws {
+        let client = try await gone()
+        client.notify("nvim_input", ["x"])
+        await #expect(throws: (any Error).self) { try await client.request("nvim_get_mode") }
+    }
+
+    /// Before, the handler ran hundreds of thousands of times a second.
+    @Test func theEndOfTheOutputIsReadOnce() async throws {
+        let client = try await gone()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(client.endsOfOutput == 1)
+    }
+}
+
 @Suite struct BufferMirrorFuzzTests {
     @Test func everyEditTheMirrorReturnsMakesItsText() {
         struct Seeded: RandomNumberGenerator {

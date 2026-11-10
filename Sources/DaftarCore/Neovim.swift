@@ -28,6 +28,8 @@ public final class NeovimClient: @unchecked Sendable {
     private var stopped = false
     private var drained = false
     private var exited = false
+    /// How often the output's end was seen: once.
+    private(set) var endsOfOutput = 0
     private let continuation: AsyncStream<Notification>.Continuation
     public let notifications: AsyncStream<Notification>
     /// Answers Neovim's `rpcrequest`, by method and params; Neovim waits
@@ -58,12 +60,21 @@ public final class NeovimClient: @unchecked Sendable {
             let data = handle.availableData
             guard let self else { return }
             if data.isEmpty {
-                self.lock.withLock { self.drained = true }
+                // The end of the output is readable for ever: the handler
+                // goes, or it is called again and again, a core's worth.
+                handle.readabilityHandler = nil
+                self.lock.withLock {
+                    self.drained = true
+                    self.endsOfOutput += 1
+                }
                 self.closed()
                 return
             }
             self.received(data)
         }
+        // A write to a Neovim that is gone is an error `send` takes, not a
+        // SIGPIPE, which ends the whole app.
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         process.terminationHandler = { [weak self] _ in
             guard let self else { return }
             self.lock.withLock { self.exited = true }
