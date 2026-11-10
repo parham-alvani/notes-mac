@@ -151,11 +151,16 @@ public struct TasksQuery: Sendable {
     public func run<T>(_ tasks: [T], today: Day, view: (T) -> QueryTask) -> [T] {
         // Each task's groups are worked out once, not in every comparison of the sort.
         // The positions are sorted, not the tasks, which are large to move.
-        let kept = tasks.indices.filter { at in
+        // A task's view is made once, for its filters and then its groups and its sort.
+        var kept: [Int] = []
+        var views: [QueryTask] = []
+        for at in tasks.indices {
             let task = view(tasks[at])
-            return filters.allSatisfy { $0(task, today) }
+            if filters.allSatisfy({ $0(task, today) }) {
+                kept.append(at)
+                views.append(task)
+            }
         }
-        let views = kept.map { view(tasks[$0]) }
         let groups = views.map { task in groupers.map { group in group(task) } }
         let order: [Comparison] = sorts + [Self.defaultOrder]
         let sorted = kept.indices.sorted { a, b in
