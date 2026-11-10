@@ -96,6 +96,16 @@ import Testing
         #expect(VimKeys.escape("a<b") == "a<LT>b")
     }
 
+    @Test func aChordIsNamedByItsLatinKey() {
+        #expect(VimKeys.chord("ص", latin: "w") == "w")
+        #expect(VimKeys.chord("۱", latin: "1") == "1")
+        // A Latin key, a special key and a key with no Latin letter stay.
+        #expect(VimKeys.chord("w", latin: "x") == "w")
+        #expect(VimKeys.chord("\u{F700}", latin: "x") == "\u{F700}")
+        #expect(VimKeys.chord("ص", latin: nil) == "ص")
+        #expect(VimKeys.notation(characters: VimKeys.chord("ص", latin: "w"), modifiers: .control) == "<C-w>")
+    }
+
     @Test func optionIsMetaOnTheSidesTheSettingNames() {
         #expect(VimKeys.notation(characters: "x", modifiers: [.option]) == "<M-x>")
         #expect(VimKeys.notation(characters: "\u{F702}", modifiers: [.option]) == "<M-Left>")
@@ -144,6 +154,31 @@ import Testing
 }
 
 /// Random edits: the mirror and a plain copy of the text never differ.
+/// The pipe to a process that is gone: `true` stands for a Neovim that left.
+@Suite struct NeovimPipeTests {
+    private func gone() async throws -> NeovimClient {
+        let client = NeovimClient(executable: URL(filePath: "/usr/bin/true"))
+        try client.start()
+        for _ in 0..<100 where client.isRunning { try await Task.sleep(for: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(100))
+        return client
+    }
+
+    /// Before, the write raised SIGPIPE and the app (here the tests) ended.
+    @Test func aWriteAfterNeovimLeftIsAnErrorNotASignal() async throws {
+        let client = try await gone()
+        client.notify("nvim_input", ["x"])
+        await #expect(throws: (any Error).self) { try await client.request("nvim_get_mode") }
+    }
+
+    /// Before, the handler ran hundreds of thousands of times a second.
+    @Test func theEndOfTheOutputIsReadOnce() async throws {
+        let client = try await gone()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(client.endsOfOutput == 1)
+    }
+}
+
 @Suite struct BufferMirrorFuzzTests {
     @Test func everyEditTheMirrorReturnsMakesItsText() {
         struct Seeded: RandomNumberGenerator {
@@ -167,6 +202,8 @@ import Testing
                 shown = shown.replacingCharacters(in: edit.range, with: edit.text) as NSString
                 #expect(shown as String == mirror.text, "first \(first) last \(last) \(replacement)")
                 if shown as String != mirror.text { return }
+                // The length the view's text must have, kept without making the text.
+                #expect(mirror.utf16Count == shown.length)
                 // A row and column there and back again.
                 let row = Int.random(in: 1...mirror.lines.count, using: &random)
                 let offset = mirror.offset(row: row, byteColumn: 0)

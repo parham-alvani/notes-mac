@@ -40,10 +40,10 @@ import Testing
         return condition()
     }
 
-    func press(_ characters: String, _ flags: NSEvent.ModifierFlags = [], ignoring: String? = nil) {
+    func press(_ characters: String, _ flags: NSEvent.ModifierFlags = [], ignoring: String? = nil, keyCode: UInt16 = 0) {
         let event = NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
-            context: nil, characters: characters, charactersIgnoringModifiers: ignoring ?? characters, isARepeat: false, keyCode: 0)!
+            context: nil, characters: characters, charactersIgnoringModifiers: ignoring ?? characters, isARepeat: false, keyCode: keyCode)!
         view.keyDown(with: event)
     }
 
@@ -51,6 +51,8 @@ import Testing
 
     func open(_ text: String) async throws -> NeovimSession {
         try text.write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        // The index knows the note, so a save of the view's own is not refused.
+        store.openSynchronously(root)
         controller.load("N.md")
         let session = try #require(controller.session)
         #expect(await eventually { session.state == .running })
@@ -189,5 +191,259 @@ import Testing
         #expect(file() == "ab\n")
         #expect(controller.session == nil)
         _ = session
+    }
+
+    /// `:q!` throws the edits away: the view leaving the screen, which
+    /// saves a plain editor, must not write them.
+    @Test func quittingWithoutWritingWritesNothing() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}")
+        #expect(await eventually { self.view.string == "ab\n" })
+        keys(":q!\r")
+        #expect(await eventually { quit == 1 })
+        #expect(view.string == "a\n")
+        // What SwiftUI does as the editor goes: `dismantleNSView`.
+        controller.saveNow()
+        #expect(file() == "a\n")
+        _ = session
+    }
+
+    /// After `:wq` the file is Neovim's: the view does not write it again.
+    @Test func writeAndQuitWritesOnce() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}:wq\r")
+        #expect(await eventually { quit == 1 })
+        let url = root.appending(path: "N.md")
+        let written = try #require(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
+        try await Task.sleep(for: .milliseconds(20))
+        controller.saveNow()
+        #expect(file() == "ab\n")
+        #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date == written)
+        _ = session
+    }
+
+    /// A Neovim that is killed wrote nothing: the typing the view shows is
+    /// saved, and the note stays open in the plain editor.
+    @Test func aKilledNeovimLosesNoTyping() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab")
+        #expect(await eventually { self.view.string == "ab\n" })
+        kill(session.processIdentifier, SIGKILL)
+        #expect(await eventually { self.controller.session == nil })
+        #expect(file() == "ab\n")
+        #expect(quit == 0)
+        #expect(controller.owner == .plain)
+    }
+
+    /// A Neovim that never answers -- at a question, in a plugin -- does
+    /// not leave the editor at "Starting Neovim…" for ever.
+    @Test func aNeovimThatNeverAnswersGivesWayToThePlainEditor() async throws {
+        let script = root.appending(path: "config/stuck")
+        try FileManager.default.createDirectory(at: script.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexec sleep 30\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        store.settings.nvimPath = script.path
+        NeovimSession.startLimit = .milliseconds(300)
+        defer { NeovimSession.startLimit = .seconds(15) }
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("N.md")
+        #expect(controller.owner == .neovimStarting)
+        #expect(await eventually { self.controller.session == nil })
+        #expect(controller.owner == .plain)
+    }
+
+    /// A save that is waited for (Sort Tasks, a property, quit) and a
+    /// Neovim that does not write: it is ended, and the typing is saved
+    /// from the view.
+    @Test func aSaveNeovimDoesNotAnswerIsMadeByTheEditor() async throws {
+        NeovimSession.saveLimit = .milliseconds(400)
+        defer { NeovimSession.saveLimit = .seconds(5) }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}")
+        #expect(await eventually { self.view.string == "ab\n" })
+        keys(":lua vim.uv.sleep(30000)\r")
+        try await Task.sleep(for: .milliseconds(100))
+        await controller.flush()
+        #expect(file() == "ab\n")
+        #expect(controller.session == nil)
+        #expect(controller.owner == .plain)
+        _ = session
+    }
+
+    /// The same as the editor leaves the note: the buffer is written by the store.
+    @Test func aStopNeovimDoesNotAnswerStillWritesTheBuffer() async throws {
+        NeovimSession.stopLimit = .milliseconds(400)
+        defer { NeovimSession.stopLimit = .seconds(3) }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}")
+        #expect(await eventually { self.view.string == "ab\n" })
+        keys(":lua vim.uv.sleep(30000)\r")
+        try await Task.sleep(for: .milliseconds(100))
+        controller.stopVim()
+        #expect(await eventually { self.file() == "ab\n" })
+        _ = session
+    }
+
+    /// A Neovim that does not start leaves the plain editor, which saves:
+    /// before, the view took the typing and no save ever wrote it.
+    @Test func typingAfterAFailedStartIsSaved() async throws {
+        store.settings.nvimPath = "/usr/bin/false"
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("N.md")
+        #expect(controller.owner == .neovimStarting)
+        #expect(await eventually { controller.session == nil })
+        #expect(controller.owner == .plain)
+        #expect(store.notice?.contains("Neovim did not start") == true)
+        view.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        #expect(view.string == "xa\n")
+        controller.saveNow()
+        #expect(file() == "xa\n")
+        // Not started again at each update of the view.
+        controller.followVimSetting()
+        #expect(controller.session == nil)
+    }
+
+    /// A Neovim that is being stopped still writes its file, and a
+    /// formatter that runs at the write changes its buffer: that edit must
+    /// not reach the view, which shows another text by then.
+    @Test func aStoppedNeovimDoesNotEditTheView() async throws {
+        let session = try await open("a\n")
+        keys(":autocmd BufWritePre * call setline(1, 'formatted')\r")
+        keys("Ax\u{1B}")
+        #expect(await eventually { self.view.string == "ax\n" })
+        // Neovim mode goes off: the plain editor shows the file as it is now.
+        store.settings.vimMode = false
+        controller.followVimSetting()
+        #expect(controller.session == nil)
+        let shown = view.string
+        // The old Neovim writes, its formatter runs.
+        #expect(await eventually { self.file() == "formatted\n" })
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(view.string == shown)
+        _ = session
+    }
+
+    /// ⌃A with the Persian layout on: the key reads `ش`, and Neovim gets `<C-a>`.
+    @Test func controlChordsWorkWithThePersianLayoutOn() async throws {
+        guard NeovimSession.latinCharacter(keycode: 0, shift: false) == "a" else { return }
+        let session = try await open("item 9\n")
+        press("\u{01}", .control, ignoring: "ش", keyCode: 0)
+        await settle(session, "item 10\n", "ctrl-a on the Persian layout")
+        await session.stop()
+    }
+
+    /// A Neovim that died with a changed buffer leaves its swap file, and
+    /// the next Neovim asked what to do with it, of a person who could not
+    /// answer: the keys wait until Neovim runs. Neovim runs without swap
+    /// files (`-n`); Daftar saves a second after each change.
+    @Test func aLeftoverSwapFileDoesNotStopNeovim() async throws {
+        let state = root.appending(path: "state")
+        setenv("XDG_STATE_HOME", state.path, 1)
+        defer { unsetenv("XDG_STATE_HOME") }
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        // A Neovim of another program, with swap files, killed in the middle of an edit.
+        let other = NeovimClient(executable: try #require(NeovimClient.locate()), arguments: ["--clean"], directory: root)
+        try other.start()
+        try await other.request("nvim_ui_attach", [80, 24, [:]])
+        try await other.request("nvim_command", ["edit N.md"])
+        try await other.request("nvim_buf_set_lines", [0, 0, 0, false, ["changed"]])
+        try await other.request("nvim_command", ["preserve"])
+        kill(other.processIdentifier, SIGKILL)
+        for _ in 0..<100 where other.isRunning { try await Task.sleep(for: .milliseconds(20)) }
+        let swaps = (try? FileManager.default.subpathsOfDirectory(atPath: state.path))?.filter { $0.hasSuffix(".swp") } ?? []
+        try #require(!swaps.isEmpty, "the made-up crash left a swap file")
+
+        store.openSynchronously(root)
+        controller.load("N.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        keys("Ab\u{1B}")
+        await settle(session, "ab\n", "typing with a swap file left over")
+        await session.stop()
+    }
+
+    /// A block is columns of the screen: on a Persian row, whose letters
+    /// are two bytes each, it holds the same letters across as on a Latin one.
+    @Test func aVisualBlockIsColumnsOnPersianRows() async throws {
+        let session = try await open("abcdef\nسیبم دنیا\nabcdef\n")
+        keys("l")
+        press("v", .control, ignoring: "v")
+        keys("jjll")
+        let block = [NSRange(location: 1, length: 3), NSRange(location: 8, length: 3), NSRange(location: 18, length: 3)]
+        let shown = await eventually { self.view.selectedRanges.map(\.rangeValue) == block }
+        #expect(shown, "\(view.selectedRanges)")
+        keys("d")
+        await settle(session, "aef\nس دنیا\naef\n", "the block that was shown is the block deleted")
+        await session.stop()
+    }
+
+    /// The view's text and Neovim's buffer come apart (here by force): the
+    /// next edit does not fit, and the view takes the whole buffer again.
+    @Test func theViewTakesTheBufferAgainWhenTheyComeApart() async throws {
+        let session = try await open("one\ntwo\nthree\n")
+        view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 8), with: "")
+        #expect(view.string == "three\n")
+        keys("GAx\u{1B}")
+        await settle(session, "one\ntwo\nthreex\n", "the buffer, whole, after an edit that did not fit")
+        // An edit that fits a text of another length is seen too.
+        view.textStorage?.replaceCharacters(in: NSRange(location: 0, length: 0), with: "stray ")
+        keys("Ay\u{1B}")
+        await settle(session, "one\ntwo\nthreexy\n", "the buffer, whole, after the lengths differed")
+        await session.stop()
+    }
+
+    /// `:e Other.md` inside Neovim: the view shows one note, so Neovim stays
+    /// on it and Daftar is asked to open the other. Before, the keys went
+    /// to a buffer nothing showed, and the next save wrote it.
+    @Test func anotherFileOpenedInNeovimIsHandedToDaftar() async throws {
+        try "other\n".write(to: root.appending(path: "Other.md"), atomically: true, encoding: .utf8)
+        var opened: [String] = []
+        controller.onOpen = { opened.append($0) }
+        let session = try await open("a\n")
+        keys(":e Other.md\r")
+        #expect(await eventually { opened == ["Other.md"] })
+        keys("Ax\u{1B}")
+        await settle(session, "ax\n", "the keys still go to the note the view shows")
+        #expect((try? String(contentsOf: root.appending(path: "Other.md"), encoding: .utf8)) == "other\n")
+        await session.stop()
+    }
+
+    /// The window closes in the middle of an insert: Neovim writes before it goes.
+    @Test func closingTheWindowSavesWhatNeovimHolds() async throws {
+        let session = try await open("a\n")
+        keys("Ab")
+        #expect(await eventually { self.view.string == "ab\n" })
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(await eventually { self.file() == "ab\n" })
+        await session.stop()
+    }
+
+    /// No `nvim` on the Mac: it is said once for the note, and not looked
+    /// for again at every update of the view.
+    @Test func aMacWithoutNeovimIsToldOnce() throws {
+        var looked = 0
+        controller.locateNeovim = { _ in looked += 1; return nil }
+        try "a\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        controller.load("N.md")
+        #expect(controller.session == nil)
+        #expect(store.notice?.contains("there is no nvim") == true)
+        store.notice = nil
+        controller.followVimSetting()
+        controller.followVimSetting()
+        #expect(looked == 1)
+        #expect(store.notice == nil)
+        // The plain editor has the note.
+        view.insertText("x", replacementRange: NSRange(location: 0, length: 0))
+        controller.saveNow()
+        #expect(file() == "xa\n")
     }
 }

@@ -87,7 +87,8 @@ extension EditorController {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             clip.animator().setBoundsOrigin(target)
         } completionHandler: {
-            scroll.reflectScrolledClipView(clip)
+            // AppKit ends an animation on the main thread.
+            MainActor.assumeIsolated { scroll.reflectScrolledClipView(clip) }
         }
     }
 

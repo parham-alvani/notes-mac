@@ -45,6 +45,81 @@ import Testing
         #expect(NoteTextView.sideMargin(width: 600, textSize: 14, textWidth: 0) == 16)
     }
 
+    /// The file changed under an editor with nothing unsaved -- a pull, a
+    /// property set in the form -- and the editor took it. An undo then must
+    /// not replay the typing from before at the places it had in the old text.
+    @Test func undoAfterTheFileWasTakenDoesNotGarbleIt() throws {
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        let undo = try #require(view.undoManager)
+        undo.groupsByEvent = false
+        defer { undo.groupsByEvent = true }
+        end()
+        undo.beginUndoGrouping()
+        view.insertText("typed", replacementRange: view.selectedRange())
+        undo.endUndoGrouping()
+        controller.saveNow()
+        let disk = "---\nstatus: done\n---\n" + view.string + "\nand a line from the phone 😀\n"
+        try disk.write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
+        store.noteChanged("Notes/Plan.md")
+        controller.followDisk()
+        #expect(view.string == disk)
+        if undo.canUndo { undo.undo() }
+        #expect(view.string == disk)
+        // And the editor has nothing to save over the file.
+        controller.saveNow()
+        #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == disk)
+    }
+
+    /// With the Persian layout on, a shortcut's key reads as its Persian
+    /// letter: ⌘B (the key of `ذ`) is still bold, ⌥⌘2 (`۲`) still a heading.
+    @Test func shortcutsWorkWithThePersianLayoutOn() throws {
+        // The keys are found by their place on the Latin layout: this needs one where key 11 is `b`.
+        guard NeovimSession.latinCharacter(keycode: 11, shift: false) == "b" else { return }
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        window.makeFirstResponder(view)
+        func chord(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
+        }
+        view.setSelectedRange(NSRange(location: 2, length: 4))
+        #expect(view.performKeyEquivalent(with: chord("ذ", 11, .command)))
+        #expect(view.string == "# **Plan**\n- [ ] first\n")
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length - 2, length: 0))
+        #expect(view.performKeyEquivalent(with: chord("۲", 19, [.command, .option])))
+        #expect(view.string == "# **Plan**\n## - [ ] first\n")
+    }
+
+    /// Two pictures pasted in one second are two files, and the folder
+    /// `app.json` names cannot take a picture out of the vault.
+    @Test func aPastedImageNeverWritesOverAFileOrLeavesTheVault() throws {
+        let second = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = try #require(controller.savePastedImage(Data([1]), at: second))
+        let next = try #require(controller.savePastedImage(Data([2]), at: second))
+        #expect(first != next)
+        #expect(try Data(contentsOf: root.appending(path: first)) == Data([1]))
+        #expect(try Data(contentsOf: root.appending(path: next)) == Data([2]))
+
+        try FileManager.default.createDirectory(at: root.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        try #"{"attachmentFolderPath": "../daftar-outside-\#(root.lastPathComponent)"}"#.write(to: root.appending(path: ".obsidian/app.json"), atomically: true, encoding: .utf8)
+        #expect(controller.savePastedImage(Data([3]), at: second) == nil)
+        #expect(!FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appending(path: "daftar-outside-\(root.lastPathComponent)").path))
+    }
+
+    /// ⌘W inside the second after a key: the window's closing saves the note.
+    @Test func closingTheWindowSavesTheNote() throws {
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        end()
+        view.insertText("typed", replacementRange: view.selectedRange())
+        #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == "# Plan\n- [ ] first\n")
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == "# Plan\n- [ ] first\ntyped")
+    }
+
     @Test func aSlashCommandReplacesTheSlash() throws {
         // A window, off screen, gives the view its undo manager.
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)

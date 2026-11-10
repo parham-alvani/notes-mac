@@ -84,7 +84,6 @@ extension EditorController {
     /// write goes into the view's `completion`.
     func completions(for view: NoteTextView, range: NSRange) -> [String] {
         let text = view.string as NSString
-        let source = path ?? ""
         var items: [LinkCompletion.Item] = []
         var blocks: [String: CompletionState.NewBlock] = [:]
         switch view.completion.kind {

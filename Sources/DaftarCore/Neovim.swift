@@ -24,6 +24,12 @@ public final class NeovimClient: @unchecked Sendable {
     private var nextId: UInt64 = 1
     private var pending: [UInt64: CheckedContinuation<MessagePackValue, any Error>] = [:]
     private var stream = MessagePack.Stream()
+    private var launched = false
+    private var stopped = false
+    private var drained = false
+    private var exited = false
+    /// How often the output's end was seen: once.
+    private(set) var endsOfOutput = 0
     private let continuation: AsyncStream<Notification>.Continuation
     public let notifications: AsyncStream<Notification>
     /// Answers Neovim's `rpcrequest`, by method and params; Neovim waits
@@ -54,18 +60,45 @@ public final class NeovimClient: @unchecked Sendable {
             let data = handle.availableData
             guard let self else { return }
             if data.isEmpty {
+                // The end of the output is readable for ever: the handler
+                // goes, or it is called again and again, a core's worth.
+                handle.readabilityHandler = nil
+                self.lock.withLock {
+                    self.drained = true
+                    self.endsOfOutput += 1
+                }
                 self.closed()
                 return
             }
             self.received(data)
         }
-        process.terminationHandler = { [weak self] _ in self?.closed() }
+        // A write to a Neovim that is gone is an error `send` takes, not a
+        // SIGPIPE, which ends the whole app.
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        process.terminationHandler = { [weak self] _ in
+            guard let self else { return }
+            self.lock.withLock { self.exited = true }
+            self.closed()
+        }
         try process.run()
+        lock.withLock { launched = true }
     }
 
     public var isRunning: Bool { process.isRunning }
 
+    /// Neovim was killed by a signal -- a crash -- and did not leave by
+    /// itself (`:q`, `:wq`) or by [stop]. The notifications end only once
+    /// the process has, so this is known when they do.
+    public var crashed: Bool {
+        let (launched, stopped) = lock.withLock { (self.launched, self.stopped) }
+        return launched && !stopped && !process.isRunning && process.terminationReason == .uncaughtSignal
+    }
+
+    /// The process, for a test that ends it from outside.
+    public var processIdentifier: Int32 { process.processIdentifier }
+
     public func stop() {
+        lock.withLock { stopped = true }
         if process.isRunning { process.terminate() }
         closed()
     }
@@ -143,7 +176,11 @@ public final class NeovimClient: @unchecked Sendable {
             return Array(all)
         }
         for waiter in waiters { waiter.resume(throwing: Failure(message: "Neovim exited")) }
-        continuation.finish()
+        // The notifications end when the output is read to its end and the
+        // process is gone (so how it went is known), or when it was stopped
+        // or never ran.
+        let over = lock.withLock { stopped || !launched || (drained && exited) }
+        if over { continuation.finish() }
     }
 }
 
@@ -156,12 +193,19 @@ public struct BufferMirror: Sendable, Equatable {
     /// Each line's length in UTF-16, so a position is a sum, not a count of
     /// every line above it at every key.
     private var lengths: [Int]
+    /// Every line's length and its newline, kept as the lines change.
+    private var sum: Int
 
     public init(lines: [String], endsWithNewline: Bool = true) {
         self.lines = lines.isEmpty ? [""] : lines
         self.endsWithNewline = endsWithNewline
         lengths = self.lines.map(\.utf16.count)
+        sum = lengths.reduce(0) { $0 + $1 + 1 }
     }
+
+    /// The length of [text] in UTF-16, without making it: what the view's
+    /// text must be as long as, or the two have come apart.
+    public var utf16Count: Int { sum - 1 + (endsWithNewline ? 1 : 0) }
 
     public var text: String { lines.joined(separator: "\n") + (endsWithNewline ? "\n" : "") }
 
@@ -191,11 +235,14 @@ public struct BufferMirror: Sendable, Equatable {
         let offset = start(of: from)
         let old = segment(lines, from, end)
         lines.replaceSubrange(begin..<end, with: replacement)
-        lengths.replaceSubrange(begin..<end, with: replacement.map(\.utf16.count))
+        let added = replacement.map(\.utf16.count)
+        sum += added.reduce(0) { $0 + $1 + 1 } - lengths[begin..<end].reduce(0) { $0 + $1 + 1 }
+        lengths.replaceSubrange(begin..<end, with: added)
         if lines.isEmpty {
             // No line left: the buffer is one empty line, as Neovim keeps it.
             lines = [""]
             lengths = [0]
+            sum = 1
             let all = NSRange(location: 0, length: offset + (old as NSString).length)
             return (all, text)
         }
@@ -321,6 +368,16 @@ public enum VimKeys {
     /// Return, Escape, the arrows and the other keys that type no text.
     public static func isSpecial(_ characters: String) -> Bool {
         characters.unicodeScalars.first.map { special[$0.value] != nil } ?? false
+    }
+
+    /// The letter a chord is named by. [raw] is the key on the layout that
+    /// is on, [latin] the same key on the Latin layout: with the Persian
+    /// layout on, ⌃W is `<C-w>` and ⌘B is bold, not `<C-ص>` and ⌘ذ, which
+    /// no mapping and no shortcut knows. A special key (an arrow, Return)
+    /// and a key the Latin layout has no letter for stay as they are.
+    public static func chord(_ raw: String, latin: Character?) -> String {
+        guard let latin, let scalar = raw.unicodeScalars.first, !scalar.isASCII, !isSpecial(raw) else { return raw }
+        return String(latin)
     }
 
     /// Typed text -- from the keyboard or an input method -- for `nvim_input`,

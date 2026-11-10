@@ -8,6 +8,25 @@ enum Fonts {
     /// A family name, or Apple's own faces by the names people know them by.
     static func text(size: CGFloat, weight: NSFont.Weight = .regular, italic: Bool = false) -> NSFont {
         let name = AppSettings.shared.font
+        let key = "t|\(name)|\(size)|\(weight.rawValue)|\(italic)"
+        if let made = cache[key] { return made }
+        let font = makeText(name: name, size: size, weight: weight, italic: italic)
+        keep(font, as: key)
+        return font
+    }
+
+    /// The fonts made so far, by setting, size and style: the editor asks
+    /// for one for every span it styles, at every key, and making one goes
+    /// through the font manager and three descriptors.
+    private static var cache: [String: NSFont] = [:]
+
+    private static func keep(_ font: NSFont, as key: String) {
+        // Sizes and settings change rarely; a cache that grew past this is started again.
+        if cache.count > 256 { cache.removeAll() }
+        cache[key] = font
+    }
+
+    private static func makeText(name: String, size: CGFloat, weight: NSFont.Weight, italic: Bool) -> NSFont {
         var font: NSFont
         switch name.lowercased() {
         case "new york", "ui-serif", "serif":
@@ -27,6 +46,14 @@ enum Fonts {
 
     static func code(size: CGFloat) -> NSFont {
         let name = AppSettings.shared.codeFont
+        let key = "c|\(name)|\(size)"
+        if let made = cache[key] { return made }
+        let font = makeCode(name: name, size: size)
+        keep(font, as: key)
+        return font
+    }
+
+    private static func makeCode(name: String, size: CGFloat) -> NSFont {
         if !name.isEmpty, name.lowercased() != "sf mono",
             let font = NSFontManager.shared.font(withFamily: name, traits: [], weight: 5, size: size)
         {
