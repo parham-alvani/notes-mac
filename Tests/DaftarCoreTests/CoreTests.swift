@@ -707,6 +707,23 @@ import Testing
         #expect(found[.listMarker] == ["- ", "    - "])
     }
 
+    @Test func aBoxIsDrawnOnlyWhereTheParserReadsATask() {
+        // One rule for the index, the tick and the editor's styling: a space or the line's end after the box.
+        let lines = ["- [x](https://example.com) a link", "- [ ]glued", "- [A](Notes/A.md)", "- [ ] a task", "- [x]", "1. [/] numbered", "    - [-]\tdropped"]
+        for line in lines {
+            let found = kinds(line)
+            let drawn = [MarkdownHighlighter.Kind.taskOpen, .taskDone, .taskCancelled, .taskOther].contains { found[$0] != nil }
+            #expect(drawn == TaskLine.isTask(line), "\(line)")
+            // And only a task is ticked.
+            let ticked = try? VaultEdits.toggleTask(in: line, line: 0, status: TaskLine.fields(line)?.status ?? "x", today: Day("2026-11-10")!)
+            #expect((ticked != nil) == TaskLine.isTask(line), "\(line)")
+            #expect((NoteParser.parse(line).tasks.count == 1) == TaskLine.isTask(line), "\(line)")
+        }
+        #expect(lines.map(TaskLine.isTask) == [false, false, false, true, true, true, true])
+        // The line is still a list item, and the link in it a link.
+        #expect(kinds("- [x](https://example.com) a link")[.listMarker] == ["-"])
+    }
+
     @Test func blocksCarryState() {
         let text = "---\ntags: [a]\n---\n```swift\nlet **x** = 1\n```\n%%\nhidden\n%%\nafter"
         let found = kinds(text)
