@@ -1365,10 +1365,13 @@ final class NoteTextView: NSTextView {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             clip.animator().setBoundsOrigin(target)
         } completionHandler: { [weak self] in
-            scroll.reflectScrolledClipView(clip)
-            // The clip copies what was drawn while it moves: the cursor's
-            // line, drawn in the same moment, is drawn again where it is.
-            self?.redrawCursorLine()
+            // AppKit ends an animation on the main thread.
+            MainActor.assumeIsolated {
+                scroll.reflectScrolledClipView(clip)
+                // The clip copies what was drawn while it moves: the cursor's
+                // line, drawn in the same moment, is drawn again where it is.
+                self?.redrawCursorLine()
+            }
         }
     }
 
