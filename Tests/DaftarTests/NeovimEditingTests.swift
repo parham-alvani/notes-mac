@@ -51,6 +51,8 @@ import Testing
 
     func open(_ text: String) async throws -> NeovimSession {
         try text.write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
+        // The index knows the note, so a save of the view's own is not refused.
+        store.openSynchronously(root)
         controller.load("N.md")
         let session = try #require(controller.session)
         #expect(await eventually { session.state == .running })
@@ -189,5 +191,51 @@ import Testing
         #expect(file() == "ab\n")
         #expect(controller.session == nil)
         _ = session
+    }
+
+    /// `:q!` throws the edits away: the view leaving the screen, which
+    /// saves a plain editor, must not write them.
+    @Test func quittingWithoutWritingWritesNothing() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}")
+        #expect(await eventually { self.view.string == "ab\n" })
+        keys(":q!\r")
+        #expect(await eventually { quit == 1 })
+        #expect(view.string == "a\n")
+        // What SwiftUI does as the editor goes: `dismantleNSView`.
+        controller.saveNow()
+        #expect(file() == "a\n")
+        _ = session
+    }
+
+    /// After `:wq` the file is Neovim's: the view does not write it again.
+    @Test func writeAndQuitWritesOnce() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab\u{1B}:wq\r")
+        #expect(await eventually { quit == 1 })
+        let url = root.appending(path: "N.md")
+        let written = try #require(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
+        try await Task.sleep(for: .milliseconds(20))
+        controller.saveNow()
+        #expect(file() == "ab\n")
+        #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date == written)
+        _ = session
+    }
+
+    /// A Neovim that is killed wrote nothing: the typing the view shows is saved.
+    @Test func aKilledNeovimLosesNoTyping() async throws {
+        var quit = 0
+        controller.onQuit = { quit += 1 }
+        let session = try await open("a\n")
+        keys("Ab")
+        #expect(await eventually { self.view.string == "ab\n" })
+        kill(session.processIdentifier, SIGKILL)
+        #expect(await eventually { quit == 1 })
+        controller.saveNow()
+        #expect(file() == "ab\n")
     }
 }

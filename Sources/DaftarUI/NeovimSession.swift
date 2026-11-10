@@ -65,6 +65,12 @@ final class NeovimSession {
         return arguments
     }
 
+    /// Neovim was killed, and did not quit: what the view shows was not all written.
+    var crashed: Bool { client.crashed }
+
+    /// Neovim's process, for a test that kills it.
+    var processIdentifier: Int32 { client.processIdentifier }
+
     var isNormal: Bool { !mode.hasPrefix("i") && !mode.hasPrefix("R") && !mode.hasPrefix("v") && !mode.hasPrefix("V") && mode != "\u{16}" }
 
     var modeName: String {

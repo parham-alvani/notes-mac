@@ -243,9 +243,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         case .ended:
             // `:wq`, `:q` and `ZZ` mean "done" to a Vim hand: the note is
             // read again, and the next edit starts a new Neovim. Neovim
-            // wrote what `:w` asked for; nothing is written after it.
+            // wrote what `:w` asked for; nothing is written after it: the
+            // view takes the file, so `:q!` leaves no text here to save.
+            // A Neovim that was killed wrote nothing, and what the view
+            // shows is all there is of the typing: that is saved.
             if let onQuit {
+                let crashed = session.crashed
                 stopVim(writing: false)
+                if !crashed { takeDisk() }
                 onQuit()
                 return
             }
@@ -312,6 +317,18 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             saveTask?.cancel()
             stopVim(writing: false)
             self.path = nil
+        }
+    }
+
+    /// Neovim is gone and the file is what it wrote: the view shows the
+    /// file, and nothing here is unsaved.
+    private func takeDisk() {
+        guard let path, let view, let disk = store.text(of: path) else { return }
+        if view.string == disk {
+            saved = disk
+            headingBaseline = Sections.headings(in: disk)
+        } else {
+            take(disk)
         }
     }
 

@@ -24,6 +24,10 @@ public final class NeovimClient: @unchecked Sendable {
     private var nextId: UInt64 = 1
     private var pending: [UInt64: CheckedContinuation<MessagePackValue, any Error>] = [:]
     private var stream = MessagePack.Stream()
+    private var launched = false
+    private var stopped = false
+    private var drained = false
+    private var exited = false
     private let continuation: AsyncStream<Notification>.Continuation
     public let notifications: AsyncStream<Notification>
     /// Answers Neovim's `rpcrequest`, by method and params; Neovim waits
@@ -54,18 +58,36 @@ public final class NeovimClient: @unchecked Sendable {
             let data = handle.availableData
             guard let self else { return }
             if data.isEmpty {
+                self.lock.withLock { self.drained = true }
                 self.closed()
                 return
             }
             self.received(data)
         }
-        process.terminationHandler = { [weak self] _ in self?.closed() }
+        process.terminationHandler = { [weak self] _ in
+            guard let self else { return }
+            self.lock.withLock { self.exited = true }
+            self.closed()
+        }
         try process.run()
+        lock.withLock { launched = true }
     }
 
     public var isRunning: Bool { process.isRunning }
 
+    /// Neovim was killed by a signal -- a crash -- and did not leave by
+    /// itself (`:q`, `:wq`) or by [stop]. The notifications end only once
+    /// the process has, so this is known when they do.
+    public var crashed: Bool {
+        let (launched, stopped) = lock.withLock { (self.launched, self.stopped) }
+        return launched && !stopped && !process.isRunning && process.terminationReason == .uncaughtSignal
+    }
+
+    /// The process, for a test that ends it from outside.
+    public var processIdentifier: Int32 { process.processIdentifier }
+
     public func stop() {
+        lock.withLock { stopped = true }
         if process.isRunning { process.terminate() }
         closed()
     }
@@ -143,7 +165,11 @@ public final class NeovimClient: @unchecked Sendable {
             return Array(all)
         }
         for waiter in waiters { waiter.resume(throwing: Failure(message: "Neovim exited")) }
-        continuation.finish()
+        // The notifications end when the output is read to its end and the
+        // process is gone (so how it went is known), or when it was stopped
+        // or never ran.
+        let over = lock.withLock { stopped || !launched || (drained && exited) }
+        if over { continuation.finish() }
     }
 }
 
