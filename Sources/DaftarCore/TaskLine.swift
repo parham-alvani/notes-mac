@@ -81,7 +81,8 @@ public enum TaskMetadata {
             remaining = String(remaining[..<range.lowerBound])
             while remaining.last?.isWhitespace ?? false { remaining.removeLast() }
         }
-        if !tags.isEmpty { remaining += " " + tags.joined(separator: " ") }
+        // No space before the tags of a task that is only its tags: its text reads back the same.
+        if !tags.isEmpty { remaining += (remaining.isEmpty ? "" : " ") + tags.joined(separator: " ") }
         return (remaining, found.reversed(), starts.reversed())
     }
 

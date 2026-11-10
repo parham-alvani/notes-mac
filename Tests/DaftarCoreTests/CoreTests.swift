@@ -322,6 +322,17 @@ import Testing
         #expect(nested(">     - [ ] a child in a callout") == true)
     }
 
+    @Test func aTaskOfOnlyItsTagsReadsBackTheSame() throws {
+        // Found by the fuzz: the tag after the date came back with a space before it, and without one once written.
+        let line = "- [x] ⏳ 2026-02-30#2026word"
+        let fields = try #require(TaskLine.fields(line))
+        #expect(fields.text == "#2026word")
+        let edited = try #require(TaskLine.edited(line, fields))
+        #expect(edited == "- [x] #2026word ⏳ 2026-02-30")
+        #expect(TaskLine.fields(edited) == fields)
+        #expect(TaskLine.parse(line, line: 0, section: "")?.text == "#2026word")
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")
