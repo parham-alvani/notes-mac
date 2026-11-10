@@ -917,7 +917,7 @@ public final class BaseEngine {
         case (.duration(let a), .duration(let b), "-"): return .duration(a + -b)
         case (.duration(let span), .number(let number), "*"):
             guard let months = (Double(span.months) * number).whole else { return .null }
-            return .duration(BaseSpan(months: months, milliseconds: span.milliseconds * number))
+            return .duration(BaseSpan(months: months, milliseconds: span.milliseconds * number) + BaseSpan.days(Double(span.days) * number))
         case (.duration(let span), .number(let number), "/"):
             return .number(span.approximateMilliseconds / number)
         case (.string, _, "+"), (_, .string, "+"):
@@ -944,8 +944,10 @@ public final class BaseEngine {
         }
     }
 
-    private static func add(_ span: BaseSpan, to date: Date) -> Date {
-        let shifted = span.months == 0 ? date : Calendar.current.date(byAdding: .month, value: span.months, to: date) ?? date
+    static func add(_ span: BaseSpan, to date: Date, calendar: Calendar = .current) -> Date {
+        // Months and days by the calendar, so a day is the next day when the clocks change; the rest by the clock.
+        var shifted = span.months == 0 ? date : calendar.date(byAdding: .month, value: span.months, to: date) ?? date
+        if span.days != 0 { shifted = calendar.date(byAdding: .day, value: span.days, to: shifted) ?? shifted.addingTimeInterval(Double(span.days) * 86_400) }
         return shifted.addingTimeInterval(span.milliseconds / 1000)
     }
 
