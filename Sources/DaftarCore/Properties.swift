@@ -294,7 +294,10 @@ public struct PropertySheet: Sendable, Equatable {
             guard let close = text.dropFirst().firstIndex(of: quote) else { return nil }
             let name = String(text[text.index(after: text.startIndex)..<close])
             let after = text[text.index(after: close)...]
-            guard after.hasPrefix(":"), after.count == 1 || after.unicodeScalars.dropFirst().first == " ", !name.contains("\\") else { return nil }
+            // A backslash is an escape in double quotes only, and the form reads none; in single quotes it is
+            // a letter, which is how `keyText` writes a key that holds one.
+            guard after.hasPrefix(":"), after.count == 1 || after.unicodeScalars.dropFirst().first == " ", quote == "'" || !name.contains("\\")
+            else { return nil }
             return (String(text[...close]), name, after.dropFirst().trimmingCharacters(in: .whitespaces))
         }
         guard let first = text.first, !indicators.contains(first) else { return nil }
