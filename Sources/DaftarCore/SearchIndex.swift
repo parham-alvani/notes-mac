@@ -121,16 +121,11 @@ public final class SearchIndex: @unchecked Sendable {
         return hits
     }
 
-    /// Persian letters as `Slugs.persianLetter` makes them one, with the
-    /// half space (ZWNJ) taken out: `می‌خواهم` is found as `میخواهم` too,
-    /// while the tokenizer, which splits at a ZWNJ, finds `می خواهم` in the
-    /// text.
-    static func persian(_ text: String) -> String {
-        guard text.unicodeScalars.contains(where: { (0x0600...0x06FF).contains($0.value) || $0.value == 0x200C }) else { return text }
-        var scalars = String.UnicodeScalarView()
-        for scalar in text.unicodeScalars where scalar.value != 0x200C { scalars.append(Slugs.persianLetter(scalar)) }
-        return String(scalars)
-    }
+    /// Persian as `Slugs.persian` makes it one, with the half space (ZWNJ),
+    /// the vowel marks and the tatweel taken out: `می‌خواهم` is found as
+    /// `میخواهم` too, and `مؤدّب` as `مودب`, while the tokenizer, which
+    /// splits at a ZWNJ, finds `می خواهم` in the text.
+    static func persian(_ text: String) -> String { Slugs.persian(text) }
 
     /// The FTS5 expressions [search] runs, best first: with two or more
     /// unquoted words, the words as one phrase (the last one a prefix, as it

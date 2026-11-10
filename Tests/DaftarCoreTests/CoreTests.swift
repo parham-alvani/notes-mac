@@ -402,6 +402,12 @@ import Testing
         for query in ["میخواهم", "می\u{200C}خواهم", "می خواهم", "کتاب", "علی", "12", "۱۲"] {
             #expect(index.search(query, limit: 10).map(\.path) == ["a.md"], "\(query)")
         }
+        // A word with its vowel marks or stretched with a tatweel is the word without them.
+        index.put(path: "c.md", title: "ادب", body: "لطفاً مؤدّب باش، کتـــاب")
+        for query in ["مودب", "مؤدب", "مؤدّب", "لطفا", "لطفاً"] {
+            #expect(index.search(query, limit: 10).map(\.path) == ["c.md"], "\(query)")
+        }
+        #expect(Set(index.search("کتاب", limit: 10).map(\.path)) == ["a.md", "c.md"])
         // The snippet is the note's own text.
         #expect(index.search("خواهم", limit: 10).first?.snippet.unicodeScalars.contains("\u{200C}") == true)
     }

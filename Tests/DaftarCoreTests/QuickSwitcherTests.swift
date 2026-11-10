@@ -120,6 +120,27 @@ import Testing
         #expect(!QuickSwitcher.ranking("kbrnts", in: notes).loose)
     }
 
+    @Test func aPersianNameIsFoundWhateverTheKeyboard() {
+        // The half space, the Arabic Yeh and Kaf, the vowel marks and the tatweel: one name, typed four ways.
+        let notes = [
+            QuickSwitcher.Candidate(path: "Journal/می\u{200C}خواهم.md", title: "می\u{200C}خواهم"),
+            QuickSwitcher.Candidate(path: "People/علی.md", title: "علی"),
+            QuickSwitcher.Candidate(path: "Books/کتاب.md", title: "کتاب", aliases: ["مؤدّب"]),
+            QuickSwitcher.Candidate(path: "Books/Other.md", title: "Other"),
+        ]
+        #expect(QuickSwitcher.rank("میخواهم", in: notes) == ["Journal/می\u{200C}خواهم.md"])
+        #expect(QuickSwitcher.rank("می\u{200C}خواهم", in: notes) == ["Journal/می\u{200C}خواهم.md"])
+        #expect(QuickSwitcher.rank("علي", in: notes) == ["People/علی.md"])
+        #expect(QuickSwitcher.rank("كتاب", in: notes) == ["Books/کتاب.md"])
+        #expect(QuickSwitcher.rank("کِتـاب", in: notes) == ["Books/کتاب.md"])
+        #expect(QuickSwitcher.rank("مودب", in: notes) == ["Books/کتاب.md"])
+        // The quick test never refuses what the full match would take.
+        #expect(Slugs.matching("كِتـاب") == "کتاب")
+        #expect(Slugs.search("كِتـاب").count == "كِتـاب".count)
+        #expect(Fuzzy.match("کتاب", in: "كِتـاب") != nil)
+        #expect(LinkCompletion.tags(["کتاب": 2, "other": 1], matching: "كتاب").map(\.insert) == ["کتاب"])
+    }
+
     @Test func aHashStartsTheHeadingPart() {
         #expect(QuickSwitcher.heading(in: "Plan#Goals")! == ("Plan", "Goals"))
         #expect(QuickSwitcher.heading(in: "#")! == ("", ""))
