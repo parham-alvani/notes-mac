@@ -88,7 +88,8 @@ struct ContentView: View {
         .background(TabbedWindow(model: model))
         .onAppear {
             // Every window follows a move or a delete, wherever it was made.
-            store.followers[ObjectIdentifier(model)] = { [weak model] in model?.follow($0) }
+            let window = model
+            store.followers[ObjectIdentifier(window)] = { [weak window] in window?.follow($0) }
             model.places = store.places
             if let initialPath, model.request == nil, store.index.files.contains(initialPath) || store.loading {
                 model.open(initialPath, store: store)
@@ -106,6 +107,10 @@ struct ContentView: View {
             if ReadAloud.shared.path != nil, ReadAloud.shared.path != path, model.readerView === ReadAloud.shared.view { ReadAloud.shared.stop() }
         }
         .onOpenURL { url in model.handle(url, store: store) }
+        // A setting that could not be saved is said, not dropped in silence.
+        .onChange(of: store.settings.problem, initial: true) { _, problem in
+            if let problem { store.notice = problem }
+        }
         // A note chosen in Spotlight.
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             if let path = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String, store.index.files.contains(path) {

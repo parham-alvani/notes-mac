@@ -18,6 +18,8 @@ enum SidebarItem: Hashable {
 struct SidebarView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
+    /// The window this sidebar is in: Search in Vault focuses its field, not the key window's.
+    @ViewState private var host = HostWindow()
 
     var body: some View {
         Group {
@@ -28,7 +30,42 @@ struct SidebarView: View {
             }
         }
         .searchable(text: $model.query, placement: .sidebar, prompt: "Search \(store.name)")
-        .onChange(of: model.searchRequests) { SearchField.focus() }
+        .background(HostWindowFinder(host: host))
+        .onChange(of: model.searchRequests) {
+            // The field may not be in the window yet (a sidebar just shown, a window just made): asked again for a second.
+            Task {
+                for _ in 0..<20 where !SearchField.focus(in: host.window) { try? await Task.sleep(for: .milliseconds(50)) }
+            }
+        }
+    }
+}
+
+/// The window a view is in, kept weakly, in a class so that finding it is not a change of the view's state.
+@MainActor final class HostWindow {
+    weak var window: NSWindow?
+}
+
+/// An empty view that tells [host] the window it is put in.
+private struct HostWindowFinder: NSViewRepresentable {
+    let host: HostWindow
+
+    final class Finder: NSView {
+        var host: HostWindow?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            host?.window = window
+        }
+    }
+
+    func makeNSView(context: Context) -> Finder {
+        let view = Finder()
+        view.host = host
+        return view
+    }
+
+    func updateNSView(_ view: Finder, context: Context) {
+        view.host = host
+        if view.window != nil { host.window = view.window }
     }
 }
 
@@ -40,9 +77,17 @@ struct FilesList: View {
     @ViewState private var dropTarget: String?
     @ViewState private var tagsOpen = false
     @ViewState private var updatedOpen = true
+    /// The task counts of the first two rows, kept until the vault changes or the day turns:
+    /// a selection, a drag over a folder or a section opened draws the sidebar again.
+    @ViewState private var groupsMemo = Memo<GroupsKey, VaultStore.TaskGroups>()
+
+    struct GroupsKey: Equatable {
+        var revision: Int
+        var today: Day
+    }
 
     var body: some View {
-        let groups = store.taskGroups()
+        let groups = groupsMemo.value(for: GroupsKey(revision: store.revision, today: .today())) { store.taskGroups() }
         List(selection: selection) {
             Section {
                 Label {
@@ -934,10 +979,15 @@ func openInObsidian(_ path: String, store: VaultStore) {
 /// sidebar on macOS, so Search in Vault finds the `NSSearchField` in the key
 /// window and makes it the first responder.
 @MainActor enum SearchField {
-    static func focus() {
-        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.tabbingIdentifier == "daftar.main" }
-        guard let window, let root = window.contentView?.superview else { return }
-        if let field = find(in: root) { window.makeFirstResponder(field) }
+    /// In [window], the sidebar's own: the command acts on a window's model,
+    /// which is the last Daftar window in front even while Settings or a
+    /// panel is the key window, and with two windows open the key one is
+    /// not always the one asked.
+    /// False when the window has no search field (yet).
+    @discardableResult static func focus(in window: NSWindow? = nil) -> Bool {
+        let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.tabbingIdentifier == "daftar.main" }
+        guard let window, let root = window.contentView?.superview, let field = find(in: root) else { return false }
+        return window.makeFirstResponder(field)
     }
 
     private static func find(in view: NSView) -> NSSearchField? {

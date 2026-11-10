@@ -29,3 +29,10 @@ test("Persian paragraphs and callouts take their own direction", () => {
 test("the extension's entry point takes JSON", async () => {
   assert.match(globalThis.daftarPreview(JSON.stringify({ text: "![[a.png]]", links: { "a.png": "uploads/a.png" } })), /<img src="vault:\/\/\/uploads\/a.png"/);
 });
+
+test("a preview asks no site for a picture", () => {
+  const html = preview({ text: "![chart](https://x.org/chart.png) <img src='https:/x.org/b.png'> ![[logo.png]]", links: { "logo.png": "uploads/logo.png" } });
+  assert.doesNotMatch(html, /<img[^>]*x\.org/);
+  assert.equal(html.match(/class="remote-image"/g).length, 2);
+  assert.match(html, /<img src="vault:\/\/\/uploads\/logo.png"/);
+});

@@ -69,6 +69,7 @@ public enum QuickLookPreview {
     /// not load.
     public static func attach(_ body: String, root: URL, path: String) -> Page {
         let root = root.standardizedFileURL
+        let base = root.resolvingSymlinksInPath().path
         let folder = (path as NSString).deletingLastPathComponent
         var attachments: [String: URL] = [:]
         var named: [URL: String] = [:]
@@ -86,7 +87,12 @@ public enum QuickLookPreview {
                 return whole
             }
             let file = root.appendingPathComponent(vaultPath).standardizedFileURL
-            guard !vaultPath.isEmpty, file.path.hasPrefix(root.path + "/"), FileManager.default.isReadableFile(atPath: file.path) else {
+            // Where the file is, not what it is called: a link in the vault
+            // to a file outside it is not attached, as the app's `vault:` refuses it.
+            let real = file.resolvingSymlinksInPath().path
+            guard !vaultPath.isEmpty, file.path.hasPrefix(root.path + "/"), real.hasPrefix(base + "/"),
+                FileManager.default.isReadableFile(atPath: file.path)
+            else {
                 return whole
             }
             let name = named[file] ?? "file\(attachments.count)"
@@ -97,6 +103,12 @@ public enum QuickLookPreview {
         return Page(html: html, attachments: attachments)
     }
 
+    /// What the preview's page may load: the note's own attachments and
+    /// `data:` pictures, its styles, and nothing from any site. Quick Look
+    /// runs no script; this keeps a picture, a frame or a style of the note
+    /// from asking a site either.
+    public static let policy = "default-src 'none'; img-src cid: data:; media-src cid:; frame-src cid:; style-src 'unsafe-inline'; font-src data:"
+
     /// The whole page: the reader's styles, then the note in `#note`, as in
     /// the reader's `index.html`. The colours follow the system appearance.
     public static func document(body: String, styles: String) -> String {
@@ -105,6 +117,7 @@ public enum QuickLookPreview {
         <html>
         <head>
         <meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="\(policy)">
         <meta name="color-scheme" content="light dark">
         <style>
         \(styles)

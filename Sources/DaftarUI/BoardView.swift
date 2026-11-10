@@ -13,6 +13,17 @@ struct BoardView: View {
     @ViewState private var query = ""
     @ViewState private var allClosed = false
     @ViewState private var target: String?
+    /// The filtered tasks and the notes that hold tasks, kept until the
+    /// vault or a filter changes: a drag over a column or a change of the
+    /// grouping draws the board again and must not walk every task again.
+    @ViewState private var shownMemo = Memo<ShownKey, [VaultTask]>()
+    @ViewState private var filesMemo = Memo<Int, [String]>()
+
+    private struct ShownKey: Equatable {
+        var revision: Int
+        var file: String?
+        var query: String
+    }
 
     var body: some View {
         let tasks = shown
@@ -42,16 +53,38 @@ struct BoardView: View {
 
     /// The tasks the filters let through.
     private var shown: [VaultTask] {
+        shownMemo.value(for: ShownKey(revision: store.revision, file: file, query: query)) {
+            Self.shown(store.index.tasks, excluded: store.excluded, file: file, query: query)
+        }
+    }
+
+    /// [tasks] without the hidden notes', of [file] when one is chosen, with [query] in their words.
+    static func shown(_ tasks: [VaultTask], excluded: ExcludedFiles, file: String?, query: String) -> [VaultTask] {
         let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
-        return store.index.tasks.filter { task in
-            !store.excluded.contains(task.path) && (file == nil || task.path == file)
-                && (needle.isEmpty || Slugs.fold(task.task.text + " " + (task.task.reason ?? "") + " " + task.task.section + " " + task.path).contains(needle))
+        // A note is hidden or not once, not once for each of its tasks.
+        var hidden: [String: Bool] = [:]
+        return tasks.filter { task in
+            if let file, task.path != file { return false }
+            let out = hidden[task.path] ?? excluded.contains(task.path)
+            hidden[task.path] = out
+            if out { return false }
+            return needle.isEmpty || Slugs.fold(task.task.text + " " + (task.task.reason ?? "") + " " + task.task.section + " " + task.path).contains(needle)
         }
     }
 
     /// The notes that hold tasks, for the filter.
     private var files: [String] {
-        Set(store.index.tasks.map(\.path)).sorted { Vault.title(of: $0).localizedStandardCompare(Vault.title(of: $1)) == .orderedAscending }
+        filesMemo.value(for: store.revision) { Self.files(store.index.tasks.map(\.path)) }
+    }
+
+    /// [paths] once each, by their titles: the titles are worked out before the sort, not in it.
+    static func files(_ paths: [String]) -> [String] {
+        Set(paths).map { (title: Vault.title(of: $0), path: $0) }
+            .sorted { a, b in
+                let order = a.title.localizedStandardCompare(b.title)
+                return order == .orderedSame ? a.path < b.path : order == .orderedAscending
+            }
+            .map(\.path)
     }
 
     private func color(_ column: TaskBoard.Column) -> Color {
@@ -286,5 +319,24 @@ struct BoardView: View {
         guard open, let day = Day(text) else { return Palette.muted }
         let today = Day.today()
         return day < today ? Palette.red : day == today ? Palette.accent : Palette.blue
+    }
+}
+
+/// A value kept until its key changes: what a view works out from the whole
+/// vault (every task, every note) is worked out when the vault's revision or
+/// a filter changes, not each time SwiftUI draws the view again. A class, so
+/// keeping the value is not a change of the view's state.
+@MainActor
+final class Memo<Key: Equatable, Value> {
+    private var kept: (key: Key, value: Value)?
+    /// How many times the value was worked out, for the tests.
+    private(set) var made = 0
+
+    func value(for key: Key, _ make: () -> Value) -> Value {
+        if let kept, kept.key == key { return kept.value }
+        let value = make()
+        made += 1
+        kept = (key, value)
+        return value
     }
 }

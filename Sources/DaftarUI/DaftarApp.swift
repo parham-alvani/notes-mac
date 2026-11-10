@@ -22,17 +22,8 @@ public struct DaftarApp: App {
                 .onAppear {
                     delegate.store = store
                     QuickCaptureController.shared.store = store
+                    VaultFollower.shared.follow(store)
                 }
-                .task(id: store.revision) {
-                    // After the vault changes, the alerts and the badge follow.
-                    try? await Task.sleep(for: .seconds(2))
-                    guard !Task.isCancelled, store.root != nil, !store.loading else { return }
-                    updateBadge()
-                    await Notifier.shared.plan(store: store)
-                }
-                .onChange(of: store.settings.dockBadge) { updateBadge() }
-                .onChange(of: store.revision, initial: true) { Spotlight.shared.follow(store) }
-                .onChange(of: store.settings.spotlight) { Spotlight.shared.follow(store) }
                 // The settings file can change under the app: follow it.
                 .onChange(of: store.settings.syncInterval) { store.scheduleAutoSync() }
                 .onChange(of: store.settings.hiddenNames) { store.refreshHidden() }
@@ -187,19 +178,78 @@ public struct DaftarApp: App {
                 }
             }
             .accessibilityLabel("Daftar")
-            .onAppear { QuickCaptureController.shared.store = store }
+            .onAppear {
+                QuickCaptureController.shared.store = store
+                VaultFollower.shared.follow(store)
+            }
         }
         .menuBarExtraStyle(.window)
     }
+}
 
-    private func updateBadge() {
-        guard store.settings.dockBadge else {
-            NSApp.dockTile.badgeLabel = nil
-            return
+/// What follows the vault for the whole app: the Dock badge, the planned
+/// alerts and Spotlight. It belongs to the app, not to a window: started
+/// from the menu bar icon, which is there from launch, it runs once for each
+/// change however many windows are open, and with none open too -- a pull
+/// that brings a moved meeting plans its alert again while every window is
+/// closed.
+@MainActor
+final class VaultFollower {
+    static let shared = VaultFollower()
+
+    private weak var store: VaultStore?
+    private var pending: Task<Void, Never>?
+    private var badgeShown: Bool?
+    /// How long after a change the badge and the alerts follow: changes come in runs.
+    var delay: Duration = .seconds(2)
+    /// The three things that follow, which a test replaces.
+    var badge: (String?) -> Void = { NSApp?.dockTile.badgeLabel = $0 }
+    var plan: (VaultStore) async -> Void = { await Notifier.shared.plan(store: $0) }
+    var spotlight: (VaultStore) -> Void = { Spotlight.shared.follow($0) }
+
+    /// Follows [store] from now on; asked again for the same store, it does nothing.
+    func follow(_ store: VaultStore) {
+        guard self.store !== store else { return }
+        self.store = store
+        observe()
+        changed()
+    }
+
+    /// Hears the next change of what the three depend on, then listens again.
+    private func observe() {
+        guard let store else { return }
+        withObservationTracking {
+            _ = (store.revision, store.loading, store.root, store.settings.dockBadge, store.settings.spotlight)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.observe()
+                self?.changed()
+            }
         }
+    }
+
+    private func changed() {
+        guard let store else { return }
+        spotlight(store)
+        // The badge's own switch shows at once; the vault's changes after a moment.
+        if badgeShown != store.settings.dockBadge {
+            badgeShown = store.settings.dockBadge
+            updateBadge(store)
+        }
+        pending?.cancel()
+        pending = Task { [delay] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, store.root != nil, !store.loading else { return }
+            updateBadge(store)
+            await plan(store)
+        }
+    }
+
+    private func updateBadge(_ store: VaultStore) {
+        guard store.settings.dockBadge, store.root != nil else { return badge(nil) }
         let groups = store.taskGroups(days: 0)
         let count = groups.today.count + groups.overdue.count
-        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
+        badge(count > 0 ? String(count) : nil)
     }
 }
 
@@ -262,11 +312,28 @@ struct SettingsView: View {
         }
         .frame(width: 520)
         .tint(Palette.accent)
+        .safeAreaInset(edge: .bottom) { SettingsProblem() }
     }
 
     /// The Neovim config beside Daftar's own settings file, as the file names it.
     static func daftarInit(_ settings: AppSettings) -> String {
         settings.url.deletingLastPathComponent().appending(path: "init.lua").path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+    }
+}
+
+/// Why a change in this window was not kept in the settings file, when it was not.
+private struct SettingsProblem: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        if let problem = store.settings.problem {
+            Label(problem, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(Palette.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20).padding(.vertical, 10)
+                .accessibilityLabel("Settings not saved. \(problem)")
+        }
     }
 }
 

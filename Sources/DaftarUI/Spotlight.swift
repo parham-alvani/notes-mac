@@ -12,6 +12,15 @@ final class Spotlight {
     static let shared = Spotlight()
 
     private let index = CSSearchableIndex.default()
+    /// Gives a batch of notes to the system's index; a test replaces it.
+    var send: @MainActor ([NoteEntry], String) async throws -> Void = { notes, domain in
+        try await CSSearchableIndex.default().indexSearchableItems(notes.map { Spotlight.item($0, domain: domain) })
+    }
+    /// The index refused a batch (an ad-hoc signed build gets
+    /// `CSIndexErrorDomain -1000`): it will refuse the next too, so nothing
+    /// more is built or sent until the app starts again or the setting is
+    /// turned off and on.
+    private(set) var failed = false
     /// The vault the index holds, and the notes in it with when they changed.
     private var root: URL?
     private var indexed: [String: Date] = [:]
@@ -23,9 +32,11 @@ final class Spotlight {
     func follow(_ store: VaultStore) {
         guard let current = store.root, !store.loading else { return }
         guard store.settings.spotlight else {
+            failed = false
             if cleared != current { clear(current) }
             return
         }
+        guard !failed else { return }
         cleared = nil
         let notes = store.index.notes.values.filter { !store.hidden.contains($0.path) }
         let fresh = root != current
@@ -47,12 +58,12 @@ final class Spotlight {
             for batch in stride(from: 0, to: changed.count, by: 400) {
                 guard !Task.isCancelled else { return }
                 let part = Array(changed[batch..<min(batch + 400, changed.count)])
-                let items = part.map { Self.item($0, domain: current.path) }
                 do {
-                    try await index.indexSearchableItems(items)
+                    try await send(part, current.path)
                     guard root == current else { return }
                     for note in part { indexed[note.path] = note.modified }
                 } catch {
+                    failed = true
                     return
                 }
             }

@@ -52,6 +52,37 @@ let quickLookScript: String? = try? String(
         #expect(page.html.contains("src=\"vault:///../outside.png\""))
     }
 
+    /// A link in the vault to a file outside it is not attached, by either spelling.
+    @Test func aLinkOutOfTheVaultIsNotAttached() throws {
+        let root = try makeVault(["uploads/in.png": "png", "Note.md": "x"])
+        let outside = try makeVault(["secret.png": "png"], obsidian: false)
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "uploads/out.png"), withDestinationURL: outside.appending(path: "secret.png"))
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "away"), withDestinationURL: outside)
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "uploads/same.png"), withDestinationURL: root.appending(path: "uploads/in.png"))
+        let body = "<img src=\"vault:///uploads/out.png\"><img src=\"away/secret.png\"><img src=\"vault:///uploads/same.png\"><img src=\"vault:///uploads/in.png\">"
+        let page = QuickLookPreview.attach(body, root: root, path: "Note.md")
+        #expect(page.attachments.values.map(\.lastPathComponent).sorted() == ["in.png", "same.png"])
+        #expect(page.html.contains("src=\"vault:///uploads/out.png\""))
+        #expect(page.html.contains("src=\"away/secret.png\""))
+    }
+
+    /// The page says what it may load: its attachments, and nothing from a site.
+    @Test func thePreviewsPageLoadsNothingFromASite() {
+        let page = QuickLookPreview.document(body: "<p>x</p>", styles: "body {}")
+        #expect(page.contains("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src cid: data:;"))
+        #expect(!QuickLookPreview.policy.contains("http"))
+        #expect(!QuickLookPreview.policy.contains("script-src"))
+    }
+
+    @Test(.enabled(if: quickLookScript != nil)) func aPreviewAsksNoSiteForAPicture() throws {
+        let renderer = try #require(QuickLookPreview.Renderer(script: quickLookScript!))
+        let root = try makeVault(["Note.md": "![chart](https://example.org/chart.png)\n\n<img src=\"https:/example.org/b.png\">\n\n<style>p { background: url(https://example.org/c.png) }</style>\n"])
+        let page = try QuickLookPreview.page(of: root.appending(path: "Note.md"), renderer: renderer, styles: "body {}")
+        #expect(!page.html.contains("<img"))
+        #expect(!page.html.contains("c.png"))
+        #expect(page.html.components(separatedBy: "class=\"remote-image\"").count - 1 == 2)
+    }
+
     @Test func theInputIsTheReadersNote() throws {
         let json = QuickLookPreview.input(text: "---\nstatus: open\ncssclasses: wide\n---\nBody", path: "Notes/Plan.md", links: [:])
         let note = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])

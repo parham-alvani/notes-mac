@@ -36,6 +36,9 @@ struct ReaderView: NSViewRepresentable {
         "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)"
     }
 
+    /// The reader's one page.
+    static let page = URL(string: "daftar://reader/index.html")!
+
     var request: ReaderRequest?
     var store: VaultStore
     /// The store's revision, read where the view is made: a change of it
@@ -64,14 +67,16 @@ struct ReaderView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let schemes = SchemeHandler(store: store)
+        let schemes = SchemeHandler(store: store, remote: context.coordinator.remote)
         configuration.setURLSchemeHandler(schemes, forURLScheme: "daftar")
         configuration.setURLSchemeHandler(schemes, forURLScheme: "vault")
+        configuration.setURLSchemeHandler(schemes, forURLScheme: RemotePictures.scheme)
         let controller = configuration.userContentController
         controller.add(context.coordinator, name: "daftar")
         controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "embed")
         controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "tasks")
         controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "base")
+        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "remoteImage")
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
@@ -79,8 +84,9 @@ struct ReaderView: NSViewRepresentable {
         view.isInspectable = true
         #endif
         context.coordinator.view = view
+        context.coordinator.loadedRemoteImages = store.settings.remoteImages
         onView?(view)
-        view.load(URLRequest(url: URL(string: "daftar://reader/index.html")!))
+        view.load(URLRequest(url: Self.page))
         return view
     }
 
@@ -103,14 +109,32 @@ struct ReaderView: NSViewRepresentable {
         private var hasQuery = false
         /// Grows with each show, so a base that finishes late is dropped.
         private var showCount = 0
+        /// What the page may name in a message, from what the app gave it for the note on screen.
+        private(set) var trust = PageTrust()
+        /// The pictures from the web the person asked for, in the note on screen.
+        let remote = RemotePictures()
+        /// `appearance.remote_images` when the page was loaded: its policy
+        /// for pictures comes with the page, so a change loads it again.
+        var loadedRemoteImages = true
+        /// The loads of the page the app itself asked for and WebKit has not
+        /// started yet: the first, and one for each time the page is loaded
+        /// again. The main frame gets no other navigation.
+        private var loads = 1
 
         init(_ parent: ReaderView) { self.parent = parent }
 
         /// Shows the requested note when it is new, or again when its file
         /// changed on disk, keeping the place the person was reading.
         func update() {
-            guard ready, let request = parent.request else { return }
+            guard ready else { return }
             let store = parent.store
+            if store.settings.remoteImages != loadedRemoteImages {
+                // The page's policy lets `https:` pictures in or not: it is the page's, so the page loads again.
+                loadedRemoteImages = store.settings.remoteImages
+                reload()
+                return
+            }
+            guard let request = parent.request else { return }
             // A note with a tasks query shows tasks from every note, so any
             // change to a note can change it.
             let changedOnDisk = store.revision != shownRevision
@@ -136,9 +160,19 @@ struct ReaderView: NSViewRepresentable {
             }
         }
 
+        /// The page from the start: its policy changed, or its process ended.
+        private func reload() {
+            ready = false
+            loads += 1
+            view?.load(URLRequest(url: ReaderView.page))
+        }
+
         private func show(_ request: ReaderRequest, keepScroll: Bool) {
             let store = parent.store
             hasQuery = false
+            trust = PageTrust()
+            // A picture asked for in one note is not asked for in the next.
+            if shown?.path != request.path { remote.forget() }
             shown = request
             shownRevision = store.revision
             shownSize = ReaderView.shownKey(store.settings)
@@ -157,6 +191,8 @@ struct ReaderView: NSViewRepresentable {
                 return
             }
             let parsed = NoteParser.parse(text)
+            let detected = Detected.find(in: text)
+            trust.detected = Set(detected.map { PageTrust.Found(kind: $0.kind.rawValue, value: $0.value) })
             var note: [String: Any] = [
                 "path": request.path,
                 "title": Vault.title(of: request.path),
@@ -166,7 +202,7 @@ struct ReaderView: NSViewRepresentable {
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
                 "folds": store.places.folds(request.path),
-                "detected": Detected.find(in: text).map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
+                "detected": detected.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             note.merge(ReaderView.appearance(store.settings)) { $1 }
             if !keepScroll {
@@ -205,7 +241,7 @@ struct ReaderView: NSViewRepresentable {
                     "properties": [[String]](), "keepScroll": keepScroll, "base": base,
                 ]
                 note.merge(ReaderView.appearance(store.settings)) { $1 }
-                _ = try? await view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+                view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
             }
         }
 
@@ -272,16 +308,33 @@ struct ReaderView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {}
 
-        /// The page stays the reader: a note's `<meta http-equiv=refresh>` or
-        /// `<form>` cannot take the window to a web page, which would then
-        /// talk to the app. Links go out through the click handler instead.
+        /// The page stays the reader. The main frame loads `index.html` when
+        /// the app asks for it and nothing else, ever: not a web page, which
+        /// would then talk to the app, and not another file of the bundle
+        /// (`daftar://reader/reader.css`), which would leave the pane with a
+        /// page that has no reader in it. Links go out through the click
+        /// handler instead.
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+            if action.targetFrame?.isMainFrame ?? true {
+                guard loads > 0, action.request.url == ReaderView.page else { return .cancel }
+                loads -= 1
+                return .allow
+            }
             let scheme = action.request.url?.scheme ?? ""
-            if action.targetFrame?.isMainFrame ?? true { return scheme == "daftar" ? .allow : .cancel }
             return scheme == "vault" || scheme == "about" ? .allow : .cancel
         }
 
+        /// The page's process ended (memory, a crash): the page loads again and shows the note.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            reload()
+        }
+
+        /// The app listens to the reader's page only: a frame holds a file of
+        /// the vault (a PDF, a page someone saved), which has nothing to ask.
+        func hears(mainFrame: Bool) -> Bool { mainFrame }
+
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard hears(mainFrame: message.frameInfo.isMainFrame) else { return }
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
             switch kind {
             case "ready":
@@ -292,10 +345,10 @@ struct ReaderView: NSViewRepresentable {
                 guard let request = shown, let line = body["line"] as? Int,
                     let status = (body["status"] as? String)?.first
                 else { return }
-                // The page is drawn from notes, so a path from it is checked:
-                // only a note in the index can be written.
-                // A task in a query result is in its own note.
+                // The page is drawn from notes, so what it names is checked: the
+                // note on screen, or a task a query of this show answered with.
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
+                guard trust.mayName(task: path, line: line, shown: request.path) else { return }
                 parent.store.toggleTask(path: path, line: line, status: status)
             case "open":
                 let path = body["path"] as? String ?? ""
@@ -326,7 +379,10 @@ struct ReaderView: NSViewRepresentable {
             case "tag":
                 if let tag = body["tag"] as? String { parent.onTag(tag) }
             case "detected":
-                guard let kind = body["type"] as? String, let value = body["value"] as? String else { return }
+                // Only a number or an address the app itself found in the note on screen.
+                guard let kind = body["type"] as? String, let value = body["value"] as? String,
+                    trust.detected.contains(PageTrust.Found(kind: kind, value: value))
+                else { return }
                 Detected.open(kind: kind, value: value)
             case "section":
                 if let line = body["line"] as? Int { parent.onSection?(line < 0 ? nil : line) }
@@ -346,6 +402,7 @@ struct ReaderView: NSViewRepresentable {
             case "editTask":
                 guard let request = shown, let line = body["line"] as? Int else { return }
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
+                guard trust.mayName(task: path, line: line, shown: request.path) else { return }
                 parent.onEditTask(path, line)
             case "copy":
                 if let text = body["text"] as? String {
@@ -371,7 +428,13 @@ struct ReaderView: NSViewRepresentable {
         func userContentController(
             _ controller: WKUserContentController, didReceive message: WKScriptMessage
         ) async -> (Any?, String?) {
+            guard hears(mainFrame: message.frameInfo.isMainFrame) else { return (nil, nil) }
             guard let body = message.body as? [String: Any] else { return (nil, nil) }
+            if message.name == "remoteImage" {
+                // A click on a placeholder: this one address may be asked for, by the way the page's policy lets in.
+                guard let text = body["url"] as? String, let url = URL(string: text) else { return (nil, nil) }
+                return (remote.allow(url)?.absoluteString, nil)
+            }
             if message.name == "tasks" {
                 hasQuery = true
                 return (runQuery(body["source"] as? String ?? "", in: body["path"] as? String ?? ""), nil)
@@ -404,6 +467,7 @@ extension ReaderView.Coordinator {
         let found = query.run(index.tasksInOrder, today: .today()) { QueryTask($0, statuses: statuses) }
         var links: [String: String] = [:]
         let tasks: [[String: Any]] = found.map { task in
+            trust.tasks.insert(PageTrust.Task(path: task.path, line: task.task.line))
             for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
                 if let target = index.resolve(link.target, from: task.path) { links[link.target] = target }
             }
@@ -488,16 +552,58 @@ extension ReaderView.Coordinator {
     }
 }
 
+/// What the page may name when it asks the app to act. The page is drawn
+/// from notes, so a path, a line or a phone number in a message is only
+/// taken when the app itself gave it to the page for the note on screen: a
+/// task of another note when a ` ```tasks ` query of this show answered with
+/// it, a number or an address when `Detected` found it in the note.
+struct PageTrust {
+    struct Task: Hashable {
+        var path: String
+        var line: Int
+    }
+
+    struct Found: Hashable {
+        var kind: String
+        var value: String
+    }
+
+    /// The tasks the queries of this show answered with.
+    var tasks: Set<Task> = []
+    /// The phone numbers and addresses found in the note on screen.
+    var detected: Set<Found> = []
+
+    /// A task of the note on screen, or one a query of this show listed.
+    func mayName(task path: String, line: Int, shown: String) -> Bool {
+        path == shown || tasks.contains(Task(path: path, line: line))
+    }
+}
+
 /// Serves `daftar://reader/…` from the app bundle and `vault:///…` from the
 /// open vault. A vault path that leaves the vault is refused.
 final class SchemeHandler: NSObject, WKURLSchemeHandler {
     private let store: VaultStore
+    private let remote: RemotePictures
 
-    init(store: VaultStore) { self.store = store }
+    init(store: VaultStore, remote: RemotePictures) {
+        self.store = store
+        self.remote = remote
+    }
+
+    /// The policy `index.html` gets on top of its own while pictures from
+    /// the web are off: no `https:` picture, so one the renderer missed is
+    /// refused by the page before any site is asked. A picture the person
+    /// clicked comes through `daftar-remote:`, which serves only what
+    /// `RemotePictures` allowed.
+    static let noRemotePictures = "img-src 'self' vault: data: \(RemotePictures.scheme):"
 
     @MainActor
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         guard let url = task.request.url else { return }
+        if url.scheme == RemotePictures.scheme {
+            remote.serve(task)
+            return
+        }
         let file: URL?
         switch url.scheme {
         case "daftar":
@@ -515,8 +621,11 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         let type = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         // A video or a sound is read in parts: `Range: bytes=start-end`.
         // A page or a picture with script in it runs with no rights of its own.
-        let sandbox = ["text/html", "image/svg+xml", "application/xhtml+xml", "text/xml", "application/xml"].contains(type)
-        let policy = url.scheme == "vault" && sandbox ? ["Content-Security-Policy": "sandbox; default-src 'none'; img-src vault: data:; style-src 'unsafe-inline'"] : [:]
+        let sandbox = Self.isDocument(type)
+        var policy = url.scheme == "vault" && sandbox ? ["Content-Security-Policy": "sandbox; default-src 'none'; img-src vault: data:; style-src 'unsafe-inline'"] : [:]
+        if url.scheme == "daftar", url.path == ReaderView.page.path, !store.settings.remoteImages {
+            policy["Content-Security-Policy"] = Self.noRemotePictures
+        }
         if let range = task.request.value(forHTTPHeaderField: "Range") {
             guard let (start, end) = Self.bytes(range, size: data.count) else {
                 let headers = ["Content-Range": "bytes */\(data.count)"]
@@ -538,6 +647,15 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         task.didFinish()
     }
 
+    /// Whether WebKit shows a file of this type as a document, which can
+    /// hold script: HTML, a web archive, and every kind of XML (a feed and
+    /// an SVG are XML that may carry XHTML's `<script>`). By rule, not by a
+    /// list of types: a type nobody listed is the one that gets through.
+    static func isDocument(_ type: String) -> Bool {
+        let type = type.lowercased()
+        return type == "text/html" || type.contains("xml") || type.contains("webarchive") || type == "multipart/related"
+    }
+
     /// `bytes=0-`, `bytes=100-199` or `bytes=-500`, inside a file of [size].
     static let chunk = 4 << 20
 
@@ -555,7 +673,89 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         return start <= end && start < size ? (start, end) : nil
     }
 
-    func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}
+    @MainActor
+    func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {
+        remote.stop(task)
+    }
+}
+
+/// The pictures from the web a person asked for while `appearance.remote_images`
+/// is off (`docs/specs/remote-images.md` in notes-linux). The page's policy
+/// then lets no `https:` picture in, so a click on a placeholder asks the app:
+/// the app notes that one address and gives back a `daftar-remote:` address
+/// for it, which this serves by asking the site itself. An address nobody
+/// clicked is refused here, so nothing the page holds can ask a site by
+/// writing a `daftar-remote:` address of its own.
+@MainActor
+final class RemotePictures {
+    nonisolated static let scheme = "daftar-remote"
+
+    private var allowed: Set<URL> = []
+    private var running: [ObjectIdentifier: URLSessionDataTask] = [:]
+    /// No cookies, no cache on disk: a picture asked for tells the site one thing, that it was asked for.
+    private lazy var session = URLSession(configuration: .ephemeral)
+
+    /// The site address a `daftar-remote:` address stands for: `https:` only.
+    nonisolated static func target(of url: URL) -> URL? {
+        guard url.scheme == scheme,
+            let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value,
+            let target = URL(string: text), target.scheme?.lowercased() == "https", target.host != nil
+        else { return nil }
+        return target
+    }
+
+    /// The `daftar-remote:` address of [target], an `https:` picture.
+    nonisolated static func address(for target: URL) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = scheme
+        parts.host = "picture"
+        parts.path = "/"
+        parts.queryItems = [URLQueryItem(name: "url", value: target.absoluteString)]
+        return parts.url
+    }
+
+    /// The person clicked the placeholder of [target]: the address the page loads it from, or nil when it is no `https:` picture.
+    func allow(_ target: URL) -> URL? {
+        guard target.scheme?.lowercased() == "https", target.host != nil, let address = Self.address(for: target) else { return nil }
+        allowed.insert(target)
+        return address
+    }
+
+    func allows(_ target: URL) -> Bool { allowed.contains(target) }
+
+    /// Another note is shown: what was asked for in the last one is not asked for again.
+    func forget() { allowed = [] }
+
+    func serve(_ task: any WKURLSchemeTask) {
+        guard let url = task.request.url, let target = Self.target(of: url), allowed.contains(target) else {
+            task.didFailWithError(URLError(.noPermissionsToReadFile))
+            return
+        }
+        let id = ObjectIdentifier(task)
+        nonisolated(unsafe) let task = task
+        let load = session.dataTask(with: URLRequest(url: target)) { data, response, error in
+            let type = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? response?.mimeType ?? ""
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            Task { @MainActor in
+                // A task the page stopped must not be answered: WebKit throws.
+                guard self.running.removeValue(forKey: id) != nil else { return }
+                guard let data, error == nil, status == 200, type.lowercased().hasPrefix("image/") else {
+                    task.didFailWithError(error ?? URLError(.badServerResponse))
+                    return
+                }
+                let headers = ["Content-Type": type, "Content-Length": String(data.count)]
+                task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!)
+                task.didReceive(data)
+                task.didFinish()
+            }
+        }
+        running[id] = load
+        load.resume()
+    }
+
+    func stop(_ task: any WKURLSchemeTask) {
+        running.removeValue(forKey: ObjectIdentifier(task))?.cancel()
+    }
 }
 
 enum Resources {
