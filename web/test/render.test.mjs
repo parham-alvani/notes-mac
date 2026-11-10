@@ -300,3 +300,13 @@ test("a diagram's picture shape loses an address on the web, and keeps one in th
   assert.equal(withoutRemotePictures('A@{ img: "vault:///a.png" }'), 'A@{ img: "vault:///a.png" }');
   assert.equal(withoutRemotePictures("A --> B"), "A --> B");
 });
+
+test("math KaTeX cannot draw is shown as its source, and the note is drawn", () => {
+  const deep = "{".repeat(20000);
+  for (const source of ["```math\n" + deep + "\n```\n\nafter", "```latex\n" + deep + "\n```\n\nafter", "$$\n" + deep + "\n$$\n\nafter", "$" + deep + "x$ after"]) {
+    const html = render(source);
+    assert.match(html, /<code class="math-error">\{\{/);
+    assert.match(html, /after/);
+  }
+  assert.match(render("```math\n\\frac{1}{2}\n```"), /class="math math-block"><span class="katex-display">/);
+});

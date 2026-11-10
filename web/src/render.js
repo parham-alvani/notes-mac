@@ -303,14 +303,22 @@ function tags(md) {
   };
 }
 
+/**
+ * TeX as KaTeX draws it. `throwOnError: false` shows a TeX mistake in red,
+ * but KaTeX still throws what is not a mistake of TeX's (a stack that ran
+ * out on twenty thousand `{`): then the source is shown as code, and the
+ * rest of the note is drawn.
+ */
+function tex(source, displayMode) {
+  try {
+    return katex.renderToString(source, { displayMode, throwOnError: false, output: "htmlAndMathml" });
+  } catch (error) {
+    return `<code class="math-error">${escapeHtml(source)}</code>`;
+  }
+}
+
 function math(md) {
-  const render = (tex, displayMode) => {
-    try {
-      return katex.renderToString(tex, { displayMode, throwOnError: false, output: "htmlAndMathml" });
-    } catch (error) {
-      return `<code class="math-error">${escapeHtml(tex)}</code>`;
-    }
-  };
+  const render = tex;
 
   md.block.ruler.before("fence", "math_block", (state, startLine, endLine, silent) => {
     const start = state.bMarks[startLine] + state.tShift[startLine];
@@ -702,7 +710,7 @@ function fences(md) {
     if (lang === "tasks") return `<div class="tasks-query" data-source="${escapeHtml(token.content)}"></div>\n`;
     if (lang === "base") return `<div class="base-query" data-source="${escapeHtml(token.content)}"></div>\n`;
     if (lang === "math" || lang === "latex") {
-      return `<div class="math math-block">${katex.renderToString(token.content, { displayMode: true, throwOnError: false })}</div>\n`;
+      return `<div class="math math-block">${tex(token.content, true)}</div>\n`;
     }
     // A `^id` line under the block names it: the id goes on its outer tag.
     const id = token.attrGet("id");
