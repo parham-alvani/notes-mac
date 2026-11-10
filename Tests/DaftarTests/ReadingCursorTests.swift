@@ -107,7 +107,7 @@ import WebKit
         try await key(web, "g")
         lines.all = []
         _ = try await run(web, "window.scrollTo(0, 1500); 1")
-        for _ in 0..<20 where lines.all.isEmpty { try await Task.sleep(for: .milliseconds(100)) }
+        for _ in 0..<200 where lines.all.isEmpty { try await Task.sleep(for: .milliseconds(100)) }
         // A paragraph far down: the editor opens there, not at the top.
         #expect((lines.all.last ?? 0) > 20)
         let top = Double(try await run(web, "parseFloat(document.querySelector('#reading-cursor').style.top) - window.scrollY")) ?? -1

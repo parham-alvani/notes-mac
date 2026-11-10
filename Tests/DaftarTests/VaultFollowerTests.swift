@@ -77,7 +77,8 @@ import Testing
             throw CocoaError(.featureUnsupported)
         }
         spotlight.follow(store)
-        for _ in 0..<40 where !spotlight.failed { try await Task.sleep(for: .milliseconds(25)) }
+        // As long as a loaded machine needs (CI went past one second); it ends at the failure.
+        for _ in 0..<800 where !spotlight.failed { try await Task.sleep(for: .milliseconds(25)) }
         #expect(spotlight.failed)
         spotlight.follow(store)
         spotlight.follow(store)
