@@ -298,7 +298,8 @@ public enum MarkdownHighlighter {
         nonisolated(unsafe) static let rule = make(#"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$"#)
         nonisolated(unsafe) static let quote = make(#"^(?:[ \t]*>)+[ \t]?"#)
         nonisolated(unsafe) static let callout = make(#"^(\[![\w-]+\][+-]?)"#)
-        nonisolated(unsafe) static let task = make(#"\G([ \t]*(?:[-*+]|\d+[.)])[ \t]+)(\[([^\]])\])"#)
+        // A space or the line's end after the box, as `TaskLine` reads a task: `- [x](https://…)` is a link.
+        nonisolated(unsafe) static let task = make(#"\G([ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+)(\[([^\]])\])(?=\s|$)"#)
         nonisolated(unsafe) static let list = make(#"\G([ \t]*(?:[-*+]|\d+[.)]))[ \t]+"#)
         nonisolated(unsafe) static let taskMetadata = make(#"(?:✅|➕|⏳|❌|📅|🔁|⛔|🛫|🆔|🔺|⏫|🔼|🔽|⏬)(?:[ \t]*[0-9A-Za-z/,:.-]+(?:[ \t]+[a-z]+)*)?"#)
         nonisolated(unsafe) static let inlineCode = make(#"(`+)(?:(?!\1).)+?\1"#)

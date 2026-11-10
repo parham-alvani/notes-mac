@@ -14,22 +14,54 @@ public enum Slugs {
     /// [fold], and Persian as people type it on different keyboards made
     /// one: Arabic Yeh and Kaf as the Persian letters, the hamza forms of
     /// Alef, Waw and Yeh as the letters under them, Persian and Arabic
-    /// digits as ASCII ones, and the half space (ZWNJ) taken out. Each
-    /// character stays one, so offsets into the folded text are offsets
-    /// into the text: Swift counts a ZWNJ as part of the letter before it,
-    /// so it goes rather than becoming a space as on Linux, and a ZWNJ that
-    /// is a character of its own becomes a space. For matching only: a link
-    /// still resolves by [fold].
+    /// digits as ASCII ones, and what a word may or may not be written
+    /// with taken out: the half space (ZWNJ), the vowel marks and the
+    /// tatweel ([isPersianMark]). Each character stays one, so offsets
+    /// into the folded text are offsets into the text: Swift counts a ZWNJ
+    /// or a vowel mark as part of the letter before it, so it goes rather
+    /// than becoming a space as on Linux, and a mark that is a character
+    /// of its own (a tatweel, a ZWNJ after a space) becomes a space. For
+    /// matching only: a link still resolves by [fold].
     public static func search(_ text: String) -> String {
         let folded = fold(text)
-        guard folded.unicodeScalars.contains(where: { (0x0600...0x06FF).contains($0.value) || $0.value == 0x200C }) else { return folded }
+        guard holdsPersian(folded) else { return folded }
         var out = ""
         for character in folded {
             var scalars = String.UnicodeScalarView()
-            for scalar in character.unicodeScalars where scalar.value != 0x200C { scalars.append(persianLetter(scalar)) }
+            for scalar in character.unicodeScalars where !isPersianMark(scalar) { scalars.append(persianLetter(scalar)) }
             out.append(scalars.isEmpty ? " " : String(scalars))
         }
         return out
+    }
+
+    /// [text] with its Persian as [search] makes it one, the marks gone
+    /// altogether: `كِتـاب` and `کتاب` are the same letters. The text is
+    /// shorter than it was, so this is for a text that is only matched
+    /// (a full-text column, a quick-open name), never for offsets.
+    public static func persian(_ text: String) -> String {
+        guard holdsPersian(text) else { return text }
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars where !isPersianMark(scalar) { scalars.append(persianLetter(scalar)) }
+        return String(scalars)
+    }
+
+    /// [fold] and [persian]: the one form quick open, link completion and
+    /// full-text search match in, whatever keyboard the text came from.
+    public static func matching(_ text: String) -> String { persian(fold(text)) }
+
+    private static func holdsPersian(_ text: String) -> Bool {
+        text.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) || $0.value == 0x200C }
+    }
+
+    /// What a Persian word may be written with or without: the half space
+    /// (ZWNJ), the vowel marks (harakat, U+064B to U+0652, and the marks
+    /// U+0653 to U+0655 a decomposed آ or أ leaves), the superscript alef
+    /// (U+0670) and the tatweel that stretches a word (U+0640).
+    public static func isPersianMark(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x200C, 0x0640, 0x064B...0x0655, 0x0670: true
+        default: false
+        }
     }
 
     /// The letter a Persian search finds [scalar] as: see [search].

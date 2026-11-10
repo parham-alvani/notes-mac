@@ -149,6 +149,23 @@ import Testing
         #expect(sheet.applied(to: note) == "body")
     }
 
+    @Test func aKeyWithABackslashReadsBackAsAForm() throws {
+        // Found by the fuzz: the key was written in single quotes, where a backslash is a letter, and then refused.
+        let note = "---\ntags:\n  - \n---\n     tags:\n  - 🔁 every week]"
+        var sheet = try #require(PropertySheet.read(note).sheet)
+        try sheet.add("## \\", .text("]-0:"))
+        let edited = try #require(sheet.applied(to: note))
+        #expect(edited == "---\ntags:\n  - \n'## \\': \"]-0:\"\n---\n     tags:\n  - 🔁 every week]")
+        guard case .form(let again) = PropertySheet.read(edited) else {
+            Issue.record("Not a form: \(PropertySheet.read(edited))")
+            return
+        }
+        #expect(again.properties.map(\.key) == ["tags", "## \\"])
+        #expect(again.value("## \\") == .text("]-0:"))
+        // In double quotes a backslash is an escape the form does not read: still raw.
+        if case .form = PropertySheet.read("---\n\"a\\\\b\": 1\n---\n") { Issue.record("An escape in a key is not a form") }
+    }
+
     @Test func anEditIsRefusedWhenTheFrontMatterChangedOnDisk() {
         let note = "---\ntitle: a\n---\nbody"
         guard case .form(var sheet) = PropertySheet.read(note) else {

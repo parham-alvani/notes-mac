@@ -4,6 +4,14 @@ import Testing
 @testable import DaftarCore
 
 @Suite struct MarkdownTableTests {
+    @Test func aHalfSpaceTakesNoColumn() {
+        // The half space (ZWNJ) of Persian and a direction mark draw nothing: the cell is as wide as its letters.
+        #expect(MarkdownTable.width("می\u{200C}خواهم") == 7)
+        #expect(MarkdownTable.width("a\u{200F}b\u{FE0F}") == 2)
+        let table = MarkdownTable.format(["| می\u{200C}خواهم | x |", "| --- | --- |", "| میخواهمم | y |"])
+        #expect(table == ["| می\u{200C}خواهم  | x   |", "| -------- | --- |", "| میخواهمم | y   |"])
+    }
+
     @Test func formatLinesTheColumnsUp() {
         let lines = ["| Name | Age |", "|:-|-:|", "| Sara | 7 |", "| Alexander | 30 | extra |"]
         #expect(MarkdownTable.format(lines) == [

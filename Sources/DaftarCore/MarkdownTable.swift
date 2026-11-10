@@ -39,7 +39,10 @@ public enum MarkdownTable {
             let wide = (0x1100...0x115F).contains(scalar.value) || (0x2E80...0xA4CF).contains(scalar.value)
                 || (0xAC00...0xD7A3).contains(scalar.value) || (0xF900...0xFAFF).contains(scalar.value)
                 || (0xFF00...0xFF60).contains(scalar.value) || (0x1F300...0x1FAFF).contains(scalar.value)
-            return sum + (scalar.properties.generalCategory == .nonspacingMark ? 0 : wide ? 2 : 1)
+            // A mark over a letter and a format character (the half space of Persian, a
+            // direction mark, a variation selector's kin) take no column.
+            let category = scalar.properties.generalCategory
+            return sum + (category == .nonspacingMark || category == .enclosingMark || category == .format ? 0 : wide ? 2 : 1)
         }
     }
 

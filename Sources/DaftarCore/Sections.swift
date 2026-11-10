@@ -25,8 +25,8 @@ public enum Sections {
         var inComment = false
         for index in FrontMatter.parse(lines).lineCount..<lines.count {
             let raw = lines[index]
-            if raw.hasMark("```") || raw.hasMark("~~~"), let match = raw.firstMatch(of: NoteParser.fence) {
-                let marker = String(match.1)
+            if let mark = NoteParser.fenceMark(raw) {
+                let marker = String(mark)
                 if fenceMarker == nil {
                     fenceMarker = marker
                 } else if let open = fenceMarker, marker.first == open.first, marker.count >= open.count {
@@ -36,8 +36,8 @@ public enum Sections {
             }
             if fenceMarker != nil { continue }
             let line = Comments.strip(raw, open: &inComment)
-            if line.hasPrefix("#"), let match = line.firstMatch(of: NoteParser.heading) {
-                headings.append(Heading(level: match.1.count, text: String(match.2), line: index))
+            if let (level, text) = NoteParser.heading(line) {
+                headings.append(Heading(level: level, text: text, line: index))
             }
         }
         return headings

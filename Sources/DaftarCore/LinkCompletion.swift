@@ -106,10 +106,10 @@ public enum LinkCompletion {
     /// whose text holds every word, closest first.
     public static func blocks(_ blocks: [BlockRefs.Block], matching query: String, limit: Int = 50) -> [BlockRefs.Block] {
         let candidates = blocks.filter { $0.kind != .heading && !$0.text.isEmpty }
-        let words = Slugs.fold(query).split(whereSeparator: \.isWhitespace).map(String.init)
+        let words = Slugs.matching(query).split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return Array(candidates.prefix(limit)) }
         let scored = candidates.compactMap { block -> (BlockRefs.Block, Int)? in
-            let text = Slugs.fold(block.text + " " + (block.id ?? ""))
+            let text = Slugs.matching(block.text + " " + (block.id ?? ""))
             guard words.allSatisfy({ text.contains($0) }) else { return nil }
             return (block, text.hasPrefix(words[0]) ? 1 : 0)
         }
@@ -158,8 +158,9 @@ public enum LinkCompletion {
             let spelling = old.map { $0.best >= count ? $0.spelling : tag } ?? tag
             merged[key] = (spelling, (old?.count ?? 0) + count, max(old?.best ?? 0, count))
         }
-        let needle = Slugs.fold(query)
-        let rows = merged.compactMap { key, value -> (String, Int, Int)? in
+        let needle = Slugs.matching(query)
+        let rows = merged.compactMap { folded, value -> (String, Int, Int)? in
+            let key = Slugs.persian(folded)
             let rank: Int
             if needle.isEmpty || key.hasPrefix(needle) { rank = 3 }
             else if key.contains("/" + needle) || key.contains("-" + needle) || key.contains("_" + needle) { rank = 2 }

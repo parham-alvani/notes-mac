@@ -137,8 +137,6 @@ public enum HeadingRename {
     }
 
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
-    nonisolated(unsafe) private static let markdownLink = /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+|[^)>\n]+(?=>))(>?\))/
-    nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
     /// A markdown link's anchor: spaces and `(` `)` encoded, as Obsidian writes it.
     private static let anchorAllowed = CharacterSet.urlFragmentAllowed.subtracting(CharacterSet(charactersIn: "()#"))
 
@@ -154,13 +152,13 @@ public enum HeadingRename {
         var links = 0
         for (at, raw) in text.components(separatedBy: "\n").enumerated() {
             let line = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
-            if line.hasMark("```") || line.hasMark("~~~"), let match = line.firstMatch(of: NoteParser.fence) {
-                let marker = String(match.1)
+            if let mark = NoteParser.fenceMark(line) {
+                let marker = String(mark)
                 if open == nil { open = marker } else if let first = open, marker.first == first.first, marker.count >= first.count { open = nil }
                 continue
             }
             if open != nil || !line.hasMark("#") || (!line.hasMark("[[") && !line.hasMark("](")) { continue }
-            let code = line.hasMark("`") ? line.matches(of: inlineCode).map(\.range) : []
+            let code = line.hasMark("`") ? InlineCode.spans(in: line) : []
             func inCode(_ range: Range<String.Index>) -> Bool { code.contains { $0.overlaps(range) } }
             var result = !line.hasMark("[[") ? line : line.replacing(wikilink) { match -> String in
                 guard !inCode(match.range) else { return String(match.output.0) }
@@ -177,8 +175,8 @@ public enum HeadingRename {
                 return match.output.1 + "[[" + inner[...hash] + new + inner[end...] + "]]"
             }
             if result.hasMark("](") {
-                let code = result.hasMark("`") ? result.matches(of: inlineCode).map(\.range) : []
-                result = result.replacing(markdownLink) { match -> String in
+                let code = result.hasMark("`") ? InlineCode.spans(in: result) : []
+                result = result.replacing(NoteParser.markdownLink) { match -> String in
                     guard !code.contains(where: { $0.overlaps(match.range) }) else { return String(match.output.0) }
                     let url = String(match.output.3)
                     guard !url.contains("://"), !url.hasPrefix("mailto:"), let hash = url.firstIndex(of: "#") else { return String(match.output.0) }

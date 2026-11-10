@@ -195,7 +195,9 @@ public struct PeriodicNotes: Sendable {
     private let iso: Bool
     /// The token each capture group stands for, in order.
     private let groups: [String]
-    private let pattern: String
+    /// The format as a pattern, compiled once: a journal's every path is asked of it
+    /// (`nearest`, `yearsAgo`). Nil when the format makes no pattern.
+    private let pattern: NSRegularExpression?
 
     private static let dayTokens: Set = ["D", "DD", "Do", "DDD", "DDDD", "d", "dd", "ddd", "dddd", "do", "e", "E"]
     private static let weekTokens: Set = ["w", "ww", "wo", "W", "WW", "Wo"]
@@ -211,10 +213,11 @@ public struct PeriodicNotes: Sendable {
             : has(["Q", "Qo"]) ? .quarter : .year
         iso = has(Self.isoTokens)
         var groups: [String] = []
-        pattern = "^" + tokens.map { token in
+        let source = "^" + tokens.map { token in
             if let regex = Self.regex(for: token) { groups.append(token); return regex }
             return NSRegularExpression.escapedPattern(for: MomentFormat.literal(token))
         }.joined() + "$"
+        pattern = try? NSRegularExpression(pattern: source)
         self.groups = groups
     }
 
@@ -246,9 +249,8 @@ public struct PeriodicNotes: Sendable {
 
     /// The period [path] is the note of, by its start; nil when it is not a daily note.
     public func period(of path: String) -> Day? {
-        guard let name = name(of: path),
-            let regex = try? NSRegularExpression(pattern: pattern),
-            let match = regex.firstMatch(in: name, range: NSRange(name.startIndex..., in: name))
+        guard let name = name(of: path), let pattern,
+            let match = pattern.firstMatch(in: name, range: NSRange(name.startIndex..., in: name))
         else { return nil }
         var fields: [String: String] = [:]
         for (index, token) in groups.enumerated() {
@@ -369,14 +371,14 @@ public struct PeriodicNotes: Sendable {
 
     private static func regex(for token: String) -> String? {
         switch token {
-        case "YYYY", "gggg", "GGGG": #"(\d{4})"#
-        case "YY", "gg", "GG", "MM", "DD", "ww", "WW": #"(\d{2})"#
-        case "M", "D", "w", "W": #"(\d{1,2})"#
-        case "Mo", "Do", "wo", "Wo": #"(\d{1,2}(?:st|nd|rd|th))"#
-        case "Q", "d", "e", "E": #"(\d)"#
-        case "Qo", "do": #"(\d(?:st|nd|rd|th))"#
-        case "DDDD": #"(\d{3})"#
-        case "DDD": #"(\d{1,3})"#
+        case "YYYY", "gggg", "GGGG": #"([0-9]{4})"#
+        case "YY", "gg", "GG", "MM", "DD", "ww", "WW": #"([0-9]{2})"#
+        case "M", "D", "w", "W": #"([0-9]{1,2})"#
+        case "Mo", "Do", "wo", "Wo": #"([0-9]{1,2}(?:st|nd|rd|th))"#
+        case "Q", "d", "e", "E": #"([0-9])"#
+        case "Qo", "do": #"([0-9](?:st|nd|rd|th))"#
+        case "DDDD": #"([0-9]{3})"#
+        case "DDD": #"([0-9]{1,3})"#
         case "MMMM": names(MomentFormat.months)
         case "MMM": names(MomentFormat.months.map { String($0.prefix(3)) })
         case "dddd": names(MomentFormat.weekdays)

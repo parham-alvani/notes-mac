@@ -77,9 +77,6 @@ public enum VaultMoves {
     }
 
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
-    nonisolated(unsafe) private static let markdownLink = /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+)(>?\))/
-    nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
-    nonisolated(unsafe) private static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
     /// A path in a markdown link: `(` and `)` encoded too, or the link ends early.
     private static let urlAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "()")).union(["#"])
 
@@ -134,13 +131,13 @@ public enum VaultMoves {
         for at in lines.indices {
             let line = lines[at]
             // The patterns run only on a line with the marks they need.
-            if line.contains("```") || line.contains("~~~"), let match = line.firstMatch(of: fence) {
-                let marker = String(match.1)
+            if let mark = NoteParser.fenceMark(line) {
+                let marker = String(mark)
                 if open == nil { open = marker } else if let first = open, marker.first == first.first, marker.count >= first.count { open = nil }
                 continue
             }
             if open != nil || (!line.contains("[[") && !line.contains("](")) { continue }
-            let code = line.contains("`") ? line.matches(of: inlineCode).map(\.range) : []
+            let code = line.hasMark("`") ? InlineCode.spans(in: line) : []
             func inCode(_ range: Range<String.Index>) -> Bool { code.contains { $0.overlaps(range) } }
             var result = !line.contains("[[") ? line : line.replacing(wikilink) { match -> String in
                 guard !inCode(match.range) else { return String(match.output.0) }
@@ -162,19 +159,16 @@ public enum VaultMoves {
                 return match.output.1 + "[[" + inner + "]]"
             }
             if result.contains("](") {
-                let code = result.contains("`") ? result.matches(of: inlineCode).map(\.range) : []
-                result = result.replacing(markdownLink) { match -> String in
+                let code = result.hasMark("`") ? InlineCode.spans(in: result) : []
+                // The index's own pattern: an address in `<…>` with spaces and one with a "title" follow the move too.
+                result = result.replacing(NoteParser.markdownLink) { match -> String in
                     guard !code.contains(where: { $0.overlaps(match.range) }) else { return String(match.output.0) }
-                    let url = String(match.output.3)
-                    guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { return String(match.output.0) }
-                    let decoded = url.removingPercentEncoding ?? url
-                    let hash = decoded.firstIndex(of: "#")
-                    let target = hash.map { String(decoded[..<$0]) } ?? decoded
-                    guard let old = index.resolver.resolve(target, from: source, aliases: false),
+                    guard let (target, fragment) = NoteParser.destination(String(match.output.3), bracketed: !match.output.2.isEmpty),
+                        let old = index.resolver.resolve(target, from: source, aliases: false),
                         let moved = moves[old] ?? (isRelative(target) && rebased ? old : nil)
                     else { return String(match.output.0) }
                     let new = isRelative(target) ? relative(moved, from: newSource) : moved
-                    let anchor = hash.map { String(decoded[$0...]) } ?? ""
+                    let anchor = fragment.map { "#" + $0 } ?? ""
                     let written = match.output.2.isEmpty
                         ? (new + anchor).addingPercentEncoding(withAllowedCharacters: urlAllowed) ?? new
                         : new + anchor

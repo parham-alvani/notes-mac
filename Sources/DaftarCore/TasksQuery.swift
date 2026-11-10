@@ -72,8 +72,16 @@ public struct QueryTask: Sendable, Equatable {
     public var scheduled: String?
     public var done: String?
     public var recurring: String?
+    public var start: String?
+    public var created: String?
+    public var cancelled: String?
+    /// The priority's emoji, 🔺 ⏫ 🔼 🔽 or ⏬; nil for none.
+    public var priority: String?
 
     public var state: TaskState { status.type }
+
+    /// The earliest of the start, scheduled and due dates: the plugin's "happens".
+    var happens: String? { [start, scheduled, due].compactMap { $0 }.min() }
 
     public init(_ task: VaultTask, statuses: TaskStatuses = .current) {
         text = task.task.text
@@ -85,10 +93,19 @@ public struct QueryTask: Sendable, Equatable {
         scheduled = task.task.scheduled
         done = task.task.done
         recurring = task.task.recurring
+        start = task.task.start
+        created = task.task.created
+        cancelled = task.task.cancelled
+        priority = task.task.priority
     }
 
     public init(text: String, state: TaskState, path: String, section: String = "", due: String? = nil,
-                scheduled: String? = nil, done: String? = nil, recurring: String? = nil, reason: String? = nil, status: TaskStatus? = nil) {
+                scheduled: String? = nil, done: String? = nil, recurring: String? = nil, reason: String? = nil, status: TaskStatus? = nil,
+                start: String? = nil, created: String? = nil, cancelled: String? = nil, priority: String? = nil) {
+        self.start = start
+        self.created = created
+        self.cancelled = cancelled
+        self.priority = priority
         self.text = text
         self.status = status ?? TaskStatus(symbol: state.symbol, name: state.name, next: " ", type: state)
         self.reason = reason
@@ -134,11 +151,16 @@ public struct TasksQuery: Sendable {
     public func run<T>(_ tasks: [T], today: Day, view: (T) -> QueryTask) -> [T] {
         // Each task's groups are worked out once, not in every comparison of the sort.
         // The positions are sorted, not the tasks, which are large to move.
-        let kept = tasks.indices.filter { at in
+        // A task's view is made once, for its filters and then its groups and its sort.
+        var kept: [Int] = []
+        var views: [QueryTask] = []
+        for at in tasks.indices {
             let task = view(tasks[at])
-            return filters.allSatisfy { $0(task, today) }
+            if filters.allSatisfy({ $0(task, today) }) {
+                kept.append(at)
+                views.append(task)
+            }
         }
-        let views = kept.map { view(tasks[$0]) }
         let groups = views.map { task in groupers.map { group in group(task) } }
         let order: [Comparison] = sorts + [Self.defaultOrder]
         let sorted = kept.indices.sorted { a, b in
@@ -183,7 +205,7 @@ public struct TasksQuery: Sendable {
                 } else {
                     query.notUnderstood.append(line)
                 }
-            } else if let match = low.wholeMatch(of: /limit (?:to )?(\d+)(?: tasks?)?/) {
+            } else if let match = low.wholeMatch(of: /limit (?:to )?([0-9]+)(?: tasks?)?/) {
                 query.limit = Int(match.1)
             } else if low.hasPrefix("sort by ") {
                 if let sort = sort(String(low.dropFirst("sort by ".count))) { query.sorts.append(sort) }
@@ -286,19 +308,42 @@ public struct TasksQuery: Sendable {
             let value = String(match.2).trimmingCharacters(in: .whitespaces)
             return { task, _ in (task.reason ?? "").localizedCaseInsensitiveContains(value) != negate }
         }
-        if let match = text.wholeMatch(of: /(?i)(has|no) (due|scheduled|done|happens) date/), let field = dateField(String(match.2)) {
+        if let match = text.wholeMatch(of: /(?i)priority is( above| below| not)? (lowest|low|none|normal|medium|high|highest)/) {
+            let wanted = priorities[match.2.lowercased()] ?? 3
+            let relation = match.1.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
+            return { task, _ in
+                let rank = TaskBoard.rank(task.priority)
+                switch relation {
+                // A smaller rank is a higher priority.
+                case "above": return rank < wanted
+                case "below": return rank > wanted
+                case "not": return rank != wanted
+                default: return rank == wanted
+                }
+            }
+        }
+        if let match = text.wholeMatch(of: /(?i)(has|no) (due|scheduled|done|happens|start|created|cancelled) date/), let field = dateField(String(match.2)) {
             let wantsOne = match.1.lowercased() == "has"
             return { task, _ in (field(task) != nil) == wantsOne }
         }
-        if let match = text.wholeMatch(of: /(?i)(due|scheduled|done|happens)( on or before| on or after| before| after| on| in)?\s+(.+)/),
+        if let match = text.wholeMatch(of: /(?i)(due|scheduled|done|happens|starts|created|cancelled)( on or before| on or after| before| after| on| in)?\s+(.+)/),
             let field = dateField(String(match.1))
         {
-            let relation = match.2.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "on"
-            let phrase = String(match.3).trimmingCharacters(in: .whitespaces)
-            guard DateRange(phrase, today: Day(year: 2000, month: 1, day: 1)) != nil else { return nil }
+            // The plugin's `starts` also takes a task with no start date: it can be started.
+            let undated = match.1.lowercased() == "starts"
+            var relation = match.2.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? "on"
+            var phrase = String(match.3).trimmingCharacters(in: .whitespaces)
+            let sample = Day(year: 2000, month: 1, day: 1)
+            // `due in 3 days`: the `in` is the phrase's, not a relation before `3 days`.
+            if DateRange(phrase, today: sample) == nil, relation == "in", DateRange("in " + phrase, today: sample) != nil {
+                phrase = "in " + phrase
+                relation = "on"
+            }
+            guard DateRange(phrase, today: sample) != nil else { return nil }
             let ranges = DateRange.Cache(phrase)
-            return { task, today in
-                guard let range = ranges.range(today: today), let value = field(task), let day = Day(value) else { return false }
+            return { [relation] task, today in
+                guard let value = field(task) else { return undated }
+                guard let range = ranges.range(today: today), let day = Day(value) else { return false }
                 return range.relation(relation, day) ?? false
             }
         }
@@ -332,11 +377,16 @@ public struct TasksQuery: Sendable {
         case "due": { $0.due }
         case "scheduled": { $0.scheduled }
         case "done": { $0.done }
-        // The plugin counts the start date too; the index does not keep it.
-        case "happens": { [$0.scheduled, $0.due].compactMap { $0 }.min() }
+        case "start", "starts": { $0.start }
+        case "created": { $0.created }
+        case "cancelled": { $0.cancelled }
+        case "happens": { $0.happens }
         default: nil
         }
     }
+
+    /// The plugin's names for a priority, by `TaskBoard.rank`: the highest is 0, none is 3.
+    private static let priorities = ["highest": 0, "high": 1, "medium": 2, "none": 3, "normal": 3, "low": 4, "lowest": 5]
 
     private static func tags(in text: String) -> [String] {
         text.matches(of: /(?:^|[^\p{L}\p{N}_])#([\p{L}\p{N}_\/-]*[\p{L}_\/-][\p{L}\p{N}_\/-]*)/).map { String($0.1) }
@@ -353,7 +403,12 @@ public struct TasksQuery: Sendable {
         case "due": key = dates { $0.due }
         case "scheduled": key = dates { $0.scheduled }
         case "done": key = dates { $0.done }
-        case "happens": key = dates { [$0.scheduled, $0.due].compactMap { $0 }.min() }
+        case "happens": key = dates { $0.happens }
+        case "start": key = dates { $0.start }
+        case "created": key = dates { $0.created }
+        case "cancelled": key = dates { $0.cancelled }
+        // The highest first, as the plugin sorts a priority.
+        case "priority": key = { a, b in compare(TaskBoard.rank(a.priority), TaskBoard.rank(b.priority)) }
         case "status": key = { a, b in compare(a.state.isFinished ? 1 : 0, b.state.isFinished ? 1 : 0) }
         case "path": key = { a, b in compare(a.path.lowercased(), b.path.lowercased()) }
         case "filename": key = { a, b in compare(a.filename.lowercased(), b.filename.lowercased()) }
@@ -386,7 +441,8 @@ public struct TasksQuery: Sendable {
         a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
     }
 
-    /// `(a) AND (b)`, `(a) OR NOT (b)`, nested to any depth, left to right.
+    /// `(a) AND (b)`, `(a) OR NOT (b)`, nested to any depth, in the plugin's
+    /// order of operators: `NOT`, `XOR`, `AND`, `OR`.
     private struct Combination {
         var text: [Character]
         var at = 0
@@ -397,21 +453,44 @@ public struct TasksQuery: Sendable {
             return at == text.count ? result : nil
         }
 
+        /// The Tasks plugin's order: `NOT` first, then `XOR`, then `AND`,
+        /// then `OR`, so `(a) OR (b) AND (c)` is a, or b and c both.
         private mutating func sequence() -> Filter? {
+            guard var left = conjunction() else { return nil }
+            while take("OR ") {
+                guard let right = conjunction() else { return nil }
+                let l = left
+                left = { t, d in l(t, d) || right(t, d) }
+            }
+            return left
+        }
+
+        private mutating func conjunction() -> Filter? {
+            guard var left = exclusive() else { return nil }
+            // `AND NOT (b)` is `AND` and then an operand that starts with `NOT`.
+            while take("AND ") {
+                guard let right = exclusive() else { return nil }
+                let l = left
+                left = { t, d in l(t, d) && right(t, d) }
+            }
+            return left
+        }
+
+        private mutating func exclusive() -> Filter? {
             guard var left = operand() else { return nil }
-            while true {
-                skipSpace()
-                guard let op = ["AND NOT ", "AND ", "OR ", "XOR "].first(where: { starts(with: $0) }) else { return left }
-                at += op.count
+            while take("XOR ") {
                 guard let right = operand() else { return nil }
                 let l = left
-                switch op.trimmingCharacters(in: .whitespaces) {
-                case "AND": left = { t, d in l(t, d) && right(t, d) }
-                case "OR": left = { t, d in l(t, d) || right(t, d) }
-                case "XOR": left = { t, d in l(t, d) != right(t, d) }
-                default: left = { t, d in l(t, d) && !right(t, d) }
-                }
+                left = { t, d in l(t, d) != right(t, d) }
             }
+            return left
+        }
+
+        private mutating func take(_ word: String) -> Bool {
+            skipSpace()
+            guard starts(with: word) else { return false }
+            at += word.count
+            return true
         }
 
         private func starts(with word: String) -> Bool {
@@ -482,11 +561,11 @@ struct DateRange: Equatable {
         case "next month": self = month(first.adding(months: 1))
         case "last month": self = month(first.adding(months: -1))
         default:
-            if let match = text.wholeMatch(of: /in (\d+) days?/), let n = Int(match.1) {
+            if let match = text.wholeMatch(of: /in ([0-9]+) days?/), let n = Int(match.1) {
                 self.init(start: today.adding(days: n), end: today.adding(days: n))
-            } else if let match = text.wholeMatch(of: /(\d+) days? ago/), let n = Int(match.1) {
+            } else if let match = text.wholeMatch(of: /([0-9]+) days? ago/), let n = Int(match.1) {
                 self.init(start: today.adding(days: -n), end: today.adding(days: -n))
-            } else if let match = text.wholeMatch(of: /(\d{4}-\d{2}-\d{2})\s+(\d{4}-\d{2}-\d{2})/) {
+            } else if let match = text.wholeMatch(of: /([0-9]{4}-[0-9]{2}-[0-9]{2})\s+([0-9]{4}-[0-9]{2}-[0-9]{2})/) {
                 guard let a = Day(String(match.1)), let b = Day(String(match.2)), a <= b else { return nil }
                 self.init(start: a, end: b)
             } else if let day = Day(text) {

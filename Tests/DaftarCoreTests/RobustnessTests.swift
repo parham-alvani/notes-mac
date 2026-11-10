@@ -28,6 +28,7 @@ import Testing
         "^block-id", "https://example.com/a?b#c", "mailto:x@y.z", "+34 612 345 678", "2026-W39", "{{title}}", "{{date:YYYY", "سلام",
         "دنیا", "שלום", "日本語", "👩‍👩‍👧‍👦", "\u{200f}", "\u{202e}", "e\u{301}", "\r", "\r\n", "\n", "\n\n", " ", "  ", "word", "Note",
         "9999-99-99", "0000-00-00", "-0", "1e999", "NaN",
+        "۲۰۲۶-۱۰-۲۶", "- ۱۰:۰۰–۱۱:۰۰ ", "- 10:00–11:00 ", "- 99:99–00:00 ", "## Monday ۹ November\n", "## Monday 9 November\n", "٣",
     ]
 
     static func text(_ random: inout Seeded, pieces count: Int = 40) -> String {
@@ -51,6 +52,16 @@ import Testing
             #expect(note.headings.allSatisfy { $0.line >= 0 && $0.line < lines })
             #expect(note.tasks.allSatisfy { $0.line >= 0 && $0.line < lines })
             #expect(note.tags.allSatisfy { !$0.isEmpty })
+            // Code spans come in order and apart, and a line with no `%%` is not a comment's.
+            for line in text.components(separatedBy: "\n") {
+                let spans = InlineCode.spans(in: line)
+                #expect(zip(spans, spans.dropFirst()).allSatisfy { $0.upperBound <= $1.lowerBound })
+                #expect(spans.allSatisfy { line[$0].hasPrefix("`") && line[$0].hasSuffix("`") })
+                _ = InlineCode.removed(from: line)
+                var open = false
+                let kept = Comments.strip(line, open: &open)
+                #expect(line.contains("%%") || (kept == line && !open))
+            }
             _ = MarkdownHighlighter.spans(in: text)
             _ = CalendarWeek.parse(text, path: "Calendar/2026-W39.md")
             _ = UnlinkedMentions.find(["Note", "word"], in: text)
@@ -81,7 +92,11 @@ import Testing
             _ = EditorCommands.onReturn(after: line)
             _ = EditorCommands.toggleTask(line, today: Day(year: 2026, month: 10, day: 26))
             _ = EditorCommands.heading(line, level: Int.random(in: 0...6, using: &random))
-            if let fields = TaskLine.fields(line), let edited = TaskLine.edited(line, fields) {
+            // A text that starts with a combining mark is left out: written after the box's space the
+            // mark sits on that space, one letter with it, and the text reads back empty (`- [ ] \r\u{0745}`).
+            if let fields = TaskLine.fields(line), fields.text.unicodeScalars.first?.properties.isGraphemeExtend != true,
+                let edited = TaskLine.edited(line, fields)
+            {
                 // Writing a task back from its own fields keeps what it says.
                 #expect(TaskLine.fields(edited) == fields, "\(line)")
             }
@@ -119,6 +134,32 @@ import Testing
                 #expect(day.adding(days: 1) > day)
                 #expect(day.adding(months: -1) < day)
             }
+        }
+    }
+
+    /// Digits of every script where a number is read: `\d` takes them all and `Int` only ASCII, which once stopped the app.
+    @Test func digitsOfAnyScriptAreReadOrLeft() {
+        var random = Seeded(state: 14)
+        let digits = ["0", "1", "9", "۰", "۱", "۹", "٠", "٣", "०", "１", "𝟙"]
+        let marks = ["-", ":", "–", " ", "T", "Z", "\n", "## Monday ", " November\n", "- ", "All day ", "📅 ", "🔁 every ", " days", "in ", " ago", "d", "W", ".md", "- [ ] "]
+        for _ in 0..<4000 {
+            let text = (0..<Int.random(in: 0...14, using: &random)).map { _ in
+                Int.random(in: 0..<3, using: &random) == 0 ? marks.randomElement(using: &random)! : digits.randomElement(using: &random)!
+            }.joined()
+            for day in CalendarWeek.parse("## Monday 9 November\n" + text, path: "Calendar/2026-W46.md") {
+                #expect(day.meetings.allSatisfy { ($0.start == nil) == ($0.end == nil) })
+            }
+            _ = CalendarWeek.parse(text, path: "Calendar/" + text)
+            // What is read as a day or a date is one the calendar has.
+            if let day = Day(text) { #expect(Day.valid(day.year, day.month, day.day) == day || day.year < 1583) }
+            if let date = BaseEngine.parseDate(text) { #expect(date.0.timeIntervalSince1970.isFinite) }
+            _ = BaseSpan.parse(text)
+            _ = Recurrence(text)
+            _ = TaskLine.parse("- [ ] " + text, line: 0, section: "")
+            _ = TaskLine.toggled("- [ ] " + text, today: "2026-10-26")
+            _ = TasksQuery.parse("due " + text + "\nlimit " + text)
+            _ = Jalali.parse(text)
+            _ = PeriodicNotes(DailyNotes()).period(of: text)
         }
     }
 
@@ -291,7 +332,11 @@ import Testing
                 for position in siblings.indices {
                     guard let moved = Sections.move(text, heading: index, to: position) else { continue }
                     #expect(moved.text.components(separatedBy: "\n").sorted() == text.components(separatedBy: "\n").sorted())
-                    let back = Sections.headings(in: moved.text).firstIndex { $0.line == moved.to }
+                    // A section with an open `%%` moved above another makes that one a comment: the
+                    // headings are not the ones that were, and there is no way back by a move.
+                    let after = Sections.headings(in: moved.text)
+                    guard after.count == headings.count else { continue }
+                    let back = after.firstIndex { $0.line == moved.to }
                     #expect(back.flatMap { Sections.move(moved.text, heading: $0, to: siblings.firstIndex(of: index)!)?.text } == text)
                 }
             }

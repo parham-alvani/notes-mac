@@ -20,16 +20,38 @@ public indirect enum BaseValue {
 /// A length of time: whole months, which have no fixed length, and milliseconds.
 public struct BaseSpan: Sendable, Equatable {
     public var months = 0
+    /// Whole days and weeks, which the calendar adds: a day is 23 or 25
+    /// hours when the clocks change, and `today() + "1d"` is tomorrow all
+    /// the same. Never more than `maxDays` either way.
+    public var days = 0
     public var milliseconds: Double = 0
 
-    public static func + (a: BaseSpan, b: BaseSpan) -> BaseSpan {
-        BaseSpan(months: a.months + b.months, milliseconds: a.milliseconds + b.milliseconds)
+    /// The most days a span keeps as days; more are milliseconds, so sums never overflow.
+    static let maxDays = 100_000_000
+
+    public init(months: Int = 0, days: Int = 0, milliseconds: Double = 0) {
+        self.months = months
+        self.days = days
+        self.milliseconds = milliseconds
     }
 
-    public static prefix func - (a: BaseSpan) -> BaseSpan { BaseSpan(months: -a.months, milliseconds: -a.milliseconds) }
+    /// [days] as whole days when they are whole and few enough, else as milliseconds.
+    static func days(_ days: Double) -> BaseSpan {
+        if let whole = days.whole, Double(whole) == days, abs(whole) <= maxDays { return BaseSpan(days: whole) }
+        return BaseSpan(milliseconds: days * 86_400_000)
+    }
 
-    /// For arithmetic and comparison, a month counts as 30 days.
-    public var approximateMilliseconds: Double { milliseconds + Double(months) * 30 * 86_400_000 }
+    public static func + (a: BaseSpan, b: BaseSpan) -> BaseSpan {
+        var sum = BaseSpan(months: a.months + b.months, milliseconds: a.milliseconds + b.milliseconds)
+        let days = a.days + b.days
+        if abs(days) <= maxDays { sum.days = days } else { sum.milliseconds += Double(days) * 86_400_000 }
+        return sum
+    }
+
+    public static prefix func - (a: BaseSpan) -> BaseSpan { BaseSpan(months: -a.months, days: -a.days, milliseconds: -a.milliseconds) }
+
+    /// For arithmetic and comparison, a month counts as 30 days and a day as 24 hours.
+    public var approximateMilliseconds: Double { milliseconds + (Double(months) * 30 + Double(days)) * 86_400_000 }
 
     /// `"30 days"`, `"1d"`, `"1M 4h"`, `"-2 weeks"`: units y, M, w, d, h, m, s,
     /// ms, or their names.
@@ -37,8 +59,9 @@ public struct BaseSpan: Sendable, Equatable {
         let units: [String: (months: Int, ms: Double)] = [
             "y": (12, 0), "year": (12, 0), "years": (12, 0),
             "M": (1, 0), "month": (1, 0), "months": (1, 0),
-            "w": (0, 604_800_000), "week": (0, 604_800_000), "weeks": (0, 604_800_000),
-            "d": (0, 86_400_000), "day": (0, 86_400_000), "days": (0, 86_400_000),
+            // Days and weeks: `ms` is here the number of days, and negative to say so.
+            "w": (0, -7), "week": (0, -7), "weeks": (0, -7),
+            "d": (0, -1), "day": (0, -1), "days": (0, -1),
             "h": (0, 3_600_000), "hour": (0, 3_600_000), "hours": (0, 3_600_000),
             "m": (0, 60_000), "minute": (0, 60_000), "minutes": (0, 60_000),
             "s": (0, 1000), "second": (0, 1000), "seconds": (0, 1000),
@@ -48,7 +71,7 @@ public struct BaseSpan: Sendable, Equatable {
         var found = false
         var rest = Substring(text.trimmingCharacters(in: .whitespaces))
         while !rest.isEmpty {
-            guard let match = rest.prefixMatch(of: /\s*([+-]?\d+(?:\.\d+)?)\s*([A-Za-z]+)\s*,?/) else { return nil }
+            guard let match = rest.prefixMatch(of: /\s*([+-]?[0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]+)\s*,?/) else { return nil }
             guard let amount = Double(match.1) else { return nil }
             let name = String(match.2)
             guard let unit = units[name] ?? (name.count > 1 ? units[name.lowercased()] : nil) else { return nil }
@@ -58,6 +81,8 @@ public struct BaseSpan: Sendable, Equatable {
                     case let (sum, false) = span.months.addingReportingOverflow(months)
                 else { return nil }
                 span.months = sum
+            } else if unit.ms < 0 {
+                span = span + BaseSpan.days(amount * -unit.ms)
             } else {
                 span.milliseconds += amount * unit.ms
             }

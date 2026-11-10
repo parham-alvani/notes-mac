@@ -86,6 +86,54 @@ import Testing
         #expect(note.links[0].line == 7)
     }
 
+    @Test func percentSignsInCodeOpenNoComment() {
+        // `%%` in inline code is two percent signs: the rest of the note is still read.
+        let note = NoteParser.parse("- `%%` is a percent sign\n\n## After\n\n- [ ] still a task [[Kept]]\n")
+        #expect(note.headings.map(\.text) == ["After"])
+        #expect(note.tasks.map(\.text) == ["still a task [[Kept]]"])
+        #expect(note.links.map(\.target) == ["Kept"])
+        #expect(Sections.headings(in: "`a %% b`\n# One\n``%%``\n# Two").map(\.text) == ["One", "Two"])
+        // A real comment still hides its text, on one line and over several.
+        let hidden = NoteParser.parse("see %%[[Hidden]] `%%` [[Shown]]\n%%\n# Gone\n%% `%%` [[Too]]\n# Here")
+        #expect(hidden.links.map(\.target) == ["Shown", "Too"])
+        #expect(hidden.headings.map(\.text) == ["Here"])
+        var open = false
+        #expect(Comments.strip("a `%%` b %%c%% d", open: &open) == "a `%%` b  d")
+        #expect(!open)
+    }
+
+    @Test func linksInCodeAndMathAreNotLinks() {
+        let note = NoteParser.parse("``[[Double]]`` and ``a ` [[Inner]]`` and $[[Math]]$ and $$x [[Display]]$$ then [[Real]]\ncosts $5 and $10 for [[Paid]]")
+        #expect(note.links.map(\.target) == ["Real", "Paid"])
+        #expect(InlineCode.spans(in: "a `b` ``c ` d`` `open").count == 2)
+        #expect(InlineCode.removed(from: "\\`[[Escaped]]\\`") == "\\`[[Escaped]]\\`")
+    }
+
+    @Test func aLineThatStartsWithInlineCodeOpensNoFence() {
+        // The info string of a backtick fence holds no backtick, so this is a paragraph.
+        let text = "```a``` is inline code\n\n## After\n\n- [ ] a task [[Kept]]\n"
+        let note = NoteParser.parse(text)
+        #expect(note.headings.map(\.text) == ["After"])
+        #expect(note.tasks.count == 1)
+        #expect(note.links.map(\.target) == ["Kept"])
+        #expect(Sections.headings(in: text).map(\.text) == ["After"])
+        #expect(BlockRefs.blocks(in: text).map(\.kind) == [.paragraph, .heading, .item])
+        // A real fence still hides what is in it, whatever its info string.
+        let fenced = NoteParser.parse("```js title\n# not a heading\n```\n~~~ `a`\n[[Hidden]]\n~~~\n# Shown")
+        #expect(fenced.headings.map(\.text) == ["Shown"])
+        #expect(fenced.links.isEmpty)
+    }
+
+    @Test func aHeadingMayEndInAHash() {
+        // The closing `#` run comes off only after a space: C# keeps its sharp.
+        let text = "## C#\n## F# and C#\n## Closed ##\n## Closed too ##  \n## ##\n### Plain"
+        let wanted = ["C#", "F# and C#", "Closed", "Closed too", "", "Plain"]
+        #expect(NoteParser.parse(text).headings.map(\.text) == wanted)
+        #expect(Sections.headings(in: text).map(\.text) == wanted)
+        #expect(BlockRefs.blocks(in: text).map(\.text) == wanted)
+        #expect(NoteParser.parse("## C#\n- [ ] learn it").tasks.first?.section == "C#")
+    }
+
     @Test func tagsHeadingsAndTasks() {
         let note = NoteParser.parse(text)
         #expect(note.tags.contains("inline-tag"))
@@ -224,6 +272,67 @@ import Testing
         #expect(EditorCommands.toggleTask("- [ ] t ^abc", today: Day("2026-10-25")!) == ["- [x] t ✅ 2026-10-25 ^abc"])
     }
 
+    @Test func aSignifierWithAVariationSelectorIsRead() throws {
+        // Some keyboards write U+FE0F after an emoji; the Tasks plugin reads the date all the same.
+        let task = try #require(TaskLine.parse("- [ ] Water the plants ⏫\u{FE0F} 🔁\u{FE0F} every week ⏳\u{FE0F} 2026-11-10 📅\u{FE0F}2026-11-12", line: 0, section: ""))
+        #expect(task.text == "Water the plants")
+        #expect(task.priority == "⏫")
+        #expect(task.recurring == "every week")
+        #expect(task.scheduled == "2026-11-10")
+        #expect(task.due == "2026-11-12")
+        #expect(TaskLine.parse("- [x] Done ✅\u{FE0F} 2026-11-10", line: 0, section: "")?.done == "2026-11-10")
+        // Ticked, it repeats; written back, it is the plain form.
+        #expect(TaskLine.toggled("- [ ] Water 🔁\u{FE0F} every week ⏳\u{FE0F} 2026-11-10", today: "2026-11-10")?.first == "- [ ] Water 🔁 every week ⏳ 2026-11-17")
+        let fields = try #require(TaskLine.fields("- [ ] Water ⏳\u{FE0F} 2026-11-10"))
+        #expect(TaskLine.edited("- [ ] Water ⏳\u{FE0F} 2026-11-10", fields) == "- [ ] Water ⏳ 2026-11-10")
+        // An emoji in the sentence keeps its selector.
+        #expect(TaskLine.parse("- [ ] Buy ✅\u{FE0F} stickers 📅 2026-11-10", line: 0, section: "")?.text == "Buy ✅\u{FE0F} stickers")
+    }
+
+    @Test func aBoxWithNoSpaceAfterItIsNotATask() {
+        // A one-letter link in a list, `- [x](…)`, is not a done task named "(…)".
+        #expect(!TaskLine.isTask("- [x](https://example.com) a link"))
+        #expect(!TaskLine.isTask("- [A](Notes/A.md)"))
+        #expect(!TaskLine.isTask("- [ ]glued"))
+        #expect(TaskLine.fields("- [x](https://example.com)") == nil)
+        #expect(TaskLine.toggled("- [x](https://example.com)", today: "2026-11-10") == nil)
+        #expect(NoteParser.parse("- [x](https://example.com) a link\n- [ ] a task\n- [ ]").tasks.map(\.text) == ["a task", ""])
+        #expect(TaskLine.isTask("- [ ]\ta tab"))
+        #expect(TaskLine.isTask("> 1. [/] numbered, in a quote"))
+    }
+
+    @Test func reopeningTakesOnlyTheDateFieldOff() {
+        // The done date is a field at the end; the same words in the sentence stay.
+        #expect(TaskLine.toggled("- [x] Bought ✅ 2026-01-01 stickers ✅ 2026-11-01", today: "2026-11-10") == ["- [ ] Bought ✅ 2026-01-01 stickers"])
+        #expect(TaskLine.toggled("- [-] Note the ❌ 2026-01-01 rule ⏳ 2026-11-02 ❌ 2026-11-03 #kit ^b1", today: "2026-11-10")
+            == ["- [ ] Note the ❌ 2026-01-01 rule ⏳ 2026-11-02 #kit ^b1"])
+        #expect(TaskLine.toggled("- [x] Both ✅\u{FE0F} 2026-11-01 📅 2026-11-02", today: "2026-11-10") == ["- [ ] Both 📅 2026-11-02"])
+        #expect(TaskLine.toggled("- [x] No date ✅", today: "2026-11-10") == ["- [ ] No date ✅"])
+    }
+
+    @Test func nestedIsIndentedUnderAnItemNotInAQuote() {
+        func nested(_ line: String) -> Bool? { TaskLine.parse(line, line: 0, section: "")?.nested }
+        #expect(nested("- [ ] top") == false)
+        #expect(nested("    - [ ] child") == true)
+        #expect(nested("\t- [ ] child") == true)
+        // A task in a quote or a callout is not under another item for that.
+        #expect(nested("> - [ ] in a callout") == false)
+        #expect(nested(">- [ ] in a quote") == false)
+        #expect(nested("> > - [ ] in two") == false)
+        #expect(nested(">     - [ ] a child in a callout") == true)
+    }
+
+    @Test func aTaskOfOnlyItsTagsReadsBackTheSame() throws {
+        // Found by the fuzz: the tag after the date came back with a space before it, and without one once written.
+        let line = "- [x] ⏳ 2026-02-30#2026word"
+        let fields = try #require(TaskLine.fields(line))
+        #expect(fields.text == "#2026word")
+        let edited = try #require(TaskLine.edited(line, fields))
+        #expect(edited == "- [x] #2026word ⏳ 2026-02-30")
+        #expect(TaskLine.fields(edited) == fields)
+        #expect(TaskLine.parse(line, line: 0, section: "")?.text == "#2026word")
+    }
+
     @Test func emojiInProseIsProse() {
         let split = TaskMetadata.split("Book ✅ the table — for dinner ⏳ 2026-10-04")
         #expect(split.text == "Book ✅ the table — for dinner")
@@ -259,6 +368,18 @@ import Testing
 }
 
 @Suite struct DayTests {
+    @Test func onlyASCIIDigitsAreADay() {
+        #expect(Day("2026-11-10") != nil)
+        #expect(Day("۲۰۲۶-۱۱-۱۰") == nil)
+        #expect(Day("٢٠٢٦-١١-١٠") == nil)
+        // A date in another script's digits is part of the sentence, not a due date with no day.
+        let task = TaskLine.parse("- [ ] pay rent 📅 ۲۰۲۶-۱۱-۱۰", line: 0, section: "")
+        #expect(task?.due == nil)
+        #expect(task?.text == "pay rent 📅 ۲۰۲۶-۱۱-۱۰")
+        #expect(Recurrence("every ۲ weeks") == nil)
+        #expect(TasksQuery.parse("due in ۳ days\nlimit ۵\ndue ٢٠٢٦-١١-١٠").notUnderstood.count == 3)
+    }
+
     @Test func parseAndArithmetic() {
         #expect(Day("2026-02-30") == nil)
         #expect(Day("2026-10-25")?.adding(days: 7).description == "2026-11-01")
@@ -310,6 +431,17 @@ import Testing
         #expect(calendar.component(.hour, from: start) == 10)
         let late = meetings[2]
         #expect(late.end!.timeIntervalSince(late.start!) == 2 * 3600)
+    }
+
+    @Test func digitsOfAnotherScriptAreNotATime() {
+        // `Int` reads ASCII digits only: a time in Persian digits is no event, and never a crash.
+        let text = "Times are Europe/Madrid.\n\n## Monday 9 November\n\n- ۱۰:۰۰–۱۱:۰۰ Standup\n- 25:99–26:00 Never\n- 10:00–11:00 Real\n\n## Tuesday ۱۰ November\n\n- All day Lost\n"
+        let days = CalendarWeek.parse(text, path: "Calendar/2026-W46.md")
+        #expect(days.count == 1)
+        #expect(days[0].meetings.map(\.title) == ["Never", "Real", "Lost"])
+        #expect(days[0].meetings.map(\.allDay) == [true, false, true])
+        #expect(!CalendarWeek.isWeekNote("Calendar/۲۰۲۶-W۴۶.md"))
+        #expect(CalendarWeek.parse(text, path: "Calendar/۲۰۲۶-W۴۶.md").isEmpty)
     }
 
     @Test func weekNotePath() {
@@ -364,6 +496,12 @@ import Testing
         for query in ["میخواهم", "می\u{200C}خواهم", "می خواهم", "کتاب", "علی", "12", "۱۲"] {
             #expect(index.search(query, limit: 10).map(\.path) == ["a.md"], "\(query)")
         }
+        // A word with its vowel marks or stretched with a tatweel is the word without them.
+        index.put(path: "c.md", title: "ادب", body: "لطفاً مؤدّب باش، کتـــاب")
+        for query in ["مودب", "مؤدب", "مؤدّب", "لطفا", "لطفاً"] {
+            #expect(index.search(query, limit: 10).map(\.path) == ["c.md"], "\(query)")
+        }
+        #expect(Set(index.search("کتاب", limit: 10).map(\.path)) == ["a.md", "c.md"])
         // The snippet is the note's own text.
         #expect(index.search("خواهم", limit: 10).first?.snippet.unicodeScalars.contains("\u{200C}") == true)
     }
@@ -569,6 +707,23 @@ import Testing
         #expect(found[.listMarker] == ["- ", "    - "])
     }
 
+    @Test func aBoxIsDrawnOnlyWhereTheParserReadsATask() {
+        // One rule for the index, the tick and the editor's styling: a space or the line's end after the box.
+        let lines = ["- [x](https://example.com) a link", "- [ ]glued", "- [A](Notes/A.md)", "- [ ] a task", "- [x]", "1. [/] numbered", "    - [-]\tdropped"]
+        for line in lines {
+            let found = kinds(line)
+            let drawn = [MarkdownHighlighter.Kind.taskOpen, .taskDone, .taskCancelled, .taskOther].contains { found[$0] != nil }
+            #expect(drawn == TaskLine.isTask(line), "\(line)")
+            // And only a task is ticked.
+            let ticked = try? VaultEdits.toggleTask(in: line, line: 0, status: TaskLine.fields(line)?.status ?? "x", today: Day("2026-11-10")!)
+            #expect((ticked != nil) == TaskLine.isTask(line), "\(line)")
+            #expect((NoteParser.parse(line).tasks.count == 1) == TaskLine.isTask(line), "\(line)")
+        }
+        #expect(lines.map(TaskLine.isTask) == [false, false, false, true, true, true, true])
+        // The line is still a list item, and the link in it a link.
+        #expect(kinds("- [x](https://example.com) a link")[.listMarker] == ["-"])
+    }
+
     @Test func blocksCarryState() {
         let text = "---\ntags: [a]\n---\n```swift\nlet **x** = 1\n```\n%%\nhidden\n%%\nafter"
         let found = kinds(text)
@@ -642,6 +797,67 @@ import Testing
         TasksQuery.parse(source, file: file).run(tasks, today: today) { $0 }.map(\.text)
     }
 
+    @Test func andBindsBeforeOrAsInThePlugin() {
+        // NOT, then XOR, then AND, then OR: this is "plan", or both "one" and "old".
+        #expect(Set(run("(description includes plan) OR (description includes one) AND (description includes old)")) == ["Ship the plan #work", "Old one"])
+        #expect(Set(run("(description includes one) AND (description includes old) OR (description includes plan)")) == ["Ship the plan #work", "Old one"])
+        // Brackets still say otherwise.
+        #expect(run("((description includes plan) OR (description includes one)) AND (description includes old)") == ["Old one"])
+        // XOR before AND: done, and exactly one of the two words.
+        #expect(run("(done) AND (description includes old) XOR (description includes dropped)") == ["Old one", "Dropped"])
+        #expect(run("(done) AND NOT (description includes old)") == ["Dropped"])
+        #expect(run("(path includes Home) AND NOT (done) OR (description includes Reading)") == ["Reading", "Book flights"])
+        #expect(TasksQuery.parse("(done) OR (not done) AND").notUnderstood.count == 1)
+    }
+
+    @Test func inSomeDaysIsADay() {
+        // The `in` belongs to the date, as in `due before in 7 days`.
+        #expect(TasksQuery.parse("due in 7 days\nscheduled in 1 day\nhappens in 2 days\ndue on in 7 days").notUnderstood.isEmpty)
+        #expect(run("due in 7 days") == ["Book flights"])
+        #expect(run("scheduled in 1 day") == ["Reading"])
+        #expect(run("due in 6 days").isEmpty)
+        // `in` before a range is still the relation.
+        #expect(run("due in 2026-10-26 2026-11-01") == ["Book flights"])
+        #expect(TasksQuery.parse("due in a while").notUnderstood == ["due in a while"])
+    }
+
+    @Test func startCreatedCancelledAndPriority() {
+        let tasks = [
+            QueryTask(text: "Later", state: .todo, path: "T.md", due: "2026-11-20", start: "2026-11-01", created: "2026-10-01", priority: "🔽"),
+            QueryTask(text: "Now", state: .todo, path: "T.md", scheduled: "2026-10-22", start: "2026-10-10", created: "2026-10-05", priority: "⏫"),
+            QueryTask(text: "Any time", state: .todo, path: "T.md", created: "2026-10-09"),
+            QueryTask(text: "Dropped", state: .cancelled, path: "T.md", created: "2026-09-01", cancelled: "2026-10-20", priority: "🔺"),
+        ]
+        func run(_ source: String) -> [String] {
+            let query = TasksQuery.parse(source)
+            #expect(query.notUnderstood.isEmpty, "\(query.notUnderstood)")
+            return query.run(tasks, today: today) { $0 }.map(\.text)
+        }
+        // `starts` also takes what has no start date, as the plugin does: it can be started.
+        #expect(Set(run("starts before tomorrow")) == ["Now", "Any time", "Dropped"])
+        #expect(run("has start date\nstarts after today") == ["Later"])
+        #expect(Set(run("no start date")) == ["Any time", "Dropped"])
+        #expect(run("created before 2026-10-05\nnot done") == ["Later"])
+        #expect(run("cancelled this week") == ["Dropped"])
+        #expect(run("has cancelled date") == ["Dropped"])
+        #expect(Set(run("no created date")) == [])
+        // Happens is the earliest of start, scheduled and due.
+        #expect(run("happens before 2026-10-15") == ["Now"])
+        #expect(run("happens on 2026-11-01") == ["Later"])
+        #expect(run("no happens date\nnot done") == ["Any time"])
+        #expect(run("not done\nsort by happens") == ["Now", "Later", "Any time"])
+        #expect(run("priority is high") == ["Now"])
+        #expect(Set(run("priority is above none")) == ["Now", "Dropped"])
+        #expect(run("priority is below medium\nsort by priority") == ["Any time", "Later"])
+        #expect(Set(run("priority is not none")) == ["Later", "Now", "Dropped"])
+        #expect(run("priority is none") == ["Any time"])
+        #expect(run("sort by priority") == ["Dropped", "Now", "Any time", "Later"])
+        #expect(run("sort by priority reverse") == ["Later", "Any time", "Now", "Dropped"])
+        #expect(run("not done\nsort by start reverse") == ["Any time", "Later", "Now"])
+        #expect(run("sort by created") == ["Dropped", "Later", "Now", "Any time"])
+        #expect(TasksQuery.parse("priority is urgent").notUnderstood == ["priority is urgent"])
+    }
+
     @Test func theVaultsInProgressQuery() {
         let source = """
             folder includes {{query.file.folder}}
@@ -683,7 +899,7 @@ import Testing
     }
 
     @Test func unknownLinesAreReported() {
-        let query = TasksQuery.parse("priority is high\nfilter by function task.urgency > 3\nfolder includes {{query.file.unknown}}", file: "A.md")
+        let query = TasksQuery.parse("is blocked\nfilter by function task.urgency > 3\nfolder includes {{query.file.unknown}}", file: "A.md")
         #expect(query.notUnderstood.count == 3)
         #expect(TasksQuery.parse("folder includes {{query.file.folder}}").notUnderstood.count == 1)
     }

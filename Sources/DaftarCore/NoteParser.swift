@@ -66,12 +66,45 @@ public struct ParsedTask: Sendable, Equatable, Hashable {
 }
 
 public enum NoteParser {
-    nonisolated(unsafe) static let heading = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/
+    nonisolated(unsafe) private static let headingLine = /^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/
+
+    /// The level and the text of a `#` heading line, or nil. A closing run
+    /// of `#` comes off only after a space, as CommonMark has it: `## C#`
+    /// is the heading "C#", `## Title ##` is "Title", and `## ##` has no text.
+    static func heading(_ line: String) -> (level: Int, text: String)? {
+        guard line.hasPrefix("#"), let match = line.firstMatch(of: headingLine) else { return nil }
+        let text = match.2.allSatisfy { $0 == "#" } ? "" : String(match.2)
+        return (match.1.count, text)
+    }
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
-    nonisolated(unsafe) private static let markdownLink = /(!?)\[[^\]\n]*\]\(<?([^)>\s]+)>?\)/
+    /// A markdown link, `[text](address)`, in four parts: up to the `(`, a
+    /// `<` or nothing, the address, and the rest to the `)`. The address may
+    /// be in `<…>`, which keeps its spaces, and a `"title"` may follow it.
+    /// One pattern for the index and for the links a rename writes again.
+    nonisolated(unsafe) static let markdownLink =
+        /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+|[^)>\n]+(?=>))(>?(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'))?\))/
+
+    /// Where a markdown link's address goes in the vault: its file and its
+    /// anchor. Nil for a web address, a `mailto:` and a bare `#anchor`.
+    /// An address in `<…>` is as written; any other is percent-decoded.
+    static func destination(_ url: String, bracketed: Bool) -> (target: String, anchor: String?)? {
+        guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { return nil }
+        let decoded = bracketed ? url : url.removingPercentEncoding ?? url
+        guard let hash = decoded.firstIndex(of: "#") else { return (decoded, nil) }
+        return (String(decoded[..<hash]), String(decoded[decoded.index(after: hash)...]))
+    }
     nonisolated(unsafe) private static let tag = /(?:^|\s)#([\p{L}\p{N}_\/-]+)/
-    nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
     nonisolated(unsafe) static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
+
+    /// The marks of a code fence that [line] opens or closes, or nil. A
+    /// line of backticks with a backtick after them is not one: the info
+    /// string of a backtick fence holds none, so ```` ```a``` b ```` is a
+    /// paragraph that starts with inline code (CommonMark).
+    static func fenceMark(_ line: String) -> Substring? {
+        guard line.hasMark("```") || line.hasMark("~~~"), let match = line.firstMatch(of: fence) else { return nil }
+        if match.1.first == "`", line[match.range.upperBound...].utf8.contains(0x60) { return nil }
+        return match.1
+    }
 
     public static func parse(_ text: String) -> ParsedNote {
         let lines = text.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
@@ -98,8 +131,8 @@ public enum NoteParser {
             // Each pattern runs only on a line that has the marks it needs:
             // a regular expression on every line was most of the time a
             // large vault took to open.
-            if raw.hasMark("```") || raw.hasMark("~~~"), let match = raw.firstMatch(of: fence) {
-                let marker = String(match.1)
+            if let mark = fenceMark(raw) {
+                let marker = String(mark)
                 if fenceMarker == nil {
                     fenceMarker = marker
                 } else if let open = fenceMarker, marker.first == open.first, marker.count >= open.count {
@@ -114,24 +147,18 @@ public enum NoteParser {
             let line = Comments.strip(raw, open: &inComment)
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
 
-            if line.hasPrefix("#"), let match = line.firstMatch(of: heading) {
-                let text = String(match.2)
-                note.headings.append(Heading(level: match.1.count, text: text, line: index))
+            if let (level, text) = heading(line) {
+                note.headings.append(Heading(level: level, text: text, line: index))
                 section = text
             }
-            let code = line.hasMark("`") ? line.replacing(inlineCode, with: "") : line
+            let code = InlineCode.removed(from: line)
             for match in code.hasMark("[[") ? code.matches(of: wikilink) : [] {
                 let parts = Wikilink(String(match.2))
                 note.links.append(Link(target: parts.target, anchor: parts.anchor, embed: !match.1.isEmpty, line: index))
             }
             for match in code.hasMark("](") ? code.matches(of: markdownLink) : [] {
-                let url = String(match.2)
-                guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { continue }
-                let decoded = url.removingPercentEncoding ?? url
-                let hash = decoded.firstIndex(of: "#")
-                let target = hash.map { String(decoded[..<$0]) } ?? decoded
-                let anchor = hash.map { String(decoded[decoded.index(after: $0)...]) }
-                note.links.append(Link(target: target, anchor: anchor, embed: !match.1.isEmpty, line: index))
+                guard let (target, anchor) = destination(String(match.3), bracketed: !match.2.isEmpty) else { continue }
+                note.links.append(Link(target: target, anchor: anchor, embed: match.1.hasPrefix("!"), line: index))
             }
             for match in code.mayHoldTag ? code.matches(of: tag) : [] where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
                 note.tags.append(String(match.1))
@@ -217,22 +244,158 @@ public struct Wikilink: Sendable, Equatable {
     }
 }
 
-/// `%% comments %%`, which may run over several lines.
+/// Inline code and inline math: the text a reader shows as written, where
+/// `[[`, `#` and `%%` are letters and not syntax. One rule for the index,
+/// the outline and the link rewrites.
+enum InlineCode {
+    /// The code spans of [line], their backticks included: a run of
+    /// backticks to the next run of the same length, as CommonMark reads
+    /// them, so ``` ``a ` b`` ``` is one span. A backtick after a
+    /// backslash opens nothing.
+    static func spans<S: StringProtocol>(in line: S) -> [Range<S.Index>] {
+        let bytes = line.utf8
+        var out: [Range<S.Index>] = []
+        var at = bytes.startIndex
+        let end = bytes.endIndex
+        var escaped = false
+        while at < end {
+            guard bytes[at] == 0x60 else {
+                escaped = bytes[at] == 0x5C && !escaped
+                at = bytes.index(after: at)
+                continue
+            }
+            var opened = at
+            while opened < end, bytes[opened] == 0x60 { opened = bytes.index(after: opened) }
+            if escaped {
+                escaped = false
+                at = bytes.index(after: at)
+                continue
+            }
+            let length = bytes.distance(from: at, to: opened)
+            var scan = opened
+            var close: S.Index?
+            while scan < end {
+                guard bytes[scan] == 0x60 else {
+                    scan = bytes.index(after: scan)
+                    continue
+                }
+                var run = scan
+                while run < end, bytes[run] == 0x60 { run = bytes.index(after: run) }
+                if bytes.distance(from: scan, to: run) == length {
+                    close = run
+                    break
+                }
+                scan = run
+            }
+            if let close {
+                out.append(at..<close)
+                at = close
+            } else {
+                at = opened
+            }
+        }
+        return out
+    }
+
+    /// [line] without its code spans and, when it holds a link, without
+    /// its inline math (`$…$` and `$$…$$`): what links and tags are read
+    /// from. The line itself when it has neither.
+    static func removed(from line: String) -> String {
+        var text = line
+        if line.hasMark("`") {
+            let spans = spans(in: line)
+            if !spans.isEmpty {
+                text = ""
+                var from = line.startIndex
+                for span in spans {
+                    text += line[from..<span.lowerBound]
+                    from = span.upperBound
+                }
+                text += line[from...]
+            }
+        }
+        if text.hasMark("$"), text.hasMark("[[") || text.hasMark("](") { text = withoutMath(text) }
+        return text
+    }
+
+    /// Inline math as Obsidian reads it: `$` with no space after the
+    /// opening one, none before the closing one and no digit after it, so
+    /// "$5 and $10" is prose; `$$` to the next `$$`.
+    private static func withoutMath(_ text: String) -> String {
+        let characters = Array(text)
+        var out = ""
+        var at = 0
+        while at < characters.count {
+            let character = characters[at]
+            if character == "\\", at + 1 < characters.count {
+                out.append(character)
+                out.append(characters[at + 1])
+                at += 2
+                continue
+            }
+            guard character == "$" else {
+                out.append(character)
+                at += 1
+                continue
+            }
+            let double = at + 1 < characters.count && characters[at + 1] == "$"
+            let start = at + (double ? 2 : 1)
+            var close: Int?
+            var scan = start
+            while scan < characters.count {
+                if characters[scan] == "\\" {
+                    scan += 2
+                    continue
+                }
+                if characters[scan] == "$" {
+                    if double {
+                        if scan + 1 < characters.count, characters[scan + 1] == "$" { close = scan + 2; break }
+                    } else if scan > start, !characters[scan - 1].isWhitespace, !(scan + 1 < characters.count && characters[scan + 1].isNumber) {
+                        close = scan + 1
+                        break
+                    }
+                }
+                scan += 1
+            }
+            if let close, double || (start < characters.count && !characters[start].isWhitespace) {
+                at = close
+            } else {
+                out.append(character)
+                at += 1
+            }
+        }
+        return out
+    }
+}
+
+/// `%% comments %%`, which may run over several lines. A `%%` in inline
+/// code is two percent signs, as Obsidian shows it, and opens nothing.
 enum Comments {
     static func strip(_ line: String, open: inout Bool) -> String {
         guard open || line.hasMark("%%") else { return line }
-        var out = ""
         var rest = Substring(line)
-        while true {
-            guard let marker = rest.range(of: "%%") else {
-                if !open { out += rest }
-                break
-            }
-            if !open { out += rest[..<marker.lowerBound] }
-            open.toggle()
+        if open {
+            // Inside a comment nothing is code: the next `%%` closes it.
+            guard let marker = rest.range(of: "%%") else { return "" }
+            open = false
             rest = rest[marker.upperBound...]
         }
-        return out
+        let code = rest.hasMark("`") ? InlineCode.spans(in: rest) : []
+        var out = ""
+        var from = rest.startIndex
+        var search = from
+        while let marker = rest[search...].range(of: "%%") {
+            if let span = code.first(where: { $0.overlaps(marker) }) {
+                search = span.upperBound
+                continue
+            }
+            out += rest[from..<marker.lowerBound]
+            open = true
+            // The spans after a comment are read again: a backtick in the
+            // comment pairs with none outside it.
+            return out + strip(String(rest[marker.upperBound...]), open: &open)
+        }
+        return out + rest[from...]
     }
 }
 

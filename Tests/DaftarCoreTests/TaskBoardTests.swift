@@ -94,4 +94,21 @@ import Testing
         #expect(postponed("- [-] Dropped 📅 2026-10-30", .day) == nil)
         #expect(postponed("- [ ] Bad date 📅 2026-13-40", .day) == nil)
     }
+
+    @Test func aDayColumnMovesTheDateTheCardIsFiledBy() {
+        let today = Day("2026-10-25")!
+        // Filed by its scheduled date: that date moves, and no due date is added beside a stale one.
+        #expect(TaskBoard.moved("- [ ] Plan ➕ 2026-10-01 ⏳ 2026-10-20", to: .due("2026-10-25"), today: today) == ["- [ ] Plan ➕ 2026-10-01 ⏳ 2026-10-25"])
+        #expect(TaskBoard.moved("- [ ] Plan ⏳ 2026-10-25", to: .due("2026-10-25"), today: today) == nil)
+        // No Date takes the card off both dates, or it would stay where it is.
+        #expect(TaskBoard.moved("- [ ] Plan ⏳ 2026-10-20", to: .due(nil), today: today) == ["- [ ] Plan"])
+        #expect(TaskBoard.moved("- [ ] Plan ⏳ 2026-10-20 📅 2026-10-27", to: .due(nil), today: today) == ["- [ ] Plan"])
+        #expect(TaskBoard.moved("- [ ] Plan", to: .due(nil), today: today) == nil)
+        // With both, the due date is the one it is filed by; with neither, it gets a due date.
+        #expect(TaskBoard.moved("- [ ] Plan ⏳ 2026-10-20 📅 2026-10-27", to: .due("2026-10-26"), today: today) == ["- [ ] Plan ⏳ 2026-10-20 📅 2026-10-26"])
+        #expect(TaskBoard.moved("- [ ] Plan", to: .due("2026-10-26"), today: today) == ["- [ ] Plan 📅 2026-10-26"])
+        // The card lands in the column it was dropped on.
+        let moved = TaskBoard.moved("- [ ] Plan ⏳ 2026-10-20", to: .due("2026-10-26"), today: today)![0]
+        #expect(TaskLine.parse(moved, line: 0, section: "")?.day == "2026-10-26")
+    }
 }

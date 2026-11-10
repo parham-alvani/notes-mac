@@ -15,7 +15,7 @@ public enum TaskMetadata {
     }
 
     nonisolated(unsafe) private static let value = /^[0-9A-Za-z\/,:. -]{0,32}$/
-    nonisolated(unsafe) private static let dateValue = /^\d{4}-\d{2}-\d{2}$/
+    nonisolated(unsafe) private static let dateValue = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/
     nonisolated(unsafe) private static let trailingTags = /(.*?)((?:\s*#[\p{L}\p{N}_\/-]+)+)/
     private static let dated: Set<String> = ["done", "created", "scheduled", "cancelled", "due", "start"]
 
@@ -32,8 +32,17 @@ public enum TaskMetadata {
     /// the metadata is always a suffix, and an emoji with prose after it is
     /// part of the sentence, as is a second field of a kind already found.
     public static func split(_ line: String) -> (text: String, meta: [Meta]) {
+        let read = fields(line)
+        return (read.text, read.meta)
+    }
+
+    /// [split], and where each field starts in [line]: the UTF-8 offset of
+    /// its symbol, for an edit that takes one field out and leaves the
+    /// rest of the line as it is written.
+    static func fields(_ line: String) -> (text: String, meta: [Meta], starts: [Int]) {
         var remaining = line
         var found: [Meta] = []
+        var starts: [Int] = []
         // Tags after the signifiers (`📅 2026-10-20 ⏫ #kit`) stay part of
         // the text, as the Tasks plugin keeps them.
         var tags: [String] = []
@@ -45,7 +54,9 @@ public enum TaskMetadata {
         while true {
             var last: (String, Range<String.Index>)?
             for symbol in present {
-                if let range = remaining.range(of: symbol, options: .backwards),
+                // Literal: a symbol with a variation selector after it (`⏳\u{FE0F}`) is one
+                // character, which a search by characters does not find the symbol in.
+                if let range = remaining.range(of: symbol, options: [.backwards, .literal]),
                     last == nil || range.lowerBound > last!.1.lowerBound
                 {
                     last = (symbol, range)
@@ -53,6 +64,10 @@ public enum TaskMetadata {
             }
             guard let (symbol, range) = last, !kinds.contains(symbols[symbol]!) else { break }
             var value = remaining[range.upperBound...].trimmingCharacters(in: .whitespaces)
+            // The selector that asks for the emoji's coloured form says nothing: the plugin reads past it.
+            if value.unicodeScalars.first == "\u{FE0F}" {
+                value = String(String.UnicodeScalarView(value.unicodeScalars.dropFirst())).trimmingCharacters(in: .whitespaces)
+            }
             if !takes(symbol, value) {
                 guard let match = value.wholeMatch(of: trailingTags),
                     takes(symbol, String(match.1))
@@ -61,12 +76,34 @@ public enum TaskMetadata {
                 value = String(match.1)
             }
             found.append(Meta(emoji: symbol, value: value))
+            starts.append(remaining.utf8.distance(from: remaining.startIndex, to: range.lowerBound))
             kinds.insert(symbols[symbol]!)
             remaining = String(remaining[..<range.lowerBound])
             while remaining.last?.isWhitespace ?? false { remaining.removeLast() }
         }
-        if !tags.isEmpty { remaining += " " + tags.joined(separator: " ") }
-        return (remaining, found.reversed())
+        // No space before the tags of a task that is only its tags: its text reads back the same.
+        if !tags.isEmpty { remaining += (remaining.isEmpty ? "" : " ") + tags.joined(separator: " ") }
+        return (remaining, found.reversed(), starts.reversed())
+    }
+
+    /// [line] without the fields of [emoji] that hold a date, and without
+    /// the spaces before each: only the fields, the trailing ones `split`
+    /// reads. The same emoji and date in the sentence is the sentence's.
+    static func removing(_ emoji: Set<String>, from line: String) -> String {
+        let read = fields(line)
+        var bytes = Array(line.utf8)
+        for (meta, start) in zip(read.meta, read.starts).reversed() where emoji.contains(meta.emoji) && !meta.value.isEmpty {
+            var end = start + meta.emoji.utf8.count
+            // The variation selector, then the spaces, then the date as it was read.
+            if bytes[end...].starts(with: [0xEF, 0xB8, 0x8F]) { end += 3 }
+            while end < bytes.count, bytes[end] == 0x20 || bytes[end] == 0x09 { end += 1 }
+            guard bytes[end...].starts(with: meta.value.utf8) else { continue }
+            end += meta.value.utf8.count
+            var from = start
+            while from > 0, bytes[from - 1] == 0x20 || bytes[from - 1] == 0x09 { from -= 1 }
+            bytes.removeSubrange(from..<end)
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -159,7 +196,9 @@ public enum TaskReason {
 /// done, and every edit is a function of the line as it is now.
 public enum TaskLine {
     /// `- [ ] `, `* [x] `, `1. [/] `, and the same inside a quote or callout.
-    nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+)\[([^\]\n])\]\s*(.*)$/
+    /// A space or the line's end follows the box, as in Obsidian:
+    /// `- [x](https://example.com)` is a link in a list, not a task.
+    nonisolated(unsafe) private static let pattern = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\](?=\s|$)\s*(.*)$/
 
     private static let done = "✅"
     private static let cancelledMark = "❌"
@@ -178,14 +217,18 @@ public enum TaskLine {
         func date(_ emoji: String) -> String? {
             split.meta.first { $0.emoji == emoji }?.value.nilIfEmpty
         }
-        let prefix = match.1
-        let indent = prefix.prefix { $0 == " " || $0 == "\t" || $0 == ">" }
+        // Indented under another item: the white space before the bullet, after a quote's or a callout's marks.
+        var indent = match.1.prefix { $0 == " " || $0 == "\t" || $0 == ">" }
+        if let quote = indent.lastIndex(of: ">") {
+            indent = indent[indent.index(after: quote)...]
+            if indent.first == " " { indent = indent.dropFirst() }
+        }
         return ParsedTask(
             line: line, status: status, text: described.text, reason: described.reason, section: section,
             created: date("➕"), scheduled: date("⏳"), due: date("📅"), start: date("🛫"),
             done: date(done), cancelled: date(cancelledMark), recurring: date(recur),
             priority: split.meta.first { TaskMetadata.symbols[$0.emoji] == "priority" }?.emoji,
-            nested: indent.contains(where: { $0 == " " || $0 == "\t" }))
+            nested: !indent.isEmpty)
     }
 
     /// The line after a click on its checkbox: an open task is completed, and
@@ -204,8 +247,8 @@ public enum TaskLine {
         }
         body = TaskReason.removed(from: body)
         if statuses.isClosed(status) {
-            let text = body.replacing(/[ \t]*(?:✅|❌)[ \t]*\d{4}-\d{2}-\d{2}/, with: "")
-            return [prefix + "[ ] " + text + id]
+            // Only the done and cancelled fields go: "✅ 2026-01-01" in the sentence is the sentence's.
+            return [prefix + "[ ] " + TaskMetadata.removing([done, cancelledMark], from: body) + id]
         }
         if var lines = completeRecurring(prefix: prefix, body: body, today: today) {
             lines[lines.count - 1] += id
@@ -282,7 +325,7 @@ public struct Recurrence: Sendable, Equatable {
     /// The most chained steps of a month or a year: 333 years of months.
     static let maxSteps = 4000
 
-    nonisolated(unsafe) private static let rule = /every(?:\s+(\d+))?\s+(?:(jalali)\s+(month|year)|(day|week|month|year))s?/
+    nonisolated(unsafe) private static let rule = /every(?:\s+([0-9]+))?\s+(?:(jalali)\s+(month|year)|(day|week|month|year))s?/
 
     public init?(_ rule: String) {
         var text = rule.trimmingCharacters(in: .whitespaces).lowercased()
@@ -362,7 +405,7 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
         calendar.timeZone = TimeZone(identifier: "UTC")!
         return calendar
     }()
-    nonisolated(unsafe) private static let pattern = /(\d{4})-(\d{2})-(\d{2})/
+    nonisolated(unsafe) private static let pattern = /([0-9]{4})-([0-9]{2})-([0-9]{2})/
 
     public init(year: Int, month: Int, day: Int) {
         self.year = year
@@ -452,7 +495,7 @@ public struct TaskFields: Sendable, Equatable {
 }
 
 extension TaskLine {
-    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+)\[([^\]\n])\]\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
+    nonisolated(unsafe) private static let line = /^(\s*(?:>\s?)*\s*(?:[-*+]|[0-9]+[.)])\s+)\[([^\]\n])\](?=\s|$)\s*(.*?)(\s+\^[A-Za-z0-9-]+)?\s*$/
 
     /// The task on [raw], in parts; nil when the line is not a task.
     public static func fields(_ raw: String) -> TaskFields? {

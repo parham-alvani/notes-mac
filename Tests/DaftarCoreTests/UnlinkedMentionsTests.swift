@@ -58,4 +58,16 @@ import Testing
         // The file changed since: nothing is written.
         #expect(throws: VaultEdits.Failure.textMoved) { try UnlinkedMentions.link(found[1], to: "Acme", in: "Other text.\nNo name.") }
     }
+
+    @Test func aMentionInATableKeepsTheRowsCells() throws {
+        let text = "| Who | Note |\n| --- | --- |\n| Sam | lunch with acme today |\n| Acme | called |"
+        let found = UnlinkedMentions.find(["Acme"], in: text)
+        // A bare bar would end the cell: it is written `\|`.
+        let linked = try UnlinkedMentions.link(found[0], to: "Acme", in: text)
+        #expect(linked.components(separatedBy: "\n")[2] == "| Sam | lunch with [[Acme\\|acme]] today |")
+        #expect(MarkdownTable.cells(linked.components(separatedBy: "\n")[2]).count == 2)
+        #expect(NoteParser.parse(linked).links.map(\.target) == ["Acme"])
+        // No alias, no bar.
+        #expect(try UnlinkedMentions.link(found[1], to: "Acme", in: text).hasSuffix("| [[Acme]] | called |"))
+    }
 }

@@ -10,7 +10,9 @@ import Foundation
 public enum QuickSwitcher {
     public struct Candidate: Sendable {
         public var path: String
-        /// Folded once, when the index changes, not on each keystroke.
+        /// Folded once, when the index changes, not on each keystroke: by
+        /// `Slugs.matching`, as the query is, so a Persian name is found
+        /// with or without its half spaces and from an Arabic keyboard.
         let title: String
         let aliases: [String]
         let folders: String
@@ -20,9 +22,9 @@ public enum QuickSwitcher {
 
         public init(path: String, title: String, aliases: [String] = []) {
             self.path = path
-            self.title = Slugs.fold(title)
-            self.aliases = aliases.map(Slugs.fold)
-            folders = Slugs.fold(QuickSwitcher.folder(of: path))
+            self.title = Slugs.matching(title)
+            self.aliases = aliases.map(Slugs.matching)
+            folders = Slugs.matching(QuickSwitcher.folder(of: path))
             full = folders.isEmpty ? self.title : folders + "/" + self.title
             // A picture opens in the app too, but ranks as the attachment it is.
             note = Vault.opensInApp(path) && !Vault.isImage(path)
@@ -47,7 +49,7 @@ public enum QuickSwitcher {
     }
 
     public static func ranking(_ query: String, in candidates: [Candidate], recent: [String] = [], limit: Int = 50) -> Ranking {
-        let needle = Slugs.fold(query.trimmingCharacters(in: .whitespaces))
+        let needle = Slugs.matching(query.trimmingCharacters(in: .whitespaces))
         let words = needle.split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return Ranking(paths: Array(recent.prefix(limit)), loose: false) }
         let recency = Dictionary(recent.enumerated().map { ($1, $0) }) { a, _ in a }

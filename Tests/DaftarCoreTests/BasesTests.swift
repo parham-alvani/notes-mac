@@ -142,7 +142,10 @@ import Testing
     }
 
     @Test func spans() {
-        #expect(BaseSpan.parse("30 days") == BaseSpan(milliseconds: 30 * 86_400_000))
+        #expect(BaseSpan.parse("30 days") == BaseSpan(days: 30))
+        #expect(BaseSpan.parse("2w 1d") == BaseSpan(days: 15))
+        #expect(BaseSpan.parse("1.5d") == BaseSpan(milliseconds: 1.5 * 86_400_000))
+        #expect(BaseSpan.parse("30 days")?.approximateMilliseconds == Double(30 * 86_400_000))
         #expect(BaseSpan.parse("1M 4h") == BaseSpan(months: 1, milliseconds: 4 * 3_600_000))
         #expect(BaseSpan.parse("2y") == BaseSpan(months: 24))
         #expect(BaseSpan.parse("soon") == nil)
@@ -317,5 +320,37 @@ import Testing
         #expect(try evaluate("\"a-b\".split(\"-\", -1).length") == "2")
         #expect(try evaluate("\"abc\".slice(0 / 0, 1 / 0)") == "abc")
         #expect(BaseSpan.parse("99999999999999999999 years") == nil)
+    }
+
+    @Test func aDateIsARealDayInASCIIDigits() {
+        #expect(BaseEngine.parseDate("2026-11-10") != nil)
+        #expect(BaseEngine.parseDate("2026-11-10T09:30")?.1 == true)
+        // The calendar would roll these to another day; they stay the text they are.
+        #expect(BaseEngine.parseDate("2026-02-30") == nil)
+        #expect(BaseEngine.parseDate("2026-13-45") == nil)
+        #expect(BaseEngine.parseDate("2026-11-10T25:00") == nil)
+        // A Jalali date in Persian digits was the first of January of the year 1.
+        #expect(BaseEngine.parseDate("۱۴۰۵-۰۸-۰۵") == nil)
+        #expect(BaseSpan.parse("۳d") == nil)
+    }
+
+    @Test func aDayIsTheNextDayWhenTheClocksChange() throws {
+        // Madrid's clocks go back on 25 October 2026 and forward on 29 March: those days are 25 and 23 hours long.
+        var madrid = Calendar(identifier: .gregorian)
+        madrid.timeZone = TimeZone(identifier: "Europe/Madrid")!
+        func day(_ month: Int, _ day: Int) -> Date { madrid.date(from: DateComponents(year: 2026, month: month, day: day))! }
+        func add(_ span: String, to date: Date) throws -> Date { BaseEngine.add(try #require(BaseSpan.parse(span)), to: date, calendar: madrid) }
+        #expect(try add("1d", to: day(10, 25)) == day(10, 26))
+        #expect(try add("1w", to: day(10, 20)) == day(10, 27))
+        #expect(try add("-7 days", to: day(3, 30)) == day(3, 23))
+        #expect(try add("1M 1d", to: day(9, 24)) == day(10, 25))
+        // Hours are the clock's: 24 of them from that midnight are 23:00 the same day.
+        #expect(try add("24h", to: day(10, 25)) == day(10, 25).addingTimeInterval(86_400))
+        #expect(try add("24h", to: day(10, 25)) != day(10, 26))
+        // In an expression a day added to a date is still a date, with no time.
+        #expect(try evaluate("date(\"2026-10-25\") + \"1d\"") == "2026-10-26")
+        #expect(try evaluate("(duration(\"2d\") * 3).days") == "6")
+        #expect(try evaluate("(duration(\"1d\") * 0.5).hours") == "12")
+        #expect(try evaluate("(date(\"2026-11-10\") + \"1w\" - date(\"2026-11-10\")).days") == "7")
     }
 }

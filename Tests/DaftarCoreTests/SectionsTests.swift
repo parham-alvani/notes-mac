@@ -4,6 +4,17 @@ import Testing
 @testable import DaftarCore
 
 @Suite struct SectionsTests {
+    @Test func aSectionWithAnOpenCommentMovedUpHidesTheOneBelow() throws {
+        // Found by the fuzz: every line is kept, but the `%%` now above the other heading makes it a comment.
+        let text = "# One\n\n# Two %% open"
+        #expect(Sections.headings(in: text).map(\.text) == ["One", "Two"])
+        let moved = try #require(Sections.move(text, heading: 1, to: 0))
+        #expect(moved.text == "# Two %% open\n\n# One")
+        #expect(moved.text.components(separatedBy: "\n").sorted() == text.components(separatedBy: "\n").sorted())
+        #expect(Sections.headings(in: moved.text).map(\.text) == ["Two"])
+        #expect(Sections.headings(in: moved.text) == NoteParser.parse(moved.text).headings)
+    }
+
     static let note = """
         ---
         title: x
@@ -206,6 +217,11 @@ import Testing
         let text = "[[Target#Old Heading]]"
         let edits = HeadingRename.edits(in: text, source: "S.md", change: second) { $0 == "Target" }
         #expect(edits.isEmpty)
+    }
+
+    @Test func aLinkWithATitleIsRewrittenToo() throws {
+        let text = "[x](Target.md#Old%20Heading \"a title\") [y](<Notes/Target.md#Old Heading> 'another') ``[z](Target.md#Old%20Heading)``"
+        #expect(try Self.rename(text) == "[x](Target.md#New%20Name \"a title\") [y](<Notes/Target.md#New Name> 'another') ``[z](Target.md#Old%20Heading)``")
     }
 
     @Test func theNoteItselfUsesBareAnchors() throws {
