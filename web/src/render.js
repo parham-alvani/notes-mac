@@ -6,6 +6,7 @@ import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 import katex from "katex";
 import hljs from "highlight.js/lib/common";
+import { sanitizeHtml, cleanAddress, schemeOf } from "./sanitize.js";
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|bmp|avif|hei[cf]|tiff?)$/i;
 const VIDEO = /\.(mp4|m4v|mov|webm|ogv)$/i;
@@ -612,8 +613,9 @@ function isolateDates(md) {
         for (const match of child.content.matchAll(HYPHEN_DATE)) {
           const before = new state.Token("text", "", 0);
           before.content = child.content.slice(at, match.index);
-          const date = new state.Token("html_inline", "", 0);
-          date.content = `<bdi dir="ltr">${escapeHtml(match[0])}</bdi>`;
+          // Its own kind of token: a note's raw HTML is `html_inline`, which is filtered.
+          const date = new state.Token("isolated_date", "", 0);
+          date.content = match[0];
           children.push(before, date);
           at = match.index + match[0].length;
         }
@@ -712,9 +714,32 @@ function fences(md) {
   };
 }
 
+/**
+ * A note's raw HTML, through the list of `sanitize.js`: the tags and
+ * attributes a note may write are written again, the rest is left out or
+ * shown as text. Nothing a note writes can carry a class, an id or a
+ * `data-` attribute, which are how the page knows its own controls.
+ */
+function rawHtml(md) {
+  const safe = (tokens, idx) => sanitizeHtml(tokens[idx].content, { image: rawImage });
+  md.renderer.rules.html_block = safe;
+  md.renderer.rules.html_inline = safe;
+  md.renderer.rules.isolated_date = (tokens, idx) => `<bdi dir="ltr">${escapeHtml(tokens[idx].content)}</bdi>`;
+}
+
+/** An `<img>` a note wrote as HTML: its address, alt text and size, and nothing else. */
+function rawImage(attribute) {
+  const src = cleanAddress(attribute.src ?? "");
+  const scheme = schemeOf(src);
+  const known = scheme === null || scheme === "http" || scheme === "https" || scheme === "vault" || (scheme === "data" && /^data:image\//i.test(src));
+  if (!src || !known) return "";
+  const size = ["width", "height"].map((name) => (/^\d{1,5}%?$/.test(attribute[name] ?? "") ? ` ${name}="${attribute[name]}"` : "")).join("");
+  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(attribute.alt ?? "")}"${size}>`;
+}
+
 export function createRenderer() {
   const md = new MarkdownIt({ html: true, linkify: true, breaks: false, typographer: false });
-  md.use(footnote).use(wikilinks).use(highlights).use(tags).use(math).use(callouts).use(tasks).use(blockIds).use(direction).use(isolateDates).use(headings).use(sourceLines).use(fences);
+  md.use(rawHtml).use(footnote).use(wikilinks).use(highlights).use(tags).use(math).use(callouts).use(tasks).use(blockIds).use(direction).use(isolateDates).use(headings).use(sourceLines).use(fences);
   return md;
 }
 
