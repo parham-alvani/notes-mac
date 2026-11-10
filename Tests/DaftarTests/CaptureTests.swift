@@ -53,6 +53,29 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appending(path: "escaped.md").path))
     }
 
+    /// One inbox note with a section for each day: the heading holds the
+    /// day, the day's first capture makes its section at the note's end,
+    /// and the next ones go under it.
+    @Test func aDatedHeadingGivesEachDayItsSection() async throws {
+        try "## 2026-11-06\n\n- an older thought\n".write(to: root.appending(path: "Scratchpad.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        store.settings.captureTarget = "Scratchpad.md"
+        store.settings.captureHeading = "## {{date:YYYY-MM-DD}}"
+        let day = Day(year: 2026, month: 11, day: 7)
+        #expect(store.captureHeading(on: day) == "## 2026-11-07")
+        #expect(QuickCaptureController.describeTarget(store) == "Scratchpad.md › \(Day.today().description)")
+        #expect(try await store.capture("- first", on: day) == "Scratchpad.md")
+        try await store.capture("- second", on: day)
+        try await store.capture("- back to the day before", on: Day(year: 2026, month: 11, day: 6))
+        #expect(try text("Scratchpad.md") == "## 2026-11-06\n\n- an older thought\n- back to the day before\n\n## 2026-11-07\n- first\n- second\n")
+        // Another format, and a heading with no day in it, as before.
+        store.settings.captureHeading = "{{date:dddd D MMMM}}"
+        #expect(store.captureHeading(on: day) == "Saturday 7 November")
+        store.settings.captureHeading = " Inbox "
+        #expect(store.captureHeading(on: day) == "Inbox")
+        #expect(ConfigFile.template.contains("\"## {{date:YYYY-MM-DD}}\""))
+    }
+
     @Test func theSettingsAreInTheFile() throws {
         let settings = store.settings
         #expect(settings.captureHotkey == "ctrl+opt+n")

@@ -136,7 +136,7 @@ final class QuickCaptureController {
     /// "Journal/2026-10-26.md › Inbox": where a capture goes.
     static func describeTarget(_ store: VaultStore) -> String {
         let target = store.captureTargetPath
-        let heading = store.settings.captureHeading.trimmingCharacters(in: .whitespaces).drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+        let heading = store.captureHeading().drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
         return heading.isEmpty ? target : target + " › " + heading
     }
 }
@@ -264,7 +264,7 @@ struct CaptureSettings: View {
                 TextField("Note", text: $settings.captureTarget, prompt: Text("daily"))
                 TextField("Under the heading", text: $settings.captureHeading, prompt: Text("The end of the note"))
             } footer: {
-                Text(problem ?? "The shortcut opens the capture panel from any app; it is written as ctrl+opt+n, cmd+shift+space or f13, and empty turns it off. “daily” is today's note, as ⌘3 opens it; a path such as Inbox.md names one note. Return adds the line, ⌘↩ adds it as a task.")
+                Text(problem ?? "The shortcut opens the capture panel from any app; it is written as ctrl+opt+n, cmd+shift+space or f13, and empty turns it off. “daily” is today's note, as ⌘3 opens it; a path such as Inbox.md names one note. The heading may hold the day, ## {{date:YYYY-MM-DD}}, so one note gets a section for each day. Return adds the line, ⌘↩ adds it as a task.")
             }
             Section {
                 TextField("Scratchpad folder", text: $settings.scratchpadFolder, prompt: Text("The top of the vault"))
@@ -285,13 +285,22 @@ extension VaultStore {
         return index.files.first { Slugs.fold($0) == Slugs.fold(path) } ?? path
     }
 
+    /// `capture.heading` as it reads on [day]: `{{date}}`, `{{date:FORMAT}}`,
+    /// `{{time}}` and `{{time:FORMAT}}` are filled as a template's are, so
+    /// `## {{date:YYYY-MM-DD}}` is today's section of one inbox note, made
+    /// at the note's end by the day's first capture.
+    func captureHeading(on day: Day = .today(), clock: MomentFormat.Clock = .now()) -> String {
+        templates.fill(settings.captureHeading, title: Vault.title(of: captureTargetPath), day: day, clock: clock)
+            .trimmingCharacters(in: .whitespaces)
+    }
+
     /// Adds [line] to the capture note, made first when it is not there: the
     /// periodic note from its template, a named note empty. The editors save
     /// first and the file is read again, so the line goes into the note as
     /// it is on disk; the write is an ordinary one, so the index, the sync
     /// and the reading marks follow as they do for any edit. Its vault path.
     @discardableResult
-    func capture(_ line: String) async throws -> String {
+    func capture(_ line: String, on day: Day = .today()) async throws -> String {
         guard root != nil else { throw CaptureFailure.noVault }
         guard !loading else { throw CaptureFailure.loading }
         await flushEditors()
@@ -306,7 +315,7 @@ extension VaultStore {
             path = try createNote(named: String(made.split(separator: "/").last!.dropLast(3)), in: QuickSwitcher.folder(of: made))
         }
         guard let text = text(of: path) else { throw CaptureFailure.unreadable(path) }
-        let heading = settings.captureHeading.trimmingCharacters(in: .whitespaces)
+        let heading = captureHeading(on: day)
         try write(QuickCapture.append(line, to: text, heading: heading.isEmpty ? nil : heading), to: path)
         return path
     }

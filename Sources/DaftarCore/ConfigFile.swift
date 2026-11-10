@@ -318,6 +318,8 @@ public struct ConfigFile: Sendable, Equatable {
         target = "daily"
         # A heading to add the line under, at the end of its section, made at
         # the end of the note when it is missing; empty is the end of the note.
+        # It may hold the day, as a template does: "## {{date:YYYY-MM-DD}}"
+        # gives one note (target = "Scratchpad.md") a section for each day.
         heading = ""
 
         [home]
