@@ -27,6 +27,14 @@ import Testing
         }.environment(store))
         window.orderBack(nil)
         defer { window.orderOut(nil) }
+        // Another Daftar window, opened first and so found first by a search of the app's windows:
+        // the field focused must be the one of the window whose model was asked.
+        let other = NSWindow(contentRect: CGRect(x: -4000, y: -4000, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        other.tabbingIdentifier = "daftar.main"
+        other.contentView = NSHostingView(rootView: Text("Another window"))
+        other.orderBack(nil)
+        defer { other.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(800))
         model.searchRequests += 1
         try await Task.sleep(for: .milliseconds(300))
