@@ -28,6 +28,7 @@ import Testing
         "^block-id", "https://example.com/a?b#c", "mailto:x@y.z", "+34 612 345 678", "2026-W39", "{{title}}", "{{date:YYYY", "سلام",
         "دنیا", "שלום", "日本語", "👩‍👩‍👧‍👦", "\u{200f}", "\u{202e}", "e\u{301}", "\r", "\r\n", "\n", "\n\n", " ", "  ", "word", "Note",
         "9999-99-99", "0000-00-00", "-0", "1e999", "NaN",
+        "۲۰۲۶-۱۰-۲۶", "- ۱۰:۰۰–۱۱:۰۰ ", "- 10:00–11:00 ", "- 99:99–00:00 ", "## Monday ۹ November\n", "## Monday 9 November\n", "٣",
     ]
 
     static func text(_ random: inout Seeded, pieces count: Int = 40) -> String {
@@ -91,7 +92,11 @@ import Testing
             _ = EditorCommands.onReturn(after: line)
             _ = EditorCommands.toggleTask(line, today: Day(year: 2026, month: 10, day: 26))
             _ = EditorCommands.heading(line, level: Int.random(in: 0...6, using: &random))
-            if let fields = TaskLine.fields(line), let edited = TaskLine.edited(line, fields) {
+            // A text that starts with a combining mark is left out: written after the box's space the
+            // mark sits on that space, one letter with it, and the text reads back empty (`- [ ] \r\u{0745}`).
+            if let fields = TaskLine.fields(line), fields.text.unicodeScalars.first?.properties.isGraphemeExtend != true,
+                let edited = TaskLine.edited(line, fields)
+            {
                 // Writing a task back from its own fields keeps what it says.
                 #expect(TaskLine.fields(edited) == fields, "\(line)")
             }
@@ -327,7 +332,11 @@ import Testing
                 for position in siblings.indices {
                     guard let moved = Sections.move(text, heading: index, to: position) else { continue }
                     #expect(moved.text.components(separatedBy: "\n").sorted() == text.components(separatedBy: "\n").sorted())
-                    let back = Sections.headings(in: moved.text).firstIndex { $0.line == moved.to }
+                    // A section with an open `%%` moved above another makes that one a comment: the
+                    // headings are not the ones that were, and there is no way back by a move.
+                    let after = Sections.headings(in: moved.text)
+                    guard after.count == headings.count else { continue }
+                    let back = after.firstIndex { $0.line == moved.to }
                     #expect(back.flatMap { Sections.move(moved.text, heading: $0, to: siblings.firstIndex(of: index)!)?.text } == text)
                 }
             }

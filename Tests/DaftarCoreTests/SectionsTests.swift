@@ -4,6 +4,17 @@ import Testing
 @testable import DaftarCore
 
 @Suite struct SectionsTests {
+    @Test func aSectionWithAnOpenCommentMovedUpHidesTheOneBelow() throws {
+        // Found by the fuzz: every line is kept, but the `%%` now above the other heading makes it a comment.
+        let text = "# One\n\n# Two %% open"
+        #expect(Sections.headings(in: text).map(\.text) == ["One", "Two"])
+        let moved = try #require(Sections.move(text, heading: 1, to: 0))
+        #expect(moved.text == "# Two %% open\n\n# One")
+        #expect(moved.text.components(separatedBy: "\n").sorted() == text.components(separatedBy: "\n").sorted())
+        #expect(Sections.headings(in: moved.text).map(\.text) == ["Two"])
+        #expect(Sections.headings(in: moved.text) == NoteParser.parse(moved.text).headings)
+    }
+
     static let note = """
         ---
         title: x
