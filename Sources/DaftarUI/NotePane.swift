@@ -218,6 +218,13 @@ struct NotePaneView: View {
                     HeadingLinksBanner(change: offer) { pane.headingOffer = nil }.id(offer)
                 }
             }
+            // A file that is not UTF-8 text has no editor: it would open
+            // empty, and the first key would write the file away.
+            .onChange(of: pane.editing, initial: true) { _, editing in
+                guard editing, pane.canEdit, let path = pane.path, !store.isText(path) else { return }
+                pane.editing = false
+                store.notice = "\(Vault.title(of: path)) is not UTF-8 text, so it is not opened in the editor."
+            }
             // The accent line is the focus for the eye; VoiceOver hears it.
             .accessibilityElement(children: .contain)
             .accessibilityLabel(paneName)
@@ -235,7 +242,7 @@ struct NotePaneView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let path = pane.path, pane.editing, pane.canEdit {
+        if let path = pane.path, pane.editing, pane.canEdit, store.isText(path) {
             EditorView(path: path, store: store, line: pane.cursorLine, onCursor: { line in
                 pane.cursorLine = line
                 // The outline marks the section the cursor is in.

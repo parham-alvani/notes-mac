@@ -109,6 +109,25 @@ import Testing
         #expect(try text("Home.md") == "typed before the sync")
     }
 
+    /// A note in another encoding reads as nothing: it gets no editor, and
+    /// no save goes over it.
+    @Test func aFileThatIsNotUTF8IsNeverWrittenOver() throws {
+        let bytes = Data([0x23, 0x20, 0xE4, 0xF6, 0xFC, 0x0A, 0xFF, 0xFE])
+        try bytes.write(to: root.appending(path: "Notes/Old.md"))
+        store.openSynchronously(root)
+        #expect(store.text(of: "Notes/Old.md") == nil)
+        #expect(!store.isText("Notes/Old.md"))
+        #expect(store.isText("Notes/Plan.md"))
+        #expect(store.isText("Notes/Not there yet.md"))
+        #expect(throws: StoreError.self) { try store.write("typed into an empty editor", to: "Notes/Old.md") }
+        #expect(try Data(contentsOf: root.appending(path: "Notes/Old.md")) == bytes)
+        // Made text by another program, it is a note like any other.
+        try "# Old\n".write(to: root.appending(path: "Notes/Old.md"), atomically: true, encoding: .utf8)
+        #expect(store.isText("Notes/Old.md"))
+        try store.write("# Old\nmore\n", to: "Notes/Old.md")
+        #expect(try text("Notes/Old.md") == "# Old\nmore\n")
+    }
+
     @Test func tasksAreSortedInTheFile() throws {
         try "# Plan\n- [ ] Open\n- [x] Done\n".write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
         store.openSynchronously(root)

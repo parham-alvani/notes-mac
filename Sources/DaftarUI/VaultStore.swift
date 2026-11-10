@@ -238,6 +238,24 @@ final class VaultStore {
         return try? String(contentsOf: file, encoding: .utf8)
     }
 
+    /// Whether [path] can be read as UTF-8 text; a file that is not there
+    /// yet can. An editor opens only such a file, and `write` writes over
+    /// only such a file: a note in another encoding read as "" would open
+    /// empty and be replaced by the first key typed. Asked at each drawing
+    /// of a pane, so the answer is kept until the file's date or size changes.
+    func isText(_ path: String) -> Bool {
+        guard let file = url(of: path) else { return false }
+        guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else { return true }
+        let date = values.contentModificationDate, size = values.fileSize
+        if let known = textual[path], known.date == date, known.size == size { return known.text }
+        guard let data = try? Data(contentsOf: file) else { return true }
+        let text = String(data: data, encoding: .utf8) != nil
+        textual[path] = (date, size, text)
+        return text
+    }
+
+    @ObservationIgnored private var textual: [String: (date: Date?, size: Int?, text: Bool)] = [:]
+
     /// The file a vault path names, or nil when the path leaves the vault.
     /// Paths come from notes, links and the reader page, so each one is checked.
     func url(of path: String) -> URL? { root.flatMap { Self.file(path, in: $0) } }
@@ -276,7 +294,11 @@ final class VaultStore {
     func write(_ text: String, to path: String) throws {
         // A note that moved or went is not written again at its old path.
         guard let file = url(of: path), index.files.contains(path) else { throw StoreError.gone(path) }
+        // A file the app could not read was never shown: what would be
+        // written is not an edit of it.
+        guard isText(path) else { throw StoreError.notText(path) }
         try Data(text.utf8).write(to: file, options: .atomic)
+        textual[path] = nil
         places.markRead(path)
         WakaTime.shared.heartbeat(path, store: self, write: true)
         changed([path])
@@ -1087,9 +1109,11 @@ enum VaultChange {
 enum StoreError: LocalizedError {
     case gone(String)
     case outside(String)
+    case notText(String)
 
     var errorDescription: String? {
         switch self {
+        case .notText(let path): "“\(path)” is not UTF-8 text, so it is not written over"
         case .gone(let path): "“\(path)” is no longer in the vault"
         case .outside(let path): "“\(path)” is outside the vault"
         }
