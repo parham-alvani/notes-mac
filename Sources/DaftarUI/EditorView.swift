@@ -366,15 +366,56 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
     }
 
-    /// The text on disk, in place of a view with nothing unsaved.
+    /// The text on disk, in place of a view with nothing unsaved: only what
+    /// differs is replaced, so the rest keeps its styles, its layout and
+    /// the scroll, and only the changed lines are styled again. Never
+    /// `string =`, which gives the new text the old one's attributes.
+    ///
+    /// The undo stack goes: its steps name places in the text as it was,
+    /// and an undo after a pull or a property set in the form put the old
+    /// typing back at those places in the new text, which was then saved.
     private func take(_ disk: String) {
-        guard let view else { return }
+        guard let view, let storage = view.textStorage else { return }
         let selection = view.selectedRange()
         saved = disk
         headingBaseline = Sections.headings(in: disk)
-        view.string = disk
-        restyle(all: true)
-        view.setSelectedRange(NSRange(location: min(selection.location, (disk as NSString).length), length: 0))
+        let edit = Self.smallestEdit(from: storage.string as NSString, to: disk as NSString)
+        let length = (edit.text as NSString).length
+        if edit.range.length > 0 || length > 0 {
+            view.holdScroll(editing: edit.range, with: length)
+            storage.replaceCharacters(in: edit.range, with: edit.text)
+            view.redrawPanels()
+        }
+        // The front matter the form stands for got longer or shorter: an
+        // edit styles its own lines, and these are hidden by their place.
+        if frontMatterToHide() != hiddenFront { restyle(all: true) }
+        view.undoManager?.removeAllActions()
+        // The cursor stays on its letter: after the edit it moves with the
+        // text, inside it it goes to the edit's end.
+        var cursor = selection.location
+        if cursor >= NSMaxRange(edit.range) {
+            cursor += length - edit.range.length
+        } else if cursor > edit.range.location {
+            cursor = edit.range.location + length
+        }
+        view.setSelectedRange(NSRange(location: min(max(0, cursor), storage.length), length: 0))
+    }
+
+    /// The one range of [old] that differs from [new], and what [new] has
+    /// there: what is the same at both ends stays. A surrogate pair is
+    /// never cut in two.
+    static func smallestEdit(from old: NSString, to new: NSString) -> (range: NSRange, text: String) {
+        let limit = min(old.length, new.length)
+        var prefix = 0
+        while prefix < limit, old.character(at: prefix) == new.character(at: prefix) { prefix += 1 }
+        if prefix > 0, UTF16.isLeadSurrogate(old.character(at: prefix - 1)) { prefix -= 1 }
+        var suffix = 0
+        while suffix < limit - prefix, old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix) { suffix += 1 }
+        if suffix > 0, UTF16.isTrailSurrogate(old.character(at: old.length - suffix)) { suffix -= 1 }
+        return (
+            NSRange(location: prefix, length: old.length - prefix - suffix),
+            new.substring(with: NSRange(location: prefix, length: new.length - prefix - suffix))
+        )
     }
 
     func applyTextSize() {

@@ -45,6 +45,33 @@ import Testing
         #expect(NoteTextView.sideMargin(width: 600, textSize: 14, textWidth: 0) == 16)
     }
 
+    /// The file changed under an editor with nothing unsaved -- a pull, a
+    /// property set in the form -- and the editor took it. An undo then must
+    /// not replay the typing from before at the places it had in the old text.
+    @Test func undoAfterTheFileWasTakenDoesNotGarbleIt() throws {
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.contentView = nil }
+        let undo = try #require(view.undoManager)
+        undo.groupsByEvent = false
+        defer { undo.groupsByEvent = true }
+        end()
+        undo.beginUndoGrouping()
+        view.insertText("typed", replacementRange: view.selectedRange())
+        undo.endUndoGrouping()
+        controller.saveNow()
+        let disk = "---\nstatus: done\n---\n" + view.string + "\nand a line from the phone 😀\n"
+        try disk.write(to: root.appending(path: "Notes/Plan.md"), atomically: true, encoding: .utf8)
+        store.noteChanged("Notes/Plan.md")
+        controller.followDisk()
+        #expect(view.string == disk)
+        if undo.canUndo { undo.undo() }
+        #expect(view.string == disk)
+        // And the editor has nothing to save over the file.
+        controller.saveNow()
+        #expect(try String(contentsOf: root.appending(path: "Notes/Plan.md"), encoding: .utf8) == disk)
+    }
+
     @Test func aSlashCommandReplacesTheSlash() throws {
         // A window, off screen, gives the view its undo manager.
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
