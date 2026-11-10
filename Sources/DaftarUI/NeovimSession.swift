@@ -616,10 +616,21 @@ final class NeovimSession {
         client.notify("nvim_command", ["silent! checktime"])
     }
 
+    /// The session lets the view go, at once: the editor shows another note
+    /// in the same view, or is a plain editor again, while this Neovim still
+    /// writes its file. What it says from now on -- a formatter's edit as it
+    /// writes, a cursor, a message -- reaches no view.
+    func detach() {
+        view = nil
+        onChange = nil
+        onRemoteEdit = nil
+    }
+
     /// Ends Neovim, and writes the buffer first unless [writing] is false:
     /// after a delete. Neovim's `autoread` marks a buffer whose file went
     /// away as changed, so the `:update` would put the deleted note back.
     func stop(writing: Bool = true) async {
+        detach()
         saveSoon?.cancel()
         if writing, case .running = state {
             _ = try? await client.request("nvim_command", ["silent! update"])

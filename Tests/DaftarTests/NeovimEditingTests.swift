@@ -258,4 +258,24 @@ import Testing
         controller.followVimSetting()
         #expect(controller.session == nil)
     }
+
+    /// A Neovim that is being stopped still writes its file, and a
+    /// formatter that runs at the write changes its buffer: that edit must
+    /// not reach the view, which shows another text by then.
+    @Test func aStoppedNeovimDoesNotEditTheView() async throws {
+        let session = try await open("a\n")
+        keys(":autocmd BufWritePre * call setline(1, 'formatted')\r")
+        keys("Ax\u{1B}")
+        #expect(await eventually { self.view.string == "ax\n" })
+        // Neovim mode goes off: the plain editor shows the file as it is now.
+        store.settings.vimMode = false
+        controller.followVimSetting()
+        #expect(controller.session == nil)
+        let shown = view.string
+        // The old Neovim writes, its formatter runs.
+        #expect(await eventually { self.file() == "formatted\n" })
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(view.string == shown)
+        _ = session
+    }
 }

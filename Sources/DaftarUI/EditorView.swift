@@ -250,6 +250,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         view?.allowsUndo = true
         view?.writingToolsBehavior = .complete
         container?.setStatus(nil, mode: nil)
+        // Before the next line of this turn puts another note in the view.
+        session.detach()
         Task { await session.stop(writing: writing) }
     }
 
