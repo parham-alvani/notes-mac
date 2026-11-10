@@ -79,7 +79,6 @@ public enum VaultMoves {
     nonisolated(unsafe) private static let wikilink = /(!?)\[\[([^\]\n]+?)\]\]/
     nonisolated(unsafe) private static let markdownLink = /(!?\[[^\]\n]*\]\()(<?)([^)>\s]+)(>?\))/
     nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
-    nonisolated(unsafe) private static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
     /// A path in a markdown link: `(` and `)` encoded too, or the link ends early.
     private static let urlAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "()")).union(["#"])
 
@@ -134,8 +133,8 @@ public enum VaultMoves {
         for at in lines.indices {
             let line = lines[at]
             // The patterns run only on a line with the marks they need.
-            if line.contains("```") || line.contains("~~~"), let match = line.firstMatch(of: fence) {
-                let marker = String(match.1)
+            if let mark = NoteParser.fenceMark(line) {
+                let marker = String(mark)
                 if open == nil { open = marker } else if let first = open, marker.first == first.first, marker.count >= first.count { open = nil }
                 continue
             }

@@ -86,6 +86,21 @@ import Testing
         #expect(note.links[0].line == 7)
     }
 
+    @Test func aLineThatStartsWithInlineCodeOpensNoFence() {
+        // The info string of a backtick fence holds no backtick, so this is a paragraph.
+        let text = "```a``` is inline code\n\n## After\n\n- [ ] a task [[Kept]]\n"
+        let note = NoteParser.parse(text)
+        #expect(note.headings.map(\.text) == ["After"])
+        #expect(note.tasks.count == 1)
+        #expect(note.links.map(\.target) == ["Kept"])
+        #expect(Sections.headings(in: text).map(\.text) == ["After"])
+        #expect(BlockRefs.blocks(in: text).map(\.kind) == [.paragraph, .heading, .item])
+        // A real fence still hides what is in it, whatever its info string.
+        let fenced = NoteParser.parse("```js title\n# not a heading\n```\n~~~ `a`\n[[Hidden]]\n~~~\n# Shown")
+        #expect(fenced.headings.map(\.text) == ["Shown"])
+        #expect(fenced.links.isEmpty)
+    }
+
     @Test func tagsHeadingsAndTasks() {
         let note = NoteParser.parse(text)
         #expect(note.tags.contains("inline-tag"))

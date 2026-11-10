@@ -154,8 +154,8 @@ public enum HeadingRename {
         var links = 0
         for (at, raw) in text.components(separatedBy: "\n").enumerated() {
             let line = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
-            if line.hasMark("```") || line.hasMark("~~~"), let match = line.firstMatch(of: NoteParser.fence) {
-                let marker = String(match.1)
+            if let mark = NoteParser.fenceMark(line) {
+                let marker = String(mark)
                 if open == nil { open = marker } else if let first = open, marker.first == first.first, marker.count >= first.count { open = nil }
                 continue
             }

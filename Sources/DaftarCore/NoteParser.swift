@@ -73,6 +73,16 @@ public enum NoteParser {
     nonisolated(unsafe) private static let inlineCode = /`[^`\n]*`/
     nonisolated(unsafe) static let fence = /^\s*(?:>\s*)*(```+|~~~+)/
 
+    /// The marks of a code fence that [line] opens or closes, or nil. A
+    /// line of backticks with a backtick after them is not one: the info
+    /// string of a backtick fence holds none, so ```` ```a``` b ```` is a
+    /// paragraph that starts with inline code (CommonMark).
+    static func fenceMark(_ line: String) -> Substring? {
+        guard line.hasMark("```") || line.hasMark("~~~"), let match = line.firstMatch(of: fence) else { return nil }
+        if match.1.first == "`", line[match.range.upperBound...].utf8.contains(0x60) { return nil }
+        return match.1
+    }
+
     public static func parse(_ text: String) -> ParsedNote {
         let lines = text.components(separatedBy: "\n").map { $0.hasSuffix("\r") ? String($0.dropLast()) : $0 }
         let front = FrontMatter.parse(lines)
@@ -98,8 +108,8 @@ public enum NoteParser {
             // Each pattern runs only on a line that has the marks it needs:
             // a regular expression on every line was most of the time a
             // large vault took to open.
-            if raw.hasMark("```") || raw.hasMark("~~~"), let match = raw.firstMatch(of: fence) {
-                let marker = String(match.1)
+            if let mark = fenceMark(raw) {
+                let marker = String(mark)
                 if fenceMarker == nil {
                     fenceMarker = marker
                 } else if let open = fenceMarker, marker.first == open.first, marker.count >= open.count {

@@ -56,7 +56,8 @@ public enum BlockRefs {
                 index += 1
                 continue
             }
-            let mark = line.hasMark("```") || line.hasMark("~~~") ? line.firstMatch(of: fence).map { String($0.1) } : nil
+            // Not a line that starts with inline code, ```` ```a``` b ````: see `NoteParser.fenceMark`.
+            let mark = NoteParser.fenceMark(line) == nil ? nil : line.firstMatch(of: fence).map { String($0.1) }
             if mark != nil || trimmed == "$$" {
                 // To its closing line, or to the end when it never closes.
                 var close = index + 1
