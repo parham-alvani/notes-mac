@@ -113,6 +113,8 @@ final class VaultStore {
         loading = true
         watcher = FileWatcher(root: url) { [weak self] paths in
             Task { @MainActor in self?.changed(paths) }
+        } rescan: { [weak self] in
+            Task { @MainActor in self?.rescan() }
         }
         search = SearchIndex()
         let search = self.search
@@ -199,9 +201,56 @@ final class VaultStore {
         revision += 1
     }
 
+    /// The files of `.obsidian` the store keeps a copy of, read again when
+    /// one of [paths] is theirs: a pull or Obsidian wrote it. Without this
+    /// a new daily-notes folder, an icon or a bookmark from the phone
+    /// showed only after the app was opened again.
+    private func readSettings(_ paths: Set<String>, in root: URL) {
+        if paths.contains(FileWatcher.iconic) { iconic = Iconic.load(root) }
+        if paths.contains(FileWatcher.bookmarks) { readBookmarks(root) }
+        if paths.contains(FileWatcher.dailyNotes) { periodic = PeriodicNotes(DailyNotes.read(root: root)) }
+        if paths.contains(FileWatcher.templates) { templates = Templates.read(root: root) }
+        if paths.contains(FileWatcher.app) { loadHidden(root) }
+        revision += 1
+    }
+
+    /// The whole vault read again, as at launch: the system lost file
+    /// events (a very large pull, a queue that overflowed), so which files
+    /// changed is not known. One at a time; a second request while one
+    /// runs makes it run once more.
+    func rescan() {
+        guard let root, !loading else { return }
+        if rescanning { return rescanAgain = true }
+        rescanning = true
+        readSettings(FileWatcher.settings, in: root)
+        let search = SearchIndex()
+        Task {
+            let index = await Task.detached(priority: .utility) { Vault.index(root, search: search) }.value
+            rescanning = false
+            guard self.root == root else { return }
+            self.search = search
+            self.index = index
+            // Every editor and reader looks at its file again.
+            lastChanged = index.files
+            revision += 1
+            await refreshStatus()
+            if rescanAgain {
+                rescanAgain = false
+                rescan()
+            }
+        }
+    }
+
+    @ObservationIgnored private(set) var rescanning = false
+    @ObservationIgnored private var rescanAgain = false
+
     /// File events arrive in bursts -- a pull touches many files at once --
     /// so they are gathered for a moment and applied together.
-    private func changed(_ paths: Set<String>) {
+    func changed(_ paths: Set<String>) {
+        if let root, !paths.isDisjoint(with: FileWatcher.settings) {
+            readSettings(paths, in: root)
+            if paths.isSubset(of: FileWatcher.settings) { return }
+        }
         pending.formUnion(paths)
         let previous = flush
         previous?.cancel()

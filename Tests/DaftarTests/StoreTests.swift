@@ -1,3 +1,4 @@
+import CoreServices
 import DaftarCore
 import Foundation
 import Testing
@@ -126,6 +127,54 @@ import Testing
         #expect(store.isText("Notes/Old.md"))
         try store.write("# Old\nmore\n", to: "Notes/Old.md")
         #expect(try text("Notes/Old.md") == "# Old\nmore\n")
+    }
+
+    /// A pull, or Obsidian, writes a file of `.obsidian` the store keeps a
+    /// copy of: the store reads it again, without the app being opened anew.
+    @Test func theSettingsOfTheVaultAreReadAgainWhenTheyChange() throws {
+        let obsidian = root.appending(path: ".obsidian/plugins/iconic")
+        try FileManager.default.createDirectory(at: obsidian, withIntermediateDirectories: true)
+        #expect(store.periodic.path(for: Day(year: 2026, month: 3, day: 4)) == "2026-03-04.md")
+        try #"{"folder": "Journal", "format": "YYYY-MM-DD"}"#.write(to: root.appending(path: FileWatcher.dailyNotes), atomically: true, encoding: .utf8)
+        try #"{"folder": "Models", "dateFormat": "DD.MM.YYYY"}"#.write(to: root.appending(path: FileWatcher.templates), atomically: true, encoding: .utf8)
+        try #"{"items": [{"type": "file", "ctime": 1, "path": "Home.md"}]}"#.write(to: root.appending(path: FileWatcher.bookmarks), atomically: true, encoding: .utf8)
+        try #"{"fileIcons": {"Notes": {"icon": "lucide-book", "color": "cyan"}}}"#.write(to: root.appending(path: FileWatcher.iconic), atomically: true, encoding: .utf8)
+        let before = store.revision
+        store.changed(FileWatcher.settings)
+        #expect(store.periodic.path(for: Day(year: 2026, month: 3, day: 4)) == "Journal/2026-03-04.md")
+        #expect(store.templates.folder == "Models" && store.templates.dateFormat == "DD.MM.YYYY")
+        #expect(store.bookmarks.contains("Home.md"))
+        #expect(store.iconic.icon(for: "Notes", folder: true) == Iconic.Icon(name: "lucide-book", color: "cyan"))
+        #expect(store.revision > before)
+    }
+
+    /// The watcher reports those files, and asks for a rescan when the
+    /// system says events were lost.
+    @Test func theWatcherReportsSettingsAndLostEvents() {
+        #expect(FileWatcher.reports("Notes/Plan.md"))
+        #expect(FileWatcher.reports(".obsidian/bookmarks.json") && FileWatcher.reports(".obsidian/plugins/iconic/data.json"))
+        #expect(FileWatcher.reports(".obsidian/daily-notes.json") && FileWatcher.reports(".obsidian/templates.json"))
+        #expect(!FileWatcher.reports(".obsidian/workspace.json") && !FileWatcher.reports(".git/index") && !FileWatcher.reports(""))
+        #expect(FileWatcher.lostEvents(FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)))
+        #expect(FileWatcher.lostEvents(FSEventStreamEventFlags(kFSEventStreamEventFlagKernelDropped | kFSEventStreamEventFlagItemIsDir)))
+        #expect(FileWatcher.lostEvents(FSEventStreamEventFlags(kFSEventStreamEventFlagUserDropped)))
+        #expect(!FileWatcher.lostEvents(FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagItemIsFile)))
+    }
+
+    /// Events lost: nothing says which files changed, so all are read again.
+    @Test func aRescanFindsWhatNoEventNamed() async throws {
+        try "# New\n- [ ] Found\n".write(to: root.appending(path: "Notes/New.md"), atomically: true, encoding: .utf8)
+        try "Now see [[New]].".write(to: root.appending(path: "Home.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: root.appending(path: "Notes/Plan.md"))
+        #expect(!store.index.files.contains("Notes/New.md"))
+        store.rescan()
+        store.rescan()
+        #expect(await eventually { !store.rescanning && store.index.files.contains("Notes/New.md") })
+        #expect(await eventually { !store.rescanning })
+        #expect(!store.index.files.contains("Notes/Plan.md"))
+        #expect(store.index.backlinks["Notes/New.md"]?.map(\.source) == ["Home.md"])
+        #expect(store.search.search("Found").map(\.path) == ["Notes/New.md"])
+        #expect(store.lastChanged.contains("Home.md"))
     }
 
     @Test func tasksAreSortedInTheFile() throws {
