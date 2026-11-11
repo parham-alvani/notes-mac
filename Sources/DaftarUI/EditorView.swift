@@ -567,12 +567,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             offset = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
         }
         offset = min(offset, text.length)
-        if let session {
-            session.go(to: offset)
-            return
-        }
+        // The view shows the line at once, Neovim or not: while Neovim
+        // starts, a view left at the top of the note showed the top first
+        // and then jumped to the line.
         view.setSelectedRange(NSRange(location: offset, length: 0))
         view.center(offset)
+        session?.go(to: offset)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {

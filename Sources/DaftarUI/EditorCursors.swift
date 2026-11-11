@@ -19,6 +19,8 @@ final class EditorExtras {
     var menu: NeovimMenu?
     /// Neovim mode's cursor, block or bar, that slides (`NeovimOverlays.swift`).
     var neovimCursor: NeovimCursor?
+    /// Where in the text Neovim's cursor was drawn last, and the text's length then.
+    var neovimCursorAt: (Int, Int)?
     /// The letter under Neovim's block, in the background's colour, and
     /// the length of the text then.
     var invertedLetter: (NSRange, Int)?

@@ -20,6 +20,13 @@ final class NotePane: Identifiable {
     var editing = false {
         // Back to reading: the reader opens where the editor's cursor was.
         didSet {
+            if editing { readerShown = false }
+            if oldValue, !editing {
+                // A page that never answers does not keep the editor up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    if self?.editing == false { self?.readerShown = true }
+                }
+            }
             guard oldValue, !editing, let line = cursorLine, var next = request else { return }
             next.line = line
             next.heading = nil
@@ -27,6 +34,10 @@ final class NotePane: Identifiable {
             request = next
         }
     }
+    /// The reader has drawn the note since the editor was left: until it
+    /// has, the editor stays over it, so the page is never seen at the
+    /// place it was before the editor opened.
+    var readerShown = true
     /// The source line the reading cursor or the editor's cursor is on, so
     /// the other one opens there.
     @ObservationIgnored var cursorLine: Int? {
@@ -241,8 +252,30 @@ struct NotePaneView: View {
         model.isSplit ? { [weak model, weak pane] in if let model, let pane { model.close(pane) } } : nil
     }
 
+    /// The editor over the reader: the reader stays loaded under it, so
+    /// going back to reading is a redraw, not a new page.
     @ViewBuilder private var content: some View {
-        if let path = pane.path, pane.editing, pane.canEdit, store.isText(path) {
+        let editable = pane.path.map { pane.canEdit && store.isText($0) } ?? false
+        let editing = editable && pane.editing
+        // Just back from the editor: it covers the page until the page has drawn the note.
+        let covered = editable && (pane.editing || !pane.readerShown)
+        if pane.request != nil {
+            ZStack {
+                reader(paused: editing)
+                    .opacity(covered ? 0 : 1)
+                    .allowsHitTesting(!covered)
+                    .accessibilityHidden(covered)
+                if covered, let path = pane.path { editor(path).allowsHitTesting(editing) }
+            }
+        } else {
+            HomeView(model: model, pane: pane, compact: model.isSplit)
+            .overlay(alignment: .topTrailing) {
+                if let onClose { PaneCloseButton(action: onClose).padding(8) }
+            }
+        }
+    }
+
+    @ViewBuilder private func editor(_ path: String) -> some View {
             EditorView(path: path, store: store, line: pane.cursorLine, onCursor: { line in
                 pane.cursorLine = line
                 // The outline marks the section the cursor is in.
@@ -256,7 +289,9 @@ struct NotePaneView: View {
                 onOpen: { model.open($0, in: pane, store: store) })
             .safeAreaInset(edge: .top, spacing: 0) { PropertiesView(path: path) }
             .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model, onClose: onClose) }
-        } else if pane.request != nil {
+    }
+
+    @ViewBuilder private func reader(paused: Bool) -> some View {
             ReaderView(
                 request: pane.request, store: store, revision: store.revision,
                 onOpen: { path, anchor, newWindow in
@@ -280,23 +315,20 @@ struct NotePaneView: View {
                 },
                 findText: pane.findText,
                 findCommand: pane.readerFind,
-                onCursor: { pane.cursorLine = $0 },
+                // The page under the editor is not where the person is.
+                onCursor: { if !pane.editing { pane.cursorLine = $0 } },
                 onEdit: { line in
                     pane.cursorLine = line
                     model.focus(pane)
                     model.setEditing(true, in: pane)
                 },
-                onSection: { pane.section = $0 },
-                onView: { pane.readerView = $0 })
+                onSection: { if !pane.editing { pane.section = $0 } },
+                onView: { pane.readerView = $0 },
+                active: !paused,
+                onShown: { pane.readerShown = true })
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = pane.path { Breadcrumb(path: path, model: model, onClose: onClose) }
             }
-        } else {
-            HomeView(model: model, pane: pane, compact: model.isSplit)
-            .overlay(alignment: .topTrailing) {
-                if let onClose { PaneCloseButton(action: onClose).padding(8) }
-            }
-        }
     }
 }
 
