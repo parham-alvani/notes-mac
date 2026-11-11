@@ -34,15 +34,36 @@ public enum QuickCapture {
         }
         let headings = NoteParser.parse(text).headings
         if let found = headings.firstIndex(where: { Self.fold($0.text) == Self.fold(wanted.name) }) {
-            let start = headings[found].line
-            let end = headings[(found + 1)...].first { $0.level <= headings[found].level }?.line ?? lines.count
-            let at = (lastFilled(lines, in: (start + 1)..<end) ?? start) + 1
-            insert([line], at: at, in: &lines, eol: eol)
+            insert(line, inSection: found, of: headings, in: &lines, eol: eol)
         } else {
             let at = (lastFilled(lines, in: 0..<lines.count) ?? -1) + 1
             insert([String(repeating: "#", count: wanted.level) + " " + wanted.name, line], at: at, in: &lines, eol: eol)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// [text] with [line] added at the end of the section of the heading on
+    /// line [headingLine] (zero-based), with its subsections: the heading by
+    /// its place, so two headings with one name are two sections. At the end
+    /// of the note when [headingLine] is nil or no heading is on that line.
+    public static func append(_ line: String, to text: String, headingLine: Int?) -> String {
+        var lines = text.components(separatedBy: "\n")
+        let eol = lines.count > 1 && lines[0].hasSuffix("\r") ? "\r" : ""
+        let headings = NoteParser.parse(text).headings
+        guard let headingLine, let found = headings.firstIndex(where: { $0.line == headingLine }) else {
+            return append(line, to: text)
+        }
+        insert(line, inSection: found, of: headings, in: &lines, eol: eol)
+        return lines.joined(separator: "\n")
+    }
+
+    /// [line] after the last filled line of heading [found]'s section, or
+    /// right under the heading when the section is empty.
+    private static func insert(_ line: String, inSection found: Int, of headings: [Heading], in lines: inout [String], eol: String) {
+        let start = headings[found].line
+        let end = headings[(found + 1)...].first { $0.level <= headings[found].level }?.line ?? lines.count
+        let at = (lastFilled(lines, in: (start + 1)..<end) ?? start) + 1
+        insert([line], at: at, in: &lines, eol: eol)
     }
 
     /// "## Inbox" is Inbox at level 2; a bare name is level 2 too.

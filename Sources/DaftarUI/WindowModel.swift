@@ -199,6 +199,8 @@ final class WindowModel {
     var taskEdit: TaskRef?
     /// The task being cancelled, while its reason is asked for.
     var taskCancel: TaskCancel?
+    /// Where New Task puts the task, while its form is open.
+    var taskNew: NewTask?
     /// After an extract: puts the new note's link where the selection was.
     @ObservationIgnored var extractReplace: ((String) -> Void)?
     var inspector = true
@@ -312,6 +314,20 @@ final class WindowModel {
             NSApp.sendAction(#selector(NoteTextView.sortTasks(_:)), to: nil, from: nil)
         } else if !store.sortTasks(path) {
             store.notice = "The tasks are in order already."
+        }
+    }
+
+    /// New Task's form: for the note on screen, in the section the cursor
+    /// is in; with no note, for the scratchpad when it is there.
+    func newTask(store: VaultStore) {
+        if let path, showsText, Vault.isNote(path) {
+            let headings = Sections.headings(in: store.text(of: path) ?? "")
+            let heading = cursorLine.flatMap { Sections.heading(at: $0, in: headings) }.map { headings[$0].line }
+            taskNew = NewTask(path: path, headingLine: heading)
+        } else {
+            let scratchpad = store.scratchpadPath
+            let found = store.index.files.first { Slugs.fold($0) == Slugs.fold(scratchpad) }
+            taskNew = NewTask(path: found ?? "", headingLine: nil)
         }
     }
 

@@ -573,12 +573,17 @@ final class VaultStore {
     /// a note for each day and never a folder of them: the vault keeps one
     /// inbox, as Daftar for Android does (`scratchpadPath`).
     func scratchpad() throws -> String {
-        let named = settings.scratchpadNote.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let note = named.isEmpty ? "Scratchpad.md" : named
-        let path = Vault.isNote(note) ? note : note + ".md"
+        let path = scratchpadPath
         if let found = index.files.first(where: { Slugs.fold($0) == Slugs.fold(path) }) { return found }
         let parts = path.split(separator: "/").map(String.init)
         return try createNote(named: String(parts.last!.dropLast(3)), in: parts.dropLast().joined(separator: "/"))
+    }
+
+    /// The scratchpad's vault path, whether it is there or not.
+    var scratchpadPath: String {
+        let named = settings.scratchpadNote.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let note = named.isEmpty ? "Scratchpad.md" : named
+        return Vault.isNote(note) ? note : note + ".md"
     }
 
     /// The note a link to nothing names, made empty: `[[Folder/Name]]` in
@@ -740,6 +745,34 @@ final class VaultStore {
         do {
             try ownEdit(path, in: root) { text in
                 try VaultEdits.editTask(in: text, line: line, before: before, fields: fields)
+            }
+            changed([path])
+            requestSync()
+            return true
+        } catch {
+            changed([path])
+            return false
+        }
+    }
+
+    /// A new task in [path], at the end of the section of the heading on
+    /// [headingLine], or at the end of the note. The note is read again at
+    /// the write, after the editors save, and every line it had stays.
+    @discardableResult
+    func addTask(_ fields: TaskFields, to path: String, headingLine: Int?) -> Bool {
+        guard let line = TaskLine.written(fields) else { return false }
+        return afterEditors {
+            self.addTaskNow(line, to: path, headingLine: headingLine)
+        } otherwise: {
+            self.notice = "The task could not be added to \(Vault.title(of: path))."
+        }
+    }
+
+    private func addTaskNow(_ line: String, to path: String, headingLine: Int?) -> Bool {
+        guard let root, url(of: path) != nil, index.files.contains(path), isText(path) else { return false }
+        do {
+            try ownEdit(path, in: root) { text in
+                QuickCapture.append(line, to: text, headingLine: headingLine)
             }
             changed([path])
             requestSync()

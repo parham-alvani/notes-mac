@@ -682,6 +682,9 @@ struct FileCommands: Commands {
             Button("Show History…") { window?.history = true }
                 .keyboardShortcut("y", modifiers: [.command, .option])
                 .disabled(window?.showsText != true || !store.isRepository)
+            Button("New Task…") { window?.newTask(store: store) }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(window == nil || store.root == nil)
             Button("Sort Tasks") { window?.sortTasks(store: store) }
                 .disabled(window?.showsText != true)
             Button("Rename Heading…") { window?.renameHeading(store: store) }
