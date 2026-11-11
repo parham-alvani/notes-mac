@@ -642,7 +642,9 @@ extension NoteTextView {
         }
         cursor.move(to: target, animated: animated, trail: settings?.cursorTrail ?? true, short: short)
         let effect = settings?.cursorEffect ?? AppSettings.CursorEffect.none
-        if moves, effect != .none {
+        // Typing moves the bar at every key: the slide is enough there, and
+        // particles at each letter were a glow around the cursor.
+        if moves, vim.isNormal, effect != .none {
             let effects = extras.cursorEffects ?? {
                 let effects = CursorEffectsView(frame: visibleRect)
                 addSubview(effects)
