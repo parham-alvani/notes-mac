@@ -406,6 +406,14 @@ private struct GeneralSettings: View {
                     : "Uses wakatime-cli and the key in ~/.wakatime.cfg. The note's path and the vault's name leave this Mac.")
             }
             Section {
+                Toggle("Table of contents", isOn: $settings.exportContents)
+                Toggle("Landscape", isOn: $settings.exportLandscape)
+            } header: {
+                Text("Export as PDF")
+            } footer: {
+                Text("What the export panel starts with: the headings before the note, each with its page, and the page on its side. The panel keeps its last choice here.")
+            }
+            Section {
                 LabeledContent("Settings file") {
                     HStack {
                         Text(settings.url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))

@@ -20,17 +20,33 @@ enum PDFExport {
         return folders.map { ($0 as NSString).appendingPathComponent("daftar-cli") }.first(where: isExecutable)
     }
 
+    /// The page options Export as PDF asks for, kept in `export.contents`
+    /// and `export.landscape`.
+    struct Options: Equatable {
+        /// `--contents`: a table of the headings before the note.
+        var contents = false
+        /// `--landscape`: the page on its side.
+        var landscape = false
+
+        /// The flags these options add to the command.
+        var flags: [String] {
+            (contents ? ["--contents"] : []) + (landscape ? ["--landscape"] : [])
+        }
+    }
+
     /// The command's arguments for the note at [note] in the vault at [vault].
     /// The note comes last, after `--`: a note at the vault's top whose name
-    /// starts with `-` (`-o.md`, `--help.md`) is a note, not an option.
-    static func arguments(vault: URL, note: String, output: URL) -> [String] {
-        ["--vault", vault.path, "export", "-o", output.path, "--", note]
+    /// starts with `-` (`-o.md`, `--help.md`) is a note, not an option. The
+    /// flags of [options] go before it.
+    static func arguments(vault: URL, note: String, output: URL, options: Options = Options()) -> [String] {
+        ["--vault", vault.path, "export", "-o", output.path] + options.flags + ["--", note]
     }
 
     /// What a failed run says: the last line of its stderr, without the
     /// command's name. A usage error (clap's `error:` line, then a usage and
     /// a "try '--help'" line) says its `error:` line, and a `daftar-cli`
-    /// without `export` (before 0.9.0) says to upgrade it.
+    /// without `export` (before 0.9.0), or without the page options (before
+    /// 0.21.0), says to upgrade it.
     static func failure(_ errors: String) -> String {
         let lines = errors.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -39,6 +55,9 @@ enum PDFExport {
             if usage.hasPrefix("error: unrecognized subcommand 'export'") {
                 return "Export as PDF needs daftar-cli 0.9.0 or later: brew upgrade parham-alvani/tap/daftar-cli."
             }
+            if ["--contents", "--landscape"].contains(where: { usage.hasPrefix("error: unexpected argument '\($0)'") }) {
+                return "Table of contents and Landscape need daftar-cli 0.21.0 or later: brew upgrade parham-alvani/tap/daftar-cli."
+            }
             return "daftar-cli: " + usage.dropFirst("error: ".count)
         }
         guard let line = lines.last else { return "daftar-cli failed." }
@@ -46,11 +65,11 @@ enum PDFExport {
     }
 
     /// Runs [cli] off the main thread; nil when the PDF was written, else why not.
-    static func run(cli: String, vault: URL, note: String, output: URL) async -> String? {
+    static func run(cli: String, vault: URL, note: String, output: URL, options: Options = Options()) async -> String? {
         await Task.detached {
             let process = Process()
             process.executableURL = URL(filePath: cli)
-            process.arguments = arguments(vault: vault, note: note, output: output)
+            process.arguments = arguments(vault: vault, note: note, output: output, options: options)
             let errors = Pipe()
             process.standardOutput = FileHandle.nullDevice
             process.standardError = errors
