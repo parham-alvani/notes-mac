@@ -8,12 +8,29 @@ struct TaskRef: Identifiable, Equatable {
     var id: String { "\(path):\(line)" }
 }
 
+/// Where New Task puts a task: a note, and the heading on whose section's
+/// end it goes (nil for the end of the note).
+struct NewTask: Identifiable, Equatable {
+    var path: String
+    var headingLine: Int?
+    let id = UUID()
+}
+
 /// The Tasks plugin's "edit task", as a sheet: the text, the status, the
 /// priority, the dates and the repeat rule, each in its colour. The line is
 /// read again before it is written, and the edit is refused when it changed.
+/// With a `NewTask` it makes a task instead: the same form, with the note
+/// and the section it goes in, and today as its created date.
 struct TaskEditSheet: View {
-    var task: TaskRef
+    var task: TaskRef?
+    var new: NewTask?
     @Environment(VaultStore.self) private var store
+    /// A new task's note and the line of its section's heading.
+    @ViewState private var notePath = ""
+    @ViewState private var headingLine: Int?
+
+    init(task: TaskRef) { self.task = task }
+    init(new: NewTask) { self.new = new }
     @Environment(\.dismiss) private var dismiss
     @ViewState private var before: TaskFields?
     @ViewState private var fields = TaskFields()
@@ -49,8 +66,8 @@ struct TaskEditSheet: View {
                     .shadow(color: Palette.accent.opacity(0.4), radius: 8, y: 3)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Edit Task").font(.title2.weight(.semibold))
-                    Text("\(Vault.title(of: task.path)), line \(task.line + 1)").font(.callout).foregroundStyle(.secondary)
+                    Text(new == nil ? "Edit Task" : "New Task").font(.title2.weight(.semibold))
+                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
                 }
             }
             if before == nil {
@@ -64,14 +81,78 @@ struct TaskEditSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(.glass)
-                Button("Save") { save() }
+                Button(new == nil ? "Save" : "Add Task") { save() }
                     .keyboardShortcut(.defaultAction).buttonStyle(.glassProminent).tint(Palette.accent)
-                    .disabled(before == nil || fields.text.trimmingCharacters(in: .whitespaces).isEmpty || fields == before)
+                    .disabled(!canSave)
             }
         }
         .padding(24)
         .frame(width: 680)
         .onAppear(perform: load)
+        // Another note's headings are not this one's.
+        .onChange(of: notePath) { _, path in if path != new?.path { headingLine = nil } }
+    }
+
+    private var subtitle: String {
+        if let task { return "\(Vault.title(of: task.path)), line \(task.line + 1)" }
+        return noteExists ? "In \(Vault.title(of: notePath))" : "Pick the note it goes in"
+    }
+
+    private var noteExists: Bool { store.index.notes[notePath] != nil }
+
+    private var canSave: Bool {
+        guard before != nil, !fields.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        return new == nil ? fields != before : noteExists
+    }
+
+    /// The headings of a new task's note, for its section.
+    private var headings: [Heading] {
+        noteExists ? Sections.headings(in: store.text(of: notePath) ?? "") : []
+    }
+
+    /// Notes for the note field: those whose path holds what was typed,
+    /// the ones with tasks first.
+    private var noteSuggestions: [String] {
+        let typed = Slugs.fold(notePath.trimmingCharacters(in: .whitespaces))
+        guard !typed.isEmpty, !noteExists else { return [] }
+        let excluded = store.excluded
+        return store.index.notes.values
+            .filter { !excluded.contains($0.path) && Slugs.fold($0.path).contains(typed) }
+            .sorted { ($0.parsed.tasks.isEmpty ? 1 : 0, $0.path) < ($1.parsed.tasks.isEmpty ? 1 : 0, $1.path) }
+            .prefix(10).map(\.path)
+    }
+
+    @ViewBuilder private var place: some View {
+        row("Note") {
+            HStack {
+                TextField("Folder/Note.md", text: $notePath)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputSuggestions {
+                        ForEach(noteSuggestions, id: \.self) { path in
+                            Text(path).textInputCompletion(path)
+                        }
+                    }
+                    .accessibilityLabel("Note")
+                Image(systemName: noteExists ? "checkmark.circle.fill" : "questionmark.circle")
+                    .foregroundStyle(noteExists ? Palette.green : Palette.muted)
+                    .help(noteExists ? "The task goes in this note." : "No note at this path yet.")
+                    .accessibilityLabel(noteExists ? "The note is there" : "No note at this path")
+            }
+        }
+        row("Section") {
+            Menu {
+                Button("End of the Note") { headingLine = nil }
+                if !headings.isEmpty { Divider() }
+                ForEach(headings, id: \.line) { heading in
+                    Button(String(repeating: "    ", count: max(0, heading.level - 1)) + heading.text) { headingLine = heading.line }
+                }
+            } label: {
+                Text(headings.first { $0.line == headingLine }?.text ?? "End of the Note")
+            }
+            .fixedSize()
+            .disabled(!noteExists)
+            .accessibilityLabel("Section")
+        }
     }
 
     @ViewBuilder private var form: some View {
@@ -79,6 +160,7 @@ struct TaskEditSheet: View {
             .textFieldStyle(.roundedBorder).font(.title3).lineLimit(1...3)
             .focused($focused)
             .accessibilityLabel("Task")
+        if new != nil { place }
         row("Status") {
             // Every status of the vault, which may be more than a row holds.
             ScrollView(.horizontal) {
@@ -118,6 +200,7 @@ struct TaskEditSheet: View {
                 DateField(title: "Due", symbol: "calendar", color: Palette.accent, value: $fields.due)
                 DateField(title: "Scheduled", symbol: "hourglass", color: Palette.blue, value: $fields.scheduled)
                 DateField(title: "Start", symbol: "airplane.departure", color: Palette.purple, value: $fields.start)
+                DateField(title: "Created", symbol: "plus.circle", color: Palette.green, value: $fields.created)
             }
         }
         row("Repeat") {
@@ -182,6 +265,17 @@ struct TaskEditSheet: View {
     }
 
     private func load() {
+        if let new {
+            notePath = new.path
+            headingLine = new.headingLine
+            var empty = TaskFields()
+            empty.created = Day.today().description
+            before = empty
+            fields = empty
+            focused = true
+            return
+        }
+        guard let task else { return }
         guard let text = store.text(of: task.path) else {
             error = "The note could not be read."
             return
@@ -197,7 +291,19 @@ struct TaskEditSheet: View {
     }
 
     private func save() {
-        guard let before else { return }
+        guard let before, canSave else { return }
+        if new != nil {
+            // A heading that went from the note while the form was open: the end of the note.
+            let line = headings.contains { $0.line == headingLine } ? headingLine : nil
+            if store.addTask(fields, to: notePath, headingLine: line) {
+                store.notice = "Added the task to \(Vault.title(of: notePath))."
+                dismiss()
+            } else {
+                error = "The task could not be added to that note."
+            }
+            return
+        }
+        guard let task else { return }
         if store.editTask(path: task.path, line: task.line, before: before, fields: fields) { dismiss() }
         else { error = "The note changed before the save. Nothing was written." }
     }

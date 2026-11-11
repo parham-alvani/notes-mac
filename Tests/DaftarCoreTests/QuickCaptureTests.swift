@@ -22,6 +22,18 @@ import Testing
         #expect(QuickCapture.append("Idea", to: "# Day\n") == "# Day\nIdea\n")
     }
 
+    @Test func goesAtTheEndOfTheSectionOnALine() {
+        // Two headings with one name: the line says which.
+        let note = "# Week\n## Work\n- [ ] A\n\n## Home\n- [ ] B\n\n## Work\n- [ ] C\n"
+        #expect(QuickCapture.append("- [ ] New", to: note, headingLine: 7) == "# Week\n## Work\n- [ ] A\n\n## Home\n- [ ] B\n\n## Work\n- [ ] C\n- [ ] New\n")
+        #expect(QuickCapture.append("- [ ] New", to: note, headingLine: 1) == "# Week\n## Work\n- [ ] A\n- [ ] New\n\n## Home\n- [ ] B\n\n## Work\n- [ ] C\n")
+        // An empty section: right under its heading.
+        #expect(QuickCapture.append("- [ ] New", to: "## Inbox\n\n## Later\n", headingLine: 0) == "## Inbox\n- [ ] New\n\n## Later\n")
+        // No heading there, or none asked: the end of the note.
+        #expect(QuickCapture.append("- [ ] New", to: note, headingLine: 2) == note + "- [ ] New\n")
+        #expect(QuickCapture.append("- [ ] New", to: note, headingLine: nil) == note + "- [ ] New\n")
+    }
+
     @Test func aBlankLineKeepsItOutOfTheParagraphAbove() {
         #expect(QuickCapture.append("Idea", to: "Some text\n") == "Some text\n\nIdea\n")
         #expect(QuickCapture.append("- [ ] New", to: "Some text\n") == "Some text\n\n- [ ] New\n")

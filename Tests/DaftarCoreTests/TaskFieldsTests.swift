@@ -27,6 +27,34 @@ import Testing
         #expect(TaskLine.edited(raw, fields) == "    - [/] Call [[Alpha]] #work ⏫ 🆔 abc 🛫 2026-10-26 ⏳ 2026-10-24 📅 2026-11-02 ^block-1")
     }
 
+    @Test func aNewTaskIsWrittenFromItsFields() throws {
+        var fields = TaskFields()
+        #expect(TaskLine.written(fields) == nil)
+        fields.text = "  Call Sara\n about the trip "
+        #expect(TaskLine.written(fields) == "- [ ] Call Sara about the trip")
+        fields.priority = "⏫"
+        fields.created = "2026-11-11"
+        fields.scheduled = "2026-11-14"
+        fields.recurring = "every week"
+        #expect(TaskLine.written(fields) == "- [ ] Call Sara about the trip ⏫ 🔁 every week ➕ 2026-11-11 ⏳ 2026-11-14")
+        // What it writes reads back as the same fields.
+        let line = try #require(TaskLine.written(fields))
+        let read = try #require(TaskLine.fields(line))
+        #expect(read.text == "Call Sara about the trip" && read.created == "2026-11-11" && read.scheduled == "2026-11-14")
+        fields.status = "/"
+        #expect(TaskLine.written(fields)?.hasPrefix("- [/] Call") == true)
+    }
+
+    @Test func theCreatedDateCanBeChanged() throws {
+        let raw = "- [ ] Pay rent ➕ 2026-11-01 📅 2026-11-05"
+        var fields = try #require(TaskLine.fields(raw))
+        #expect(fields.created == "2026-11-01")
+        fields.created = "2026-10-28"
+        #expect(TaskLine.edited(raw, fields) == "- [ ] Pay rent ➕ 2026-10-28 📅 2026-11-05")
+        fields.created = nil
+        #expect(TaskLine.edited(raw, fields) == "- [ ] Pay rent 📅 2026-11-05")
+    }
+
     @Test func aFieldClearedLeavesNoEmoji() throws {
         var fields = try #require(TaskLine.fields("> - [ ] Pay 📅 2026-10-30"))
         fields.due = nil

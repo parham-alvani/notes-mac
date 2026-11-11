@@ -62,6 +62,12 @@ struct ReaderView: NSViewRepresentable {
     var onSection: ((Int?) -> Void)?
     /// The web view, for the window's commands that act on the page.
     var onView: ((WKWebView) -> Void)?
+    /// False while the pane's editor is over the reader: the page stays
+    /// loaded, so going back to reading draws the note with no blank page,
+    /// but it shows nothing new and takes no keys until it is back.
+    var active = true
+    /// The page drew the note it was given on coming back from the editor.
+    var onShown: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -102,6 +108,17 @@ struct ReaderView: NSViewRepresentable {
         private var ready = false
         private var shown: ReaderRequest?
         private var shownRevision = -1
+        /// The editor was over the page at the last update.
+        private var paused = false
+        /// Back from the editor, the pane waits for the page's next drawing.
+        private var revealing = false
+        /// A `daftar.show` of a note is running.
+        private var drawing = false
+        /// Back from the editor, the editors are saving before the page draws.
+        private var flushing = false
+        /// The text of the note drawn last, to tell a change made while the
+        /// editor was over the page.
+        private var shownText: String?
         private var shownSize = ""
         private var lastFind: String?
         private var lastFindCommand = 0
@@ -127,6 +144,35 @@ struct ReaderView: NSViewRepresentable {
         /// changed on disk, keeping the place the person was reading.
         func update() {
             guard ready else { return }
+            guard parent.active else {
+                paused = true
+                return
+            }
+            // Back from the editor: what it holds is saved first, so the
+            // page draws what was typed; then the page takes the keys again,
+            // as a new page did.
+            if paused {
+                paused = false
+                revealing = true
+                flushing = true
+                let store = parent.store
+                Task { @MainActor [weak self] in
+                    await store.flushEditors()
+                    guard let self else { return }
+                    self.flushing = false
+                    self.update()
+                    self.takeKeys()
+                }
+                return
+            }
+            guard !flushing else { return }
+            defer {
+                // Nothing new to draw: what is on the page is right already.
+                if revealing, !drawing {
+                    revealing = false
+                    parent.onShown?()
+                }
+            }
             let store = parent.store
             if store.settings.remoteImages != loadedRemoteImages {
                 // The page's policy lets `https:` pictures in or not: it is the page's, so the page loads again.
@@ -140,9 +186,13 @@ struct ReaderView: NSViewRepresentable {
             let changedOnDisk = store.revision != shownRevision
                 && (store.lastChanged.contains(request.path) || (hasQuery && store.lastChanged.contains(where: Vault.isNote)))
             let sizeChanged = ReaderView.shownKey(store.settings) != shownSize
+            // Back from the editor at the same place: what was saved there
+            // since is drawn, though it is no longer the last change.
+            let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path)
+                && store.text(of: request.path) != shownText
             if request != shown {
                 show(request, keepScroll: false)
-            } else if changedOnDisk || sizeChanged || (shownRevision == -1) {
+            } else if changedOnDisk || changedWhileAway || sizeChanged || (shownRevision == -1) {
                 show(request, keepScroll: true)
             }
             if store.revision != shownRevision { shownRevision = store.revision }
@@ -169,6 +219,7 @@ struct ReaderView: NSViewRepresentable {
 
         private func show(_ request: ReaderRequest, keepScroll: Bool) {
             let store = parent.store
+            drawing = false
             hasQuery = false
             trust = PageTrust()
             // A picture asked for in one note is not asked for in the next.
@@ -182,6 +233,7 @@ struct ReaderView: NSViewRepresentable {
                 return
             }
             guard let text = store.text(of: request.path) else { return }
+            shownText = text
             if Base.isBase(request.path) {
                 showBase(request, source: text, keepScroll: keepScroll)
                 return
@@ -209,7 +261,16 @@ struct ReaderView: NSViewRepresentable {
                 if let heading = request.heading { note["heading"] = heading }
                 if let line = request.line { note["line"] = line }
             }
-            view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page)
+            drawing = true
+            let count = showCount
+            view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page) { [weak self] _ in
+                guard let self, count == self.showCount else { return }
+                self.drawing = false
+                if self.revealing {
+                    self.revealing = false
+                    self.parent.onShown?()
+                }
+            }
             if !keepScroll { takeKeys() }
         }
 

@@ -150,6 +150,15 @@ final class NeovimSession {
             // The note's buffer, by its number: Neovim may show another one later.
             buffer = try await client.request("nvim_get_current_buf").intValue ?? 0
             try await takeBuffer()
+            // The cursor goes to the line the reader was on before Neovim
+            // reports where it is: a first report from line 1 drew the
+            // cursor at the top of the note and slid it down the screen.
+            if let offset = startOffset {
+                startOffset = nil
+                let position = mirror.position(of: offset)
+                _ = try await client.request("nvim_win_set_cursor", [0, [.int(Int64(position.row)), .int(Int64(position.byteColumn))]])
+                _ = try await client.request("nvim_command", ["normal! zz"])
+            }
             try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel)), .int(Int64(buffer))]])
             try await client.request("nvim_exec_lua", [.string(Self.lists), []])
             try await client.request("nvim_exec_lua", [.string(Self.links), [.int(Int64(channel))]])

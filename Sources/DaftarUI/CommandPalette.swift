@@ -45,6 +45,9 @@ enum PaletteCommands {
             PaletteCommand(id: "capture", title: "Quick Capture", group: "File", symbol: "tray.and.arrow.down.fill", color: Palette.green, shortcut: QuickCaptureController.shared.shortcut) {
                 QuickCaptureController.shared.show()
             },
+            PaletteCommand(id: "new-task", title: "New Task", group: "File", symbol: "checklist", color: Palette.green, shortcut: "⌥⌘T") {
+                model.newTask(store: store)
+            },
             PaletteCommand(id: "scratchpad", title: "Scratchpad", group: "File", symbol: "note.text", color: Palette.accent, shortcut: "⌥⌘S") {
                 model.openScratchpad(store: store)
             },

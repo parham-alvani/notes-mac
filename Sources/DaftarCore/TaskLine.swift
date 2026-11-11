@@ -544,6 +544,20 @@ extension TaskLine {
 }
 
 extension TaskLine {
+    /// A new task's line from [fields], as `- [ ] text` and its signifiers in
+    /// the Tasks plugin's order; nil when there is no text. A task is one
+    /// line: line breaks in the text become spaces.
+    public static func written(_ fields: TaskFields) -> String? {
+        var fields = fields
+        fields.text = fields.text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        guard !fields.text.isEmpty else { return nil }
+        let status = fields.status == "\n" || fields.status == "]" ? " " : fields.status
+        return edited("- [\(status)]", fields)
+    }
+}
+
+extension TaskLine {
     /// The lines [raw] becomes when its status is set to [status], from a
     /// status menu or a board column. To a done status from an open one it
     /// is the tick, recurrence and all; else the ✅ and ❌ dates follow the

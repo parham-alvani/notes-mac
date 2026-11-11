@@ -264,8 +264,9 @@ public struct ConfigFile: Sendable, Equatable {
         # The sliding cursor leaves a trail: its front corners go first and
         # its back corners follow, as Neovide's cursor does.
         cursor_trail = true
-        # Particles where the cursor goes, as Neovide's vfx_mode: "none",
-        # "railgun", "torpedo", "pixiedust", "sonicboom" or "ripple".
+        # Particles where the cursor goes in normal mode (typing has none),
+        # as Neovide's vfx_mode: "none", "railgun", "torpedo", "pixiedust",
+        # "sonicboom" or "ripple".
         cursor_effect = "none"
         # Which Option keys Neovim gets as Meta (<M-x>): "none", "left",
         # "right" or "both". The others still type å, €, and the rest.

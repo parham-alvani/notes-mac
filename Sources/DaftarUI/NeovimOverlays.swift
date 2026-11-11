@@ -589,6 +589,7 @@ extension NoteTextView {
             invertLetter(nil)
             extras.neovimCursor?.removeFromSuperview()
             extras.neovimCursor = nil
+            extras.neovimCursorAt = nil
             if !vimActive {
                 extras.cursorEffects?.removeFromSuperview()
                 extras.cursorEffects = nil
@@ -624,9 +625,16 @@ extension NoteTextView {
             return
         }
         let settings = controller?.store.settings
+        // The same place in the same text, drawn elsewhere: the lines were
+        // laid out again or the view scrolled. The cursor did not move, so
+        // it does not slide -- the editor opening at a line did, from where
+        // the first layout guessed the line was.
+        let place = (selectedRange().location, (string as NSString).length)
+        let stayed = extras.neovimCursorAt.map { $0 == place } ?? false
+        extras.neovimCursorAt = place
         // A jump of a screen or more, or a first place, is at once; a window
         // not on screen runs no animation.
-        let moves = !first && abs(from.midY - target.midY) < visibleRect.height && window?.isVisible == true
+        let moves = !first && !stayed && abs(from.midY - target.midY) < visibleRect.height && window?.isVisible == true
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // A letter typed, or one to the side: no trail, and quicker.
         let short = abs(from.midY - target.midY) < 1 && abs(from.midX - target.midX) <= max(from.width, target.width, 8) * 2
@@ -642,7 +650,9 @@ extension NoteTextView {
         }
         cursor.move(to: target, animated: animated, trail: settings?.cursorTrail ?? true, short: short)
         let effect = settings?.cursorEffect ?? AppSettings.CursorEffect.none
-        if moves, effect != .none {
+        // Typing moves the bar at every key: the slide is enough there, and
+        // particles at each letter were a glow around the cursor.
+        if moves, vim.isNormal, effect != .none {
             let effects = extras.cursorEffects ?? {
                 let effects = CursorEffectsView(frame: visibleRect)
                 addSubview(effects)
