@@ -262,6 +262,8 @@ final class WindowModel {
 
     /// ⇧⌘E: the open note as an A4 PDF, made by `daftar-cli export`, where
     /// the person chooses. The editor saves first, as the command reads the file.
+    /// The panel asks for a table of contents and a landscape page, set from
+    /// `export.contents` and `export.landscape`, and keeps the choice there.
     func exportPDF(store: VaultStore) {
         guard let path, showsText, Vault.isNote(path), let vault = store.root,
             let window = readerView?.window ?? NSApp.keyWindow
@@ -270,14 +272,29 @@ final class WindowModel {
             store.notice = "Export as PDF runs daftar-cli, which is neither beside Daftar nor on $PATH: brew install parham-alvani/tap/daftar-cli."
             return
         }
+        let settings = store.settings
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = Vault.title(of: path) + ".pdf"
+        let contents = NSButton(checkboxWithTitle: "Table of contents", target: nil, action: nil)
+        contents.state = settings.exportContents ? .on : .off
+        contents.toolTip = "The headings, each with its page, before the note"
+        let landscape = NSButton(checkboxWithTitle: "Landscape", target: nil, action: nil)
+        landscape.state = settings.exportLandscape ? .on : .off
+        landscape.toolTip = "The page on its side, for a screen or a projector"
+        let options = NSStackView(views: [contents, landscape])
+        options.orientation = .horizontal
+        options.spacing = 20
+        options.edgeInsets = NSEdgeInsets(top: 8, left: 20, bottom: 8, right: 20)
+        panel.accessoryView = options
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let output = panel.url else { return }
+            let chosen = PDFExport.Options(contents: contents.state == .on, landscape: landscape.state == .on)
+            if settings.exportContents != chosen.contents { settings.exportContents = chosen.contents }
+            if settings.exportLandscape != chosen.landscape { settings.exportLandscape = chosen.landscape }
             Task { @MainActor in
                 await store.flushEditors()
-                if let failure = await PDFExport.run(cli: cli, vault: vault, note: path, output: output) {
+                if let failure = await PDFExport.run(cli: cli, vault: vault, note: path, output: output, options: chosen) {
                     store.notice = failure
                 } else {
                     store.notice = "Saved \(output.lastPathComponent)."

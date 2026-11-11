@@ -1,3 +1,4 @@
+import DaftarCore
 import Foundation
 import Testing
 
@@ -29,6 +30,36 @@ import Testing
         let dashed = PDFExport.arguments(vault: URL(filePath: "/v"), note: "--help.md", output: URL(filePath: "/o.pdf"))
         #expect(dashed.last == "--help.md")
         #expect(dashed.firstIndex(of: "--") == dashed.count - 2)
+    }
+
+    @Test func theArgumentsAddAFlagForEachOptionBeforeTheNote() {
+        let vault = URL(filePath: "/vault"), output = URL(filePath: "/tmp/Note.pdf")
+        #expect(PDFExport.arguments(vault: vault, note: "Notes/Note.md", output: output, options: .init())
+            == ["--vault", "/vault", "export", "-o", "/tmp/Note.pdf", "--", "Notes/Note.md"])
+        #expect(PDFExport.arguments(vault: vault, note: "Notes/Note.md", output: output, options: .init(contents: true, landscape: true))
+            == ["--vault", "/vault", "export", "-o", "/tmp/Note.pdf", "--contents", "--landscape", "--", "Notes/Note.md"])
+        #expect(PDFExport.Options(landscape: true).flags == ["--landscape"])
+    }
+
+    @MainActor @Test func theOptionsComeFromTheConfigFileAndGoBackToIt() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "daftar-export-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appending(path: "config.toml")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "[export]\ncontents = true\n".write(to: url, atomically: true, encoding: .utf8)
+        let settings = AppSettings(url: url)
+        #expect(settings.exportContents)
+        #expect(!settings.exportLandscape)
+        settings.exportLandscape = true
+        #expect(ConfigFile(text: try String(contentsOf: url, encoding: .utf8)).bool("export.landscape") == true)
+        let template = ConfigFile(text: ConfigFile.template)
+        #expect(template.bool("export.contents") == false)
+        #expect(template.bool("export.landscape") == false)
+    }
+
+    @Test func anOldCLISaysToUpgradeForThePageOptions() {
+        let old = "error: unexpected argument '--landscape' found\n\nUsage: daftar-cli export [OPTIONS] <NOTE>\n\nFor more information, try '--help'.\n"
+        #expect(PDFExport.failure(old) == "Table of contents and Landscape need daftar-cli 0.21.0 or later: brew upgrade parham-alvani/tap/daftar-cli.")
     }
 
     @Test func aFailureIsTheLastLineOfStderr() {

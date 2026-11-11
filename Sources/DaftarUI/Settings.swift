@@ -44,6 +44,9 @@ final class AppSettings {
     var hideMenuBar: Bool { didSet { write("appearance.hide_menu_bar", .bool(hideMenuBar)); applyMenuBar() } }
     var wakatime: Bool { didSet { write("wakatime.enabled", .bool(wakatime)) } }
     var wakatimeCLI: String { didSet { write("wakatime.cli", .string(wakatimeCLI)) } }
+    /// Export as PDF's last choices: `daftar-cli export --contents` and `--landscape`.
+    var exportContents: Bool { didSet { write("export.contents", .bool(exportContents)) } }
+    var exportLandscape: Bool { didSet { write("export.landscape", .bool(exportLandscape)) } }
     /// Minutes between commit-pull-push runs; 0 is off.
     var syncInterval: Int { didSet { write("git.sync_interval", .int(syncInterval)) } }
     var pullOnLaunch: Bool { didSet { write("git.pull_on_launch", .bool(pullOnLaunch)) } }
@@ -146,6 +149,8 @@ final class AppSettings {
         hideMenuBar = false
         wakatime = false
         wakatimeCLI = ""
+        exportContents = false
+        exportLandscape = false
         syncInterval = 0
         pullOnLaunch = true
         meetingAlerts = true
@@ -213,6 +218,8 @@ final class AppSettings {
         hideMenuBar = file.bool("appearance.hide_menu_bar") ?? false
         wakatime = file.bool("wakatime.enabled") ?? false
         wakatimeCLI = file.string("wakatime.cli") ?? ""
+        exportContents = file.bool("export.contents") ?? false
+        exportLandscape = file.bool("export.landscape") ?? false
         syncInterval = file.int("git.sync_interval") ?? 0
         pullOnLaunch = file.bool("git.pull_on_launch") ?? true
         meetingAlerts = file.bool("notifications.meetings") ?? true
