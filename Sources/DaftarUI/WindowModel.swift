@@ -214,6 +214,14 @@ final class WindowModel {
     /// After an extract: puts the new note's link where the selection was.
     @ObservationIgnored var extractReplace: ((String) -> Void)?
     var inspector = true
+    /// The inspector as the window shows it: never on a page, and the
+    /// person's choice for the notes. SwiftUI writes false when a page hides
+    /// it, which is not the person closing it: kept, the inspector stayed
+    /// shut on every note after Today, Review Cards or Job Search.
+    var inspectorShown: Bool {
+        get { inspector && !showsPage }
+        set { if !showsPage { inspector = newValue } }
+    }
     /// The terminal pane under the note.
     var terminal = false
     /// The Problems panel under the note (⇧⌘M, `ProblemsView.swift`).

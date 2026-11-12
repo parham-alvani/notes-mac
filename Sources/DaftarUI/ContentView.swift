@@ -31,7 +31,7 @@ struct ContentView: View {
                         detail
                     }
                 }
-                .inspector(isPresented: Binding { model.inspector && !model.showsPage } set: { model.inspector = $0 }) {
+                .inspector(isPresented: $model.inspectorShown) {
                     InspectorView(model: model)
                         .inspectorColumnWidth(min: 200, ideal: 260, max: 400)
                 }

@@ -30,6 +30,20 @@ import Testing
         for _ in 0..<100 where !done() { try await Task.sleep(for: .milliseconds(50)) }
     }
 
+    /// A page hides the inspector, and SwiftUI writes that back: the
+    /// person's choice is kept for when a note is shown again.
+    @Test func aPageDoesNotCloseTheInspector() {
+        let model = WindowModel()
+        #expect(model.inspectorShown)
+        model.page = .jobs
+        #expect(!model.inspectorShown)
+        model.inspectorShown = false
+        model.page = nil
+        #expect(model.inspectorShown)
+        model.inspectorShown = false
+        #expect(!model.inspector)
+    }
+
     @Test func eachTabRequestIsNew() throws {
         // The same note can be open in two tabs: two requests are never equal.
         #expect(TabRequest(path: "A.md") != TabRequest(path: "A.md"))
