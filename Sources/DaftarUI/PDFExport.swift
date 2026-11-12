@@ -5,19 +5,13 @@ import Foundation
 /// and of the note's folder, so the app, a script and Daftar for Linux make
 /// the same file (`docs/specs/export.md` in notes-linux).
 enum PDFExport {
-    /// The `daftar-cli` to run: the one beside the app's own binary, else
-    /// the first on `$PATH`, else Homebrew's or Cargo's, which an app opened
-    /// from the Finder does not have on its `$PATH`.
+    /// The `daftar-cli` to run (`DaftarCLI.locate`).
     static func cli(
         beside executable: URL? = Bundle.main.executableURL,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> String? {
-        let home = environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        let folders = [executable?.deletingLastPathComponent().path].compactMap { $0 } + path
-            + ["/opt/homebrew/bin", "/usr/local/bin", home + "/.cargo/bin", home + "/.local/bin"]
-        return folders.map { ($0 as NSString).appendingPathComponent("daftar-cli") }.first(where: isExecutable)
+        DaftarCLI.locate(beside: executable, environment: environment, isExecutable: isExecutable)
     }
 
     /// The page options Export as PDF asks for, kept in `export.contents`
@@ -58,31 +52,19 @@ enum PDFExport {
             if ["--contents", "--landscape"].contains(where: { usage.hasPrefix("error: unexpected argument '\($0)'") }) {
                 return "Table of contents and Landscape need daftar-cli 0.21.0 or later: brew upgrade parham-alvani/tap/daftar-cli."
             }
-            return "daftar-cli: " + usage.dropFirst("error: ".count)
         }
-        guard let line = lines.last else { return "daftar-cli failed." }
-        return line.hasPrefix("daftar-cli: ") ? String(line.dropFirst("daftar-cli: ".count)) : line
+        return DaftarCLI.failure(errors)
     }
 
     /// Runs [cli] off the main thread; nil when the PDF was written, else why not.
     static func run(cli: String, vault: URL, note: String, output: URL, options: Options = Options()) async -> String? {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(filePath: cli)
-            process.arguments = arguments(vault: vault, note: note, output: output, options: options)
-            let errors = Pipe()
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errors
-            do {
-                try process.run()
-            } catch {
-                return "The PDF was not made: \(error.localizedDescription)"
-            }
-            // Read to the end first, so a full pipe never stops the command.
-            let said = errors.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus != 0 else { return nil }
-            return failure(String(decoding: said, as: UTF8.self))
-        }.value
+        do {
+            let ran = try await DaftarCLI.run(cli, arguments(vault: vault, note: note, output: output, options: options))
+            return ran.status == 0 ? nil : failure(ran.stderr)
+        } catch DaftarCLI.Failure.notRun(let why) {
+            return "The PDF was not made: \(why)"
+        } catch {
+            return "The PDF was not made."
+        }
     }
 }
