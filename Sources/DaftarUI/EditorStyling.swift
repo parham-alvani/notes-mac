@@ -77,30 +77,47 @@ extension EditorController {
     /// `>`), with one search each over the whole text.
     static func structure(of text: NSString) -> [String] {
         let length = text.length
+        // The letters copied out once and searched here: `range(of:)` took
+        // about half a millisecond for each of the five marks in a long note.
+        var units = [unichar](repeating: 0, count: length)
+        text.getCharacters(&units, range: NSRange(location: 0, length: length))
+        /// Where [count] of [mark] in a row are first, at or after [from]: a literal search.
+        func find(_ mark: unichar, count: Int, from: Int) -> Int? {
+            var at = from
+            while at + count <= length {
+                guard units[at] == mark else {
+                    at += 1
+                    continue
+                }
+                var same = 1
+                while same < count, units[at + same] == mark { same += 1 }
+                if same == count { return at }
+                at += same
+            }
+            return nil
+        }
         var marks: [(Int, String)] = []
-        for needle in ["$$", "%%"] {
+        for mark: unichar in [36, 37] {  // `$$`, `%%`
             var from = 0
             while from < length {
-                let found = text.range(of: needle, options: .literal, range: NSRange(location: from, length: length - from))
-                guard found.location != NSNotFound else { break }
-                let line = text.lineRange(for: found)
+                guard let found = find(mark, count: 2, from: from) else { break }
+                let line = text.lineRange(for: NSRange(location: found, length: 2))
                 marks.append((line.location, text.substring(with: line)))
                 from = NSMaxRange(line)
             }
         }
-        for needle in ["```", "~~~", "---"] {
+        for mark: unichar in [96, 126, 45] {  // ```` ``` ````, `~~~`, `---`
             var from = 0
             while from < length {
-                let found = text.range(of: needle, options: .literal, range: NSRange(location: from, length: length - from))
-                guard found.location != NSNotFound else { break }
+                guard let found = find(mark, count: 3, from: from) else { break }
                 var start = 0, end = 0, contents = 0
-                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found.location, length: 0))
+                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found, length: 0))
                 var at = start
-                while at < contents, [32, 9, 62].contains(text.character(at: at)) { at += 1 }
+                while at < contents, [32, 9, 62].contains(units[at]) { at += 1 }
                 // Only where the line's text begins.
-                if at == found.location {
+                if at == found {
                     let rest = text.substring(with: NSRange(location: at, length: contents - at))
-                    if needle != "---" {
+                    if mark != 45 {
                         marks.append((start, rest))
                     } else if rest.allSatisfy({ $0 == "-" || $0 == " " }) {
                         marks.append((start, "---"))
