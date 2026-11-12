@@ -15,6 +15,8 @@ function post(message) {
 }
 
 let current = { path: "" };
+/** Grows with each `daftar.show`: a drawing a newer one replaced stops at its next wait. */
+let shows = 0;
 
 /**
  * Where the time of a `daftar.show` goes: `performance` marks named
@@ -76,6 +78,8 @@ async function drawDiagrams(root) {
     },
   });
   for (const node of nodes) {
+    // A note shown since: this one's diagrams are off the page.
+    if (!node.isConnected) continue;
     // A picture shape asks its site while the diagram is laid out, before
     // anything is in the page: with pictures from the web off, its address
     // leaves the source. The page's policy refuses what this misses.
@@ -143,10 +147,12 @@ function section(root, anchor) {
 async function fillEmbeds(root) {
   const embeds = [...root.querySelectorAll(".embed")];
   for (const embed of embeds) {
+    // A note shown since took this one's embeds off the page.
+    if (!embed.isConnected) continue;
     const body = embed.querySelector(".embed-body");
     try {
       const note = await app?.embed?.postMessage({ path: embed.dataset.path });
-      if (!note) continue;
+      if (!note || !embed.isConnected) continue;
       const holder = document.createElement("div");
       holder.innerHTML = render(note.text, { path: embed.dataset.path, links: note.links });
       holder.querySelectorAll(".embed").forEach((inner) => {
@@ -176,13 +182,14 @@ async function fillEmbeds(root) {
  */
 async function fillQueries(root) {
   for (const block of root.querySelectorAll(".tasks-query")) {
+    if (!block.isConnected) continue;
     let result;
     try {
       result = await app?.tasks?.postMessage({ source: block.dataset.source, path: current.path });
     } catch (error) {
       result = null;
     }
-    if (!result) continue;
+    if (!result || !block.isConnected) continue;
     const parts = [];
     if (result.notUnderstood.length > 0) {
       const lines = result.notUnderstood.map((line) => `<li><code>${escape(line)}</code></li>`).join("");
@@ -259,13 +266,14 @@ function renderBase(holder, result, key, wanted) {
 /** Each `![[x.base]]` and ` ```base ` block, run by the app. */
 async function fillBases(root) {
   for (const block of root.querySelectorAll(".base-query")) {
+    if (!block.isConnected) continue;
     let result;
     try {
       result = await app?.base?.postMessage({ path: block.dataset.path ?? "", source: block.dataset.source ?? "", context: current.path });
     } catch (error) {
       result = null;
     }
-    if (!result) continue;
+    if (!result || !block.isConnected) continue;
     const key = `${current.path}|${block.dataset.path ?? block.dataset.source}`;
     renderBase(block, result, key, block.dataset.view);
   }
@@ -937,6 +945,7 @@ window.daftar = {
    */
   async show(note) {
     timing.start();
+    const generation = ++shows;
     sections.list = null;
     const keep = note.keepScroll ? window.scrollY : null;
     current = note;
@@ -1009,6 +1018,7 @@ window.daftar = {
     timing.mark("decorated");
     timing.painted();
     await Promise.all([drawDiagrams(main).then(() => timing.mark("diagrams")), fillEmbeds(main), fillQueries(main), fillBases(main)]);
+    if (generation !== shows) return;
     decorate(main);
     // Embeds, queries and pictures made the page longer.
     progress();
