@@ -300,10 +300,14 @@ struct MeaningRows: View {
                     Text(error).font(.caption).foregroundStyle(Palette.red).fixedSize(horizontal: false, vertical: true)
                 }
             case .needsUpgrade, .failed:
-                Label(failure.message, systemImage: "exclamationmark.triangle")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                // The whole notice, wrapped: its command is what to do.
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(Palette.accent).accessibilityHidden(true)
+                    Text(failure.message).lineLimit(nil).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                }
+                .font(.callout).foregroundStyle(.secondary)
+                .help(failure.message)
+                .accessibilityElement(children: .combine)
             }
         } else if query.answered != key {
             Text("Looking…").foregroundStyle(.secondary)
