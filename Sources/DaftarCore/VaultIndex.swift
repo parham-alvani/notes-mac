@@ -258,9 +258,7 @@ public enum Vault {
         index.emptyFolders = emptyFolders(root, files: index.files)
         let notes = read(index.files.filter(isNote).sorted(), in: root)
         for note in notes { index.notes[note.path] = note }
-        search?.transaction {
-            for note in notes { search?.put(path: note.path, title: note.title, body: note.parsed.plain) }
-        }
+        search?.fillLater(notes.map { ($0.path, $0.title, $0.parsed.plain) })
         index.derive()
         return index
     }

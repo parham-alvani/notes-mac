@@ -466,6 +466,18 @@ import Testing
         #expect(index.search("pods").isEmpty)
     }
 
+    /// The vault opens before its search is filled; a search asked for
+    /// meanwhile waits and answers from every note, never from part of them.
+    @Test func aSearchWaitsForTheFill() {
+        let index = SearchIndex()
+        let rows: [SearchIndex.Row] = (0..<3000).map { ("n\($0).md", "Note \($0)", "common words and پروژه \($0)") }
+        index.fillLater(rows)
+        #expect(index.search("common", limit: 5000).count == 3000)
+        #expect(index.search("پروژه").count == 100)
+        index.put(path: "n0.md", title: "Note 0", body: "other")
+        #expect(index.search("common", limit: 5000).count == 2999)
+    }
+
     @Test func syntaxIsQuoted() {
         #expect(SearchIndex.matchExpression("a AND -b:c") == "\"a\"* AND \"AND\"* AND \"-b:c\"*")
         #expect(SearchIndex.matchExpression("  ") == nil)

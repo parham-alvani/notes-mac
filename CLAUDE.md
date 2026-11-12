@@ -145,6 +145,7 @@ A change that makes a row slower than its budget is a bug. To find a slow path, 
 - **No regex literal and no `Calendar(identifier:)` inside a function that runs per line or per task;** make it a `static let`.
 - **A sort compares values worked out before it**, not in its comparator: titles, query groups, and positions rather than large structs.
 - **`derive()` makes the resolver and the tree again only when the files changed.** A saved note changes neither.
+- **The full-text search fills after the index.** `Vault.index` hands the notes to `SearchIndex.fillLater` and returns, so the vault opens without waiting for FTS5 (430 ms of 1.3 s on 2,800 notes); a search, put or remove waits for the fill (`filling`), so none answers from part of the vault.
 - **The search table deletes by rowid.** Its `path` column is not indexed; a delete by path reads the whole table.
 - **Work on many independent files or nodes is shared out with `concurrentPerform`**, each in its own slot of an `UnsafeMutableBufferPointer`, with the same order of operations, so the result is the same to the last bit. Deinitialize the buffer before it is deallocated, or what it holds leaks.
 
