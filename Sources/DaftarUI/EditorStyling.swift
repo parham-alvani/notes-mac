@@ -427,8 +427,14 @@ extension EditorController {
         let shown = { (line: NSRange) in
             self.revealed.length > 0 ? NSIntersectionRange(line, self.revealed).length > 0 : NSLocationInRange(self.revealed.location, line)
         }
+        // The spans come a line at a time, so the line of the last span is
+        // looked for first: a line range for each span read a long
+        // paragraph once for each of its marks, 2 ms a key at 4,000 letters.
+        var line = NSRange(location: NSNotFound, length: 0)
         for (index, span) in spans.enumerated() where NSMaxRange(span.range) <= storage.length {
-            let line = text.lineRange(for: span.range)
+            if line.location == NSNotFound || !NSLocationInRange(span.range.location, line) || NSMaxRange(span.range) > NSMaxRange(line) {
+                line = text.lineRange(for: span.range)
+            }
             guard !shown(line) else { continue }
             switch span.kind {
             case .markup:
