@@ -923,8 +923,9 @@ window.daftar = {
     }
     imagePage.viewer?.observer.disconnect();
     imagePage.viewer = null;
+    // No title, no heading: a drill card's answer is a part of its note.
     main.innerHTML =
-      `<h1 class="inline-title" dir="${RTL_FIRST.test(note.title) ? "rtl" : "auto"}">${escape(note.title)}</h1>` +
+      (note.title ? `<h1 class="inline-title" dir="${RTL_FIRST.test(note.title) ? "rtl" : "auto"}">${escape(note.title)}</h1>` : "") +
       renderProperties(note.properties, note) +
       render(note.text, { path: note.path, links: note.links });
     // A base is a wide table: it gets the whole window.
