@@ -304,7 +304,7 @@ final class VaultStore {
             Logo.shared.forget(changed)
             revision += 1
             prewarmCandidates()
-            checks.changed()
+            checks.changed(changed)
             await refreshStatus()
         }
     }

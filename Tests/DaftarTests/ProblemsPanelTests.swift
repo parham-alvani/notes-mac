@@ -68,8 +68,10 @@ struct FakeCLI {
 
     func text(_ path: String) throws -> String { try String(contentsOf: root.appending(path: path), encoding: .utf8) }
 
-    func eventually(_ condition: () -> Bool) async -> Bool {
-        for _ in 0..<100 {
+    /// [condition] within [seconds]; an audit after a save runs at
+    /// `.background`, which a busy Mac can hold back for seconds.
+    func eventually(seconds: Int = 5, _ condition: () -> Bool) async -> Bool {
+        for _ in 0..<(seconds * 20) {
             if condition() { return true }
             try? await Task.sleep(for: .milliseconds(50))
         }
@@ -126,6 +128,39 @@ struct FakeCLI {
         #expect(store.checks.grouped(.errors).flatMap(\.problems).map(\.code) == ["fmt", "callout-body"])
         #expect(cli.calls.count == 3)
         #expect(cli.calls.allSatisfy { $0.hasPrefix("--vault \(root.path) ") })
+    }
+
+    /// After a save only the saved notes are linted and checked for
+    /// formatting; the other notes keep their findings, and `check` reads
+    /// the whole vault. A note that is gone is not named (the command would
+    /// fail) and loses its findings.
+    @Test func aSaveLintsOnlyTheNotesSaved() async throws {
+        let cli = try FakeCLI()
+        store.checks.locate = { cli.path }
+        store.checks.settle = .milliseconds(10)
+        store.checks.afterSave = .utility
+        store.checks.refresh()
+        #expect(await eventually(seconds: 30) { if case .done = store.checks.state { !store.checks.running } else { false } })
+        /// The commands run for [change], once the audit it asks for is over.
+        func run(_ change: () -> Void, count: Int) async -> [String] {
+            let before = cli.calls.count
+            change()
+            _ = await eventually(seconds: 30) { cli.calls.count >= before + count && !store.checks.running }
+            return Array(cli.calls.dropFirst(before)).map { $0.replacingOccurrences(of: "--vault \(root.path) ", with: "") }
+        }
+        let saved = await run({ store.checks.changed(["Home.md", "Gone.md", "picture.png"]) }, count: 3)
+        #expect(saved == ["check --json", "lint --json -- Home.md", "fmt --check --json -- Home.md"])
+        #expect(store.checks.counts == Problems.Counts(errors: 2, warnings: 1))
+        // Nothing to lint: `check` alone, and Home.md keeps what it had.
+        let gone = await run({ store.checks.changed(["Gone.md"]) }, count: 1)
+        #expect(gone == ["check --json"])
+        #expect(store.checks.counts == Problems.Counts(errors: 2, warnings: 1))
+        // Unknown changes (a rescan) read the whole vault.
+        let unknown = await run({ store.checks.changed() }, count: 3)
+        #expect(unknown == ["check --json", "lint --json", "fmt --check --json"])
+        #expect(VaultChecks.Scope.notes(["a"]).adding(.notes(["b"])) == .notes(["a", "b"]))
+        #expect(VaultChecks.Scope.notes(["a"]).adding(.vault) == .vault)
+        #expect(VaultChecks.Scope.nothing.adding(.notes(["a"])) == .notes(["a"]))
     }
 
     @Test func anOldCommandLineSaysToUpgradeOnce() async throws {

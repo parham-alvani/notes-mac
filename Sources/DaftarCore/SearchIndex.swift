@@ -14,6 +14,9 @@ public final class SearchIndex: @unchecked Sendable {
     /// the whole table: at every put, that made the first build of a
     /// 20,000-note vault take a minute.
     private var rows: [String: Int64] = [:]
+    /// A fill still running ([fillLater]): every read and write waits for it,
+    /// so a search never answers from half a vault.
+    private let filling = DispatchGroup()
 
     public struct Hit: Sendable, Hashable {
         public var path: String
@@ -45,25 +48,67 @@ public final class SearchIndex: @unchecked Sendable {
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     public func put(path: String, title: String, body: String) {
-        lock.withLock {
-            delete(path)
-            var statement: OpaquePointer?
-            // Persian as a search finds it, when that is not the text itself:
-            // matched, never shown, so a snippet keeps the note's own letters.
-            let (titleFolded, bodyFolded) = (Self.persian(title), Self.persian(body))
-            let folded = titleFolded == title && bodyFolded == body ? "" : titleFolded + "\n" + bodyFolded
-            sqlite3_prepare_v2(db, "INSERT INTO note_fts (path, title, body, folded) VALUES (?, ?, ?, ?)", -1, &statement, nil)
-            sqlite3_bind_text(statement, 1, path, -1, Self.transient)
-            sqlite3_bind_text(statement, 2, title, -1, Self.transient)
-            sqlite3_bind_text(statement, 3, body, -1, Self.transient)
-            sqlite3_bind_text(statement, 4, folded, -1, Self.transient)
-            if sqlite3_step(statement) == SQLITE_DONE { rows[path] = sqlite3_last_insert_rowid(db) }
-            sqlite3_finalize(statement)
-        }
+        filling.wait()
+        let folded = Self.folded(title: title, body: body)
+        lock.withLock { insert(path: path, title: title, body: body, folded: folded) }
+    }
+
+    /// Persian as a search finds it, when that is not the text itself:
+    /// matched, never shown, so a snippet keeps the note's own letters.
+    static func folded(title: String, body: String) -> String {
+        let (titleFolded, bodyFolded) = (persian(title), persian(body))
+        return titleFolded == title && bodyFolded == body ? "" : titleFolded + "\n" + bodyFolded
+    }
+
+    /// One row in; the lock is held.
+    private func insert(path: String, title: String, body: String, folded: String) {
+        delete(path)
+        var statement: OpaquePointer?
+        sqlite3_prepare_v2(db, "INSERT INTO note_fts (path, title, body, folded) VALUES (?, ?, ?, ?)", -1, &statement, nil)
+        sqlite3_bind_text(statement, 1, path, -1, Self.transient)
+        sqlite3_bind_text(statement, 2, title, -1, Self.transient)
+        sqlite3_bind_text(statement, 3, body, -1, Self.transient)
+        sqlite3_bind_text(statement, 4, folded, -1, Self.transient)
+        if sqlite3_step(statement) == SQLITE_DONE { rows[path] = sqlite3_last_insert_rowid(db) }
+        sqlite3_finalize(statement)
     }
 
     public func remove(path: String) {
+        filling.wait()
         lock.withLock { delete(path) }
+    }
+
+    /// A note for [fill]: its path, title and searchable text.
+    public typealias Row = (path: String, title: String, body: String)
+
+    /// Puts [rows] in, in one transaction, their Persian folded several at a time.
+    public func fill(_ rows: [Row]) {
+        // Each iteration writes its own slot, so the slots need no lock.
+        nonisolated(unsafe) let folded = UnsafeMutableBufferPointer<String>.allocate(capacity: rows.count)
+        folded.initialize(repeating: "")
+        defer {
+            _ = folded.deinitialize()
+            folded.deallocate()
+        }
+        DispatchQueue.concurrentPerform(iterations: rows.count) { index in
+            folded[index] = Self.folded(title: rows[index].title, body: rows[index].body)
+        }
+        lock.withLock {
+            exec("BEGIN")
+            for (index, row) in rows.enumerated() { insert(path: row.path, title: row.title, body: row.body, folded: folded[index]) }
+            exec("COMMIT")
+        }
+    }
+
+    /// [fill] on a thread of its own, so the vault opens without waiting for
+    /// its full-text search (430 ms of 1.3 s for 2,800 notes); a search, a
+    /// put or a remove asked for meanwhile waits for it to finish.
+    public func fillLater(_ rows: [Row], qos: DispatchQoS.QoSClass = .userInitiated) {
+        filling.enter()
+        DispatchQueue.global(qos: qos).async {
+            self.fill(rows)
+            self.filling.leave()
+        }
     }
 
     private func delete(_ path: String) {
@@ -76,6 +121,7 @@ public final class SearchIndex: @unchecked Sendable {
     }
 
     public func transaction(_ work: () -> Void) {
+        filling.wait()
         exec("BEGIN")
         work()
         exec("COMMIT")
@@ -88,6 +134,7 @@ public final class SearchIndex: @unchecked Sendable {
     public func search(_ query: String, limit: Int = 100) -> [Hit] {
         let tiers = Self.matchTiers(Self.persian(query))
         guard !tiers.isEmpty else { return [] }
+        filling.wait()
         return lock.withLock {
             var hits: [Hit] = []
             var seen = Set<String>()

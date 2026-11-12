@@ -257,13 +257,15 @@ final class Stopwatch {
         watch.time("derive again, no file came or went") { copy.derive() }
         let search = SearchIndex()
         watch.time("FTS5 index build", runs: 1) {
-            search.transaction {
-                for note in index.notes.values { search.put(path: note.path, title: note.title, body: note.parsed.plain) }
-            }
+            search.fill(index.notes.values.map { ($0.path, $0.title, $0.parsed.plain) })
         }
         let settings = AppSettings(url: root.appending(path: ".config/config.toml"))
         let store = VaultStore(settings: settings, openVault: false)
-        watch.time("open: VaultStore, index and search", runs: 1) { store.openSynchronously(root) }
+        watch.time("open: VaultStore, index and search", runs: 1) {
+            store.openSynchronously(root)
+            // The search fills on a thread of its own; the first search waits for it.
+            _ = store.search.search("a")
+        }
         for query in ["meeting", "kubernetes deploy", "پروژه", "\"weekly report\"", "p"] {
             let hits = watch.time("search \(query)") { store.search.search(query) }
             watch.rows[watch.rows.count - 1].note = "\(hits.count) hits"

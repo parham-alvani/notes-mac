@@ -108,15 +108,19 @@ struct TodayView: View {
     private func taskCard(_ title: String, _ symbol: String, _ tasks: [VaultTask], _ color: Color) -> some View {
         if !tasks.isEmpty {
             Card(title: title, symbol: symbol, color: color, count: tasks.count) {
-                ForEach(tasks) { task in
-                    TaskRow(task: task, color: color) { model.open(task.path, line: task.task.line, store: store) }
-                        .contextMenu {
-                            Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
-                            StatusMenu(task: task, model: model)
-                            Button("Cancel Task…") { model.taskCancel = TaskCancel(task: task) }
-                            PostponeMenu(task: task)
-                            Button("Open the Note") { model.open(task.path, line: task.task.line, store: store) }
-                        }
+                // Lazy: only the rows on screen are made. Two hundred overdue
+                // tasks made the page 135 MB the first time it showed.
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(tasks) { task in
+                        TaskRow(task: task, color: color) { model.open(task.path, line: task.task.line, store: store) }
+                            .contextMenu {
+                                Button("Edit Task…") { model.taskEdit = TaskRef(path: task.path, line: task.task.line) }
+                                StatusMenu(task: task, model: model)
+                                Button("Cancel Task…") { model.taskCancel = TaskCancel(task: task) }
+                                PostponeMenu(task: task)
+                                Button("Open the Note") { model.open(task.path, line: task.task.line, store: store) }
+                            }
+                    }
                 }
             }
         }
