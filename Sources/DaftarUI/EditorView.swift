@@ -134,6 +134,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// The edits of many cursors being made, where their text is after
     /// them all: only their lines are restyled (`EditorCursors.swift`).
     var editPieces: [NSRange]?
+    /// One more at each change of the letters: what was worked out from
+    /// the text is good while it is the same.
+    var textGeneration = 0
     var styling: Task<Void, Never>?
     /// The part of the note styled so far while the rest is styled a part
     /// at a time (`restyleProgressively`); nil when all of it is.
@@ -597,8 +600,13 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// The source line (from 0) [location] is on: the newlines before it,
     /// found one by one, with no copy of the text above the cursor.
     static func line(of location: Int, in text: NSString) -> Int {
-        let end = min(max(0, location), text.length)
-        var line = 0, from = 0
+        newlines(in: NSRange(location: 0, length: min(max(0, location), text.length)), of: text)
+    }
+
+    /// The newlines in [range] of [text].
+    static func newlines(in range: NSRange, of text: NSString) -> Int {
+        let end = min(NSMaxRange(range), text.length)
+        var line = 0, from = max(0, range.location)
         while from < end {
             let found = text.range(of: "\n", options: .literal, range: NSRange(location: from, length: end - from))
             guard found.location != NSNotFound else { break }

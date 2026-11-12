@@ -15,6 +15,7 @@ extension EditorController {
         // The text view edits its storage on the main thread only.
         nonisolated(unsafe) let textStorage = textStorage
         MainActor.assumeIsolated {
+            textGeneration += 1
             blockStates.edited(at: editedRange.location)
             guard !replacing else { return }
             let text = textStorage.string as NSString

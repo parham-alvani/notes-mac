@@ -34,6 +34,9 @@ final class NoteTextView: NSTextView {
     /// The margin's tooltip, and who answers it.
     var problemTip: NSView.ToolTipTag?
     lazy var problemTips = ProblemTips(view: self)
+    /// The source line of a line start the margin looked for last, and the
+    /// text's generation then (`EditorController.textGeneration`).
+    var problemLine: (generation: Int, offset: Int, line: Int)?
     var scrollPending = false
     /// Where `zz`, `zt` or `zb` puts the cursor's line at the next scroll.
     var placing: Place?
