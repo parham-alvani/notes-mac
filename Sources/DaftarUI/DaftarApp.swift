@@ -133,15 +133,8 @@ public struct DaftarApp: App {
                     .keyboardShortcut("1")
                 Button("Board") { window?.showsBoard = true }
                     .keyboardShortcut("2")
-                Button("Review Cards") { window?.showsDrill = true }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
-                Button("Job Search") { window?.showsJobs = true }
-                    .keyboardShortcut("j", modifiers: [.command, .shift])
                 Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
                     .keyboardShortcut("3")
-                    .disabled(window == nil || store.root == nil)
-                Button("Weekly Review") { window?.openWeeklyReview(store: store) }
-                    .keyboardShortcut("4")
                     .disabled(window == nil || store.root == nil)
                 Button("Previous \(store.periodic.period.noun)") {
                     if let window, let path = window.periodicNeighbour(-1, store: store) { window.open(path, store: store) }
@@ -153,6 +146,13 @@ public struct DaftarApp: App {
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
                 .disabled(window?.periodicNeighbour(1, store: store) == nil)
+                Button("Weekly Review") { window?.openWeeklyReview(store: store) }
+                    .keyboardShortcut("4")
+                    .disabled(window == nil || store.root == nil)
+                Button("Review Cards") { window?.showsDrill = true }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Job Search") { window?.showsJobs = true }
+                    .keyboardShortcut("j", modifiers: [.command, .shift])
                 Divider()
                 Button("Sync Now") { Task { await store.sync() } }
                     .keyboardShortcut("s", modifiers: [.command, .shift])

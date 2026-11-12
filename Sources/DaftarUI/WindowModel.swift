@@ -469,12 +469,8 @@ final class WindowModel {
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard url.host == "open", let path = items.first(where: { $0.name == "path" })?.value else { return }
-        if path == "today" || path == "board" || path == "drill" {
-            page = path == "today" ? .today : path == "board" ? .board : .drill
-            return
-        }
-        if path == "jobs" {
-            page = .jobs
+        if let named = Page(named: path) {
+            page = named
             return
         }
         open(path, store: store)
@@ -724,10 +720,13 @@ enum NSPalette {
 }
 
 /// A page the detail column shows in place of a note.
-enum Page: Hashable {
+enum Page: String, Hashable {
     case today, board
     /// Review Cards: the drill cards due (`DrillView`).
     case drill
     /// The job search's board (`JobBoardView`).
     case jobs
+
+    /// The page a `daftar://open?path=` names: `today`, `board`, `drill`, `jobs`.
+    init?(named: String) { self.init(rawValue: named) }
 }

@@ -266,6 +266,8 @@ struct FilesList: View {
             if model.showsToday { return .today }
             if model.showsBoard { return .board }
             if model.showsDrill { return .drill }
+            // Job Search has no row: no note is picked under it either.
+            if model.showsPage { return nil }
             return model.path.map { .file($0) }
         } set: { item in
             switch item {
