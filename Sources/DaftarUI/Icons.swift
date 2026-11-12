@@ -9,17 +9,25 @@ struct IconicImage: View {
     var icon: Iconic.Icon?
     var fallback: String
     var fallbackColor: Color
-    /// A folder's `logo.svg` or picture, which wins over any other icon.
-    var logo: URL?
+    /// A folder's `logo.svg` or picture, by its vault path, which wins over any other icon.
+    var logo: String?
 
     var body: some View {
         Group {
-            if let logo, let image = Logo.image(logo) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-            } else if let name = icon?.name, icon?.isEmoji == true {
+            if let logo {
+                LogoImage(path: logo, cornerRadius: 3, placeholder: AnyView(symbol))
+            } else {
+                symbol
+            }
+        }
+        // The same square for every icon: wide symbols (a house, masks)
+        // shrink into it instead of pushing the name aside.
+        .frame(width: Self.slot, height: Self.slot)
+    }
+
+    @ViewBuilder private var symbol: some View {
+        Group {
+            if let name = icon?.name, icon?.isEmoji == true {
                 Text(name).font(.system(size: 12))
             } else {
                 // A Lucide name with no symbol here draws the default, not a gap.
@@ -29,15 +37,18 @@ struct IconicImage: View {
                     .foregroundStyle(icon?.color.flatMap(Self.color) ?? fallbackColor)
             }
         }
-        // The same square for every icon: wide symbols (a house, masks)
-        // shrink into it instead of pushing the name aside.
-        .frame(width: Self.slot, height: Self.slot)
     }
 
     static let slot: CGFloat = 18
 
+    /// Whether each symbol exists, asked of AppKit once: every row of the tree asks at each drawing.
+    private static var knownSymbols: [String: Bool] = [:]
+
     static func known(_ symbol: String) -> String? {
-        NSImage(systemSymbolName: symbol, accessibilityDescription: nil) == nil ? nil : symbol
+        if let known = knownSymbols[symbol] { return known ? symbol : nil }
+        let exists = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
+        knownSymbols[symbol] = exists
+        return exists ? symbol : nil
     }
 
     static func color(_ name: String) -> Color? {
@@ -106,17 +117,108 @@ struct IconicImage: View {
     ]
 }
 
-/// Folder logos, read once and kept until the file changes. An SVG stays a
-/// drawing, so it is sharp at every size.
-@MainActor
-enum Logo {
-    private static var cache: [URL: (modified: Date, image: NSImage?)] = [:]
+/// Folder logos, read off the main thread once and kept until the file
+/// changes. An SVG stays a drawing, so it is sharp at every size; a picture
+/// is decoded at the size it is drawn (no more than [pixels] across), not
+/// at the size of the file. Expanding `Companies/` asked the disk for every
+/// logo's date, and decoded every new one, on the main thread.
+@MainActor @Observable
+final class Logo {
+    static let shared = Logo()
 
-    static func image(_ url: URL) -> NSImage? {
-        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-        if let known = cache[url], known.modified == modified { return known.image }
-        let image = NSImage(contentsOf: url).flatMap { $0.size.width > 0 && $0.size.height > 0 ? $0 : nil }
-        cache[url] = (modified, image)
+    /// Grows when a logo file changed, so the views showing one ask again.
+    private(set) var generation = 0
+    @ObservationIgnored private var cache: [String: NSImage?] = [:]
+    @ObservationIgnored private var loading: [String: Task<Decoded, Never>] = [:]
+
+    /// An image made off the main thread and not touched there again until it is handed over.
+    struct Decoded: @unchecked Sendable {
+        var image: NSImage?
+    }
+
+    /// The largest side a picture is decoded to: a 26-point card logo on a
+    /// Retina screen, with room.
+    nonisolated static let pixels = 96
+
+    private static func key(_ path: String, _ root: URL) -> String { root.path + "\u{0}" + path }
+
+    /// The logo at the vault path [path], if it was read already.
+    func cached(_ path: String, in root: URL) -> NSImage?? { cache[Self.key(path, root)] }
+
+    /// The logo at the vault path [path], read off the main thread the first time.
+    func image(_ path: String, in root: URL) async -> NSImage? {
+        let key = Self.key(path, root)
+        if let known = cache[key] { return known }
+        let task = loading[key] ?? Task.detached(priority: .userInitiated) { Decoded(image: Self.decode(path, in: root)) }
+        loading[key] = task
+        let image = await task.value.image
+        // A change while it was read leaves it out of the cache: it is read again.
+        if loading[key] == task {
+            loading[key] = nil
+            cache[key] = .some(image)
+        }
         return image
+    }
+
+    /// The logos among [paths] changed on disk: read again when next shown.
+    func forget(_ paths: Set<String>) {
+        let names = Set(Vault.logoNames)
+        let logos = paths.filter { names.contains(($0.split(separator: "/").last.map(String.init) ?? "").lowercased()) }
+        guard !logos.isEmpty else { return }
+        let suffixes = logos.map { "\u{0}" + $0 }
+        for key in Array(cache.keys) + Array(loading.keys) where suffixes.contains(where: key.hasSuffix) {
+            cache[key] = nil
+            loading[key] = nil
+        }
+        generation += 1
+    }
+
+    nonisolated static func decode(_ path: String, in root: URL) -> NSImage? {
+        guard let url = VaultStore.file(path, in: root) else { return nil }
+        if url.pathExtension.lowercased() == "svg" {
+            return NSImage(contentsOf: url).flatMap { $0.size.width > 0 && $0.size.height > 0 ? $0 : nil }
+        }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: pixels,
+            ] as CFDictionary)
+        else { return nil }
+        // The point size is the pixel size halved: the frame scales it anyway.
+        return NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width) / 2, height: CGFloat(image.height) / 2))
+    }
+}
+
+/// A folder's logo by its vault path: what is known at once, the rest when it is read.
+struct LogoImage: View {
+    var path: String
+    var cornerRadius: CGFloat
+    /// Drawn while the logo is read, and when it cannot be.
+    var placeholder: AnyView
+    @Environment(VaultStore.self) private var store
+    @ViewState private var loaded: (path: String, generation: Int, image: NSImage?)?
+
+    var body: some View {
+        let logos = Logo.shared
+        let generation = logos.generation
+        let image: NSImage?? = store.root.flatMap { logos.cached(path, in: $0) }
+            ?? loaded.flatMap { $0.path == path && $0.generation == generation ? .some($0.image) : nil }
+        Group {
+            if let image = image ?? nil {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                placeholder
+            }
+        }
+        .task(id: "\(path)\u{0}\(generation)") {
+            guard image == nil, let root = store.root else { return }
+            let found = await logos.image(path, in: root)
+            loaded = (path, generation, found)
+        }
     }
 }

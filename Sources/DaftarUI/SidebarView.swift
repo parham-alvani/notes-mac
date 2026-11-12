@@ -130,7 +130,7 @@ struct FilesList: View {
                                 }
                             }
                         } icon: {
-                            if entry.folder, let logo = Vault.logo(of: entry.path, in: facts.files).flatMap(store.url(of:)) {
+                            if entry.folder, let logo = store.logo(of: entry.path) {
                                 IconicImage(icon: nil, fallback: "folder.fill", fallbackColor: Palette.accent, logo: logo)
                             } else {
                                 Image(systemName: entry.folder ? "folder.fill" : "star.fill")
@@ -300,7 +300,7 @@ struct FileRow: View {
             if node.isFolder {
                 IconicImage(
                     icon: icon, fallback: node.folderNote != nil ? "folder.fill" : "folder", fallbackColor: Palette.accent,
-                    logo: node.logo.flatMap(store.url(of:)))
+                    logo: node.logo)
             } else if Vault.isNote(node.path) {
                 IconicImage(icon: icon, fallback: "doc.text", fallbackColor: Palette.muted)
             } else {

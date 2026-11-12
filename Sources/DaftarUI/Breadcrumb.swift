@@ -119,7 +119,7 @@ struct Breadcrumb: View {
                 } else {
                     IconicImage(
                         icon: store.iconic.icon(for: folder, folder: true), fallback: "folder.fill", fallbackColor: color,
-                        logo: store.logo(of: folder).flatMap(store.url(of:))
+                        logo: store.logo(of: folder)
                     )
                     .frame(width: 14, height: 14)
                 }

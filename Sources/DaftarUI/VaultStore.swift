@@ -253,6 +253,7 @@ final class VaultStore {
             self.index = index
             // Every editor and reader looks at its file again.
             lastChanged = index.files
+            Logo.shared.forget(index.files)
             revision += 1
             checks.changed()
             await refreshStatus()
@@ -298,6 +299,7 @@ final class VaultStore {
             guard self.root == root else { return }
             index = updated
             lastChanged = changed
+            Logo.shared.forget(changed)
             revision += 1
             checks.changed()
             await refreshStatus()

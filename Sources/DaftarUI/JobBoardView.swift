@@ -446,16 +446,19 @@ struct CompanyLogo: View {
 
     var body: some View {
         Group {
-            if let url = path.flatMap(store.url(of:)), let image = Logo.image(url) {
-                Image(nsImage: image).resizable().scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: size / 5, style: .continuous))
+            if let path {
+                LogoImage(path: path, cornerRadius: size / 5, placeholder: AnyView(building))
             } else {
-                Image(systemName: "building.2.fill").resizable().scaledToFit().padding(size / 6)
-                    .foregroundStyle(Palette.aqua)
+                building
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+
+    private var building: some View {
+        Image(systemName: "building.2.fill").resizable().scaledToFit().padding(size / 6)
+            .foregroundStyle(Palette.aqua)
     }
 }
 
