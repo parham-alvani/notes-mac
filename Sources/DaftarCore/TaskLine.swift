@@ -414,6 +414,17 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
     }
 
     public init?(_ text: String) {
+        // The usual `2026-10-25`, read from its ten bytes: the pattern took
+        // a third of the Today page's work in a vault of 53,000 tasks.
+        // Before 1583 the calendar is asked, below.
+        if text.utf8.count == 10, let parts = Self.plain(text), parts.y >= 1583 {
+            guard (1...12).contains(parts.m), (1...31).contains(parts.d) else { return nil }
+            let leap = parts.y % 4 == 0 && (parts.y % 100 != 0 || parts.y % 400 == 0)
+            let length = parts.m == 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].contains(parts.m) ? 30 : 31
+            guard parts.d <= length else { return nil }
+            self.init(year: parts.y, month: parts.m, day: parts.d)
+            return
+        }
         guard let match = text.trimmingCharacters(in: .whitespaces).wholeMatch(of: Self.pattern),
             let y = Int(match.1), let m = Int(match.2), let d = Int(match.3),
             (1...12).contains(m), (1...31).contains(d)
@@ -430,6 +441,22 @@ public struct Day: Sendable, Hashable, Comparable, CustomStringConvertible {
             return
         }
         guard description == "\(match.1)-\(match.2)-\(match.3)", Day(date: date) == self else { return nil }
+    }
+
+    /// `dddd-dd-dd` as numbers, or nil for any other ten bytes.
+    private static func plain(_ text: String) -> (y: Int, m: Int, d: Int)? {
+        var text = text
+        return text.withUTF8 { bytes -> (y: Int, m: Int, d: Int)? in
+            guard bytes.count == 10, bytes[4] == 0x2D, bytes[7] == 0x2D else { return nil }
+            var digits = [Int](repeating: 0, count: 8)
+            var at = 0
+            for (offset, byte) in bytes.enumerated() where offset != 4 && offset != 7 {
+                guard byte >= 0x30, byte <= 0x39 else { return nil }
+                digits[at] = Int(byte - 0x30)
+                at += 1
+            }
+            return (digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3], digits[4] * 10 + digits[5], digits[6] * 10 + digits[7])
+        }
     }
 
     /// The day [date] falls on in [zone].

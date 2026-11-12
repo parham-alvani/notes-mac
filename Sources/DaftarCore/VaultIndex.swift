@@ -21,6 +21,11 @@ public struct VaultTask: Sendable, Hashable, Identifiable {
     public var path: String
     public var task: ParsedTask
     public var id: String { "\(path):\(task.line)" }
+
+    public init(path: String, task: ParsedTask) {
+        self.path = path
+        self.task = task
+    }
 }
 
 /// A folder or a file in the tree, in the order the sidebar shows them:
@@ -455,13 +460,23 @@ public struct ExcludedFiles: Sendable {
     public var isEmpty: Bool { prefixes.isEmpty && patterns.isEmpty && names.isEmpty }
 
     public func contains(_ path: String) -> Bool {
+        if isEmpty { return false }
         let folded = Slugs.fold(path)
         if prefixes.contains(where: { folded.hasPrefix($0) }) { return true }
-        if !names.isEmpty, names.contains(String(folded[(folded.lastIndex(of: "/").map(folded.index(after:)) ?? folded.startIndex)...])) {
-            return true
-        }
+        if !names.isEmpty, names.contains(Self.name(folded)) { return true }
+        guard !patterns.isEmpty else { return false }
         let range = NSRange(path.startIndex..., in: path)
         return patterns.contains { $0.firstMatch(in: path, range: range) != nil }
+    }
+
+    /// The file name of a folded path: what follows its last `/`. Found in
+    /// the bytes of an ASCII path, where each byte is a character.
+    static func name(_ folded: String) -> String {
+        if folded.utf8.allSatisfy({ $0 < 0x80 && $0 != 0x0D }) {
+            guard let slash = folded.utf8.lastIndex(of: UInt8(ascii: "/")) else { return folded }
+            return String(folded[folded.utf8.index(after: slash)...])
+        }
+        return String(folded[(folded.lastIndex(of: "/").map(folded.index(after:)) ?? folded.startIndex)...])
     }
 
     /// The folder at [path] is excluded itself, as `uploads/` excludes `uploads`.

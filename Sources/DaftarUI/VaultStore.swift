@@ -1172,29 +1172,64 @@ final class VaultStore {
         var inProgress: [VaultTask] = []
     }
 
-    /// Open tasks by the day they belong to: due, else scheduled.
+    /// Open tasks by the day they belong to: due, else scheduled. Kept for
+    /// the index, the hidden files and the day it was made for: the Today
+    /// page and the sidebar's badges ask at every drawing.
     func taskGroups(today: Day = .today(), days: Int = 7) -> TaskGroups {
-        var groups = TaskGroups()
-        let horizon = today.adding(days: days)
-        let excluded = excluded
-        let statuses = index.statuses
-        for task in index.tasks where task.task.isOpen(in: statuses) && !excluded.contains(task.path) {
-            guard let text = task.task.day, let day = Day(text) else {
-                if statuses.type(task.task.status) == .inProgress { groups.inProgress.append(task) }
-                continue
-            }
-            if day < today { groups.overdue.append(task) }
-            else if day == today { groups.today.append(task) }
-            else if day <= horizon { groups.upcoming.append(task) }
-        }
-        let order: (VaultTask, VaultTask) -> Bool = {
-            ($0.task.day ?? "", $0.path, $0.task.line) < ($1.task.day ?? "", $1.path, $1.task.line)
-        }
-        groups.overdue.sort(by: order)
-        groups.today.sort(by: order)
-        groups.upcoming.sort(by: order)
-        groups.inProgress.sort(by: order)
+        let key = TaskGroupsKey(generation: indexGeneration, hidden: hiddenRevision, today: today, days: days)
+        if let memo = taskGroupsMemo, memo.key == key { return memo.groups }
+        let groups = Self.taskGroups(index, excluded: excluded, today: today, days: days)
+        taskGroupsMemo = (key, groups)
         return groups
+    }
+
+    private struct TaskGroupsKey: Equatable {
+        var generation: Int
+        var hidden: Int
+        var today: Day
+        var days: Int
+    }
+
+    @ObservationIgnored private var taskGroupsMemo: (key: TaskGroupsKey, groups: TaskGroups)?
+
+    nonisolated static func taskGroups(_ index: VaultIndex, excluded: ExcludedFiles, today: Day, days: Int) -> TaskGroups {
+        let horizon = today.adding(days: days)
+        let statuses = index.statuses
+        // Each task with its sort key, worked out before the sort: its day, its note, its line.
+        typealias Keyed = (day: String, task: VaultTask)
+        var overdue: [Keyed] = [], due: [Keyed] = [], upcoming: [Keyed] = [], inProgress: [Keyed] = []
+        for note in index.notes.values where !note.parsed.tasks.isEmpty && !excluded.contains(note.path) {
+            for task in note.parsed.tasks where task.isOpen(in: statuses) {
+                guard let text = task.day, let day = Day(text) else {
+                    if statuses.type(task.status) == .inProgress { inProgress.append(("", VaultTask(path: note.path, task: task))) }
+                    continue
+                }
+                if day < today { overdue.append((text, VaultTask(path: note.path, task: task))) }
+                else if day == today { due.append((text, VaultTask(path: note.path, task: task))) }
+                else if day <= horizon { upcoming.append((text, VaultTask(path: note.path, task: task))) }
+            }
+        }
+        func sorted(_ tasks: [Keyed]) -> [VaultTask] {
+            // `2026-10-25` as 20261025, which sorts as the text does: a day
+            // written otherwise is compared as text, as before.
+            let numbers = tasks.map { keyed -> Int in
+                guard keyed.day.utf8.count == 10, let day = Day(keyed.day) else { return -1 }
+                return day.year * 10_000 + day.month * 100 + day.day
+            }
+            let numeric = !numbers.contains(-1)
+            let order = tasks.indices.sorted { i, j in
+                if numeric {
+                    if numbers[i] != numbers[j] { return numbers[i] < numbers[j] }
+                } else if tasks[i].day != tasks[j].day {
+                    return tasks[i].day < tasks[j].day
+                }
+                let a = tasks[i].task, b = tasks[j].task
+                if a.path != b.path { return a.path < b.path }
+                return a.task.line < b.task.line
+            }
+            return order.map { tasks[$0].task }
+        }
+        return TaskGroups(overdue: sorted(overdue), today: sorted(due), upcoming: sorted(upcoming), inProgress: sorted(inProgress))
     }
 
     /// Every file for the switcher, best first (`QuickSwitcher`): every

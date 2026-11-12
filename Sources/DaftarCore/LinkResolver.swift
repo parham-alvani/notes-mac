@@ -8,7 +8,13 @@ public enum Slugs {
     }
 
     public static func fold(_ text: String) -> String {
-        normalize(text).lowercased(with: Locale(identifier: "en_US_POSIX"))
+        // ASCII is its own NFC, and folds to its small letters: no trip through
+        // NSString for the paths and tags that are most of a vault.
+        if text.utf8.allSatisfy({ $0 < 0x80 }) {
+            guard text.utf8.contains(where: { $0 >= 0x41 && $0 <= 0x5A }) else { return text }
+            return String(decoding: text.utf8.map { $0 >= 0x41 && $0 <= 0x5A ? $0 + 0x20 : $0 }, as: UTF8.self)
+        }
+        return normalize(text).lowercased(with: Locale(identifier: "en_US_POSIX"))
     }
 
     /// [fold], and Persian as people type it on different keyboards made

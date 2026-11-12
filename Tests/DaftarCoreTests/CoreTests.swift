@@ -384,6 +384,17 @@ import Testing
         #expect(Day("2026-02-30") == nil)
         #expect(Day("2026-10-25")?.adding(days: 7).description == "2026-11-01")
         #expect(Day("2026-01-31")?.adding(months: 1).description == "2026-02-28")
+        // Ten bytes are read without the pattern; the answers are the same.
+        for text in ["2024-02-29", "2023-02-29", "2026-13-01", "2026-00-10", "2026-04-31", "2026-04-30", "1582-10-10", "2026/10/25", "2026-1a-25", "٢٠٢٦-١١-١٠", " 2026-10-25 "] {
+            let expected: Day? = switch text {
+            case "2024-02-29": Day(year: 2024, month: 2, day: 29)
+            case "2026-04-30": Day(year: 2026, month: 4, day: 30)
+            case " 2026-10-25 ": Day(year: 2026, month: 10, day: 25)
+            default: Day(text)
+            }
+            #expect(Day(text) == expected, "\(text)")
+        }
+        #expect(Day("2023-02-29") == nil && Day("2026-13-01") == nil && Day("2026-00-10") == nil && Day("2026-04-31") == nil)
     }
 }
 
