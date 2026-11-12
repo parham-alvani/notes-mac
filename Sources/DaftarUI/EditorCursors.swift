@@ -21,6 +21,9 @@ final class EditorExtras {
     var neovimCursor: NeovimCursor?
     /// Where in the text Neovim's cursor was drawn last, and the text's length then.
     var neovimCursorAt: (Int, Int)?
+    /// A line to put in the middle once the view has a height: the editor
+    /// opened at a line before its window laid it out (`center`).
+    var pendingCenter: Int?
     /// The letter under Neovim's block, in the background's colour, and
     /// the length of the text then.
     var invertedLetter: (NSRange, Int)?

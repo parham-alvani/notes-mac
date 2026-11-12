@@ -132,6 +132,14 @@ final class EditorContainer: NSView {
 
     override func layout() {
         super.layout()
+        if let view = scroll.documentView as? NoteTextView, let offset = view.extras.pendingCenter, scroll.contentView.bounds.height >= 1,
+            view.selectedRange().length == 0, view.selectedRange().location == offset
+        {
+            // The scroll view and the text are laid out after this view: lay
+            // them out now, or they would clamp the scroll back to the top.
+            scroll.layoutSubtreeIfNeeded()
+            view.center(offset)
+        }
         onLayout?()
     }
 
