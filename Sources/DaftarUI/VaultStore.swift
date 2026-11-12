@@ -169,6 +169,19 @@ final class VaultStore {
     @ObservationIgnored private var treed: (files: Set<String>, empty: Set<String>, revision: Int, tree: [TreeNode])?
     @ObservationIgnored private var hiddenRevision = 0
 
+    /// The logo of the folder at [path] (`Vault.logo`), kept until the files
+    /// change: each look reads every file's name, and the breadcrumb asks
+    /// for each of its folders at every drawing.
+    func logo(of folder: String) -> String? {
+        if logos.files != index.files { logos = (index.files, [:]) }
+        if let known = logos.found[folder] { return known }
+        let found = Vault.logo(of: folder, in: index.files)
+        logos.found[folder] = .some(found)
+        return found
+    }
+
+    @ObservationIgnored private var logos: (files: Set<String>, found: [String: String?]) = ([], [:])
+
     /// The folder at [path] in the shown tree; "" is the vault itself.
     func folder(_ path: String) -> [TreeNode]? { Vault.folder(path, in: tree) }
 

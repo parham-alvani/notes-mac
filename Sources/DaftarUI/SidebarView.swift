@@ -122,7 +122,7 @@ struct FilesList: View {
                                 }
                             }
                         } icon: {
-                            if entry.folder, let logo = Vault.logo(of: entry.path, in: store.index.files).flatMap(store.url(of:)) {
+                            if entry.folder, let logo = store.logo(of: entry.path).flatMap(store.url(of:)) {
                                 IconicImage(icon: nil, fallback: "folder.fill", fallbackColor: Palette.accent, logo: logo)
                             } else {
                                 Image(systemName: entry.folder ? "folder.fill" : "star.fill")
