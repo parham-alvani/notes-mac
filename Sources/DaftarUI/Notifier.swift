@@ -33,63 +33,91 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    /// Replaces every pending request with the ones the vault calls for now.
-    func plan(store: VaultStore) async {
-        guard let center else { return }
-        if !authorized { authorized = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false }
-        guard authorized else { return }
-        let settings = store.settings
-        let pending = await center.pendingNotificationRequests().map(\.identifier)
-        center.removePendingNotificationRequests(withIdentifiers: pending.filter {
-            $0.hasPrefix(Self.meetingPrefix) || $0 == Self.digestId
-        })
+    /// One alert the vault calls for, as plain values, so a plan can be
+    /// compared with the one before.
+    struct Planned: Equatable {
+        var id: String
+        var title: String
+        var body: String
+        var category = ""
+        var userInfo: [String: String] = [:]
+        /// Meetings ring; the digest comes in silence.
+        var sound = false
+        var at: DateComponents
 
+        var request: UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            if sound { content.sound = .default }
+            if !category.isEmpty { content.categoryIdentifier = category }
+            content.userInfo = userInfo
+            return UNNotificationRequest(identifier: id, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: at, repeats: false))
+        }
+    }
+
+    /// What was asked of Notification Center last, kept until the app quits.
+    private var planned: [Planned]?
+
+    /// The meeting alerts and the digest the vault calls for now.
+    static func plan(store: VaultStore, now: Date = Date()) -> [Planned] {
+        let settings = store.settings
+        var out: [Planned] = []
+        let minute: (Date) -> DateComponents = { Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: $0) }
         if settings.meetingAlerts {
-            let now = Date()
             let lead = TimeInterval(settings.meetingLead * 60)
-            let meetings = store.calendarDays(from: .today(), count: 3).flatMap(\.meetings)
+            let meetings = store.calendarDays(from: Day(date: now, in: .current), count: 3).flatMap(\.meetings)
                 .filter { ($0.start ?? .distantPast).addingTimeInterval(-lead) > now }
                 .prefix(40)
             for meeting in meetings {
                 guard let start = meeting.start else { continue }
-                let content = UNMutableNotificationContent()
-                content.title = meeting.title + (meeting.tentative ? " (maybe)" : "")
                 let time = start.formatted(date: .omitted, time: .shortened)
-                content.body = settings.meetingLead > 0 ? "In \(settings.meetingLead) minutes, at \(time)" : "Now, at \(time)"
-                if let overlaps = meeting.overlaps { content.body += ". Overlaps \(overlaps)" }
-                content.sound = .default
-                if let join = meeting.join {
-                    content.categoryIdentifier = "meeting"
-                    content.userInfo = ["join": join.absoluteString]
-                }
-                let at = start.addingTimeInterval(-lead)
-                let trigger = UNCalendarNotificationTrigger(
-                    dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: at), repeats: false)
-                try? await center.add(UNNotificationRequest(identifier: Self.meetingPrefix + meeting.id, content: content, trigger: trigger))
+                var body = settings.meetingLead > 0 ? "In \(settings.meetingLead) minutes, at \(time)" : "Now, at \(time)"
+                if let overlaps = meeting.overlaps { body += ". Overlaps \(overlaps)" }
+                out.append(Planned(
+                    id: meetingPrefix + meeting.id, title: meeting.title + (meeting.tentative ? " (maybe)" : ""), body: body,
+                    category: meeting.join == nil ? "" : "meeting", userInfo: meeting.join.map { ["join": $0.absoluteString] } ?? [:],
+                    sound: true, at: minute(start.addingTimeInterval(-lead))))
             }
         }
-
-        if settings.taskDigest, let (at, day) = nextDigest(minutes: settings.digestTime) {
+        if settings.taskDigest {
+            let (at, day) = nextDigest(minutes: settings.digestTime, now: now)
             let groups = store.taskGroups(today: day, days: 0)
             let due = groups.today
-            guard !due.isEmpty || !groups.overdue.isEmpty else { return }
-            let content = UNMutableNotificationContent()
-            content.title = due.isEmpty ? "Nothing due today" : "\(due.count) due today"
-            var lines = due.prefix(5).map { "• " + TaskRow.plain($0.task.text) }
-            if due.count > 5 { lines.append("and \(due.count - 5) more") }
-            if !groups.overdue.isEmpty { lines.append("\(groups.overdue.count) overdue") }
-            content.body = lines.joined(separator: "\n")
-            content.userInfo = ["open": "today"]
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: at), repeats: false)
-            try? await center.add(UNNotificationRequest(identifier: Self.digestId, content: content, trigger: trigger))
+            if !due.isEmpty || !groups.overdue.isEmpty {
+                var lines = due.prefix(5).map { "• " + TaskRow.plain($0.task.text) }
+                if due.count > 5 { lines.append("and \(due.count - 5) more") }
+                if !groups.overdue.isEmpty { lines.append("\(groups.overdue.count) overdue") }
+                out.append(Planned(
+                    id: digestId, title: due.isEmpty ? "Nothing due today" : "\(due.count) due today", body: lines.joined(separator: "\n"),
+                    userInfo: ["open": "today"], at: minute(at)))
+            }
         }
+        return out
+    }
+
+    /// Replaces every pending request with the ones the vault calls for now,
+    /// unless they are the ones already pending: the vault changes at every
+    /// save, its alerts seldom, and each request is a round trip to the
+    /// notification server, which writes its store.
+    func plan(store: VaultStore) async {
+        guard let center else { return }
+        if !authorized { authorized = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false }
+        guard authorized else { return }
+        let wanted = Self.plan(store: store)
+        let pending = await center.pendingNotificationRequests().map(\.identifier).filter {
+            $0.hasPrefix(Self.meetingPrefix) || $0 == Self.digestId
+        }
+        if wanted == planned, Set(pending) == Set(wanted.map(\.id)) { return }
+        planned = nil
+        center.removePendingNotificationRequests(withIdentifiers: pending)
+        for request in wanted { try? await center.add(request.request) }
+        planned = wanted
     }
 
     /// The next time the digest is due, and the day it is about.
-    private func nextDigest(minutes: Int) -> (Date, Day)? {
+    static func nextDigest(minutes: Int, now: Date = Date()) -> (Date, Day) {
         let calendar = Calendar.current
-        let now = Date()
         var at = calendar.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: now)!
         if at <= now { at = calendar.date(byAdding: .day, value: 1, to: at)! }
         return (at, Day(date: at, in: .current))
