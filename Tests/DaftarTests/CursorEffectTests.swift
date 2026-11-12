@@ -125,6 +125,8 @@ import Testing
         made.key(38, at: 20, isRepeat: false)
         made.key(38, at: 20.033, isRepeat: false)
         #expect(made.held(at: 20.04))
+        #expect(made.pressed && !KeyRepeat().pressed)
+        #expect(made.pressed && !KeyRepeat().pressed)
         // Two keys typed quickly are not a repeat, nor one key pressed twice slowly.
         made.key(40, at: 20.06, isRepeat: false)
         #expect(!made.held(at: 20.07))

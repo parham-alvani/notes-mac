@@ -399,6 +399,10 @@ struct KeyRepeat {
         last = (code, time)
     }
 
+    /// A key was sent since the note was opened: until then the cursor
+    /// only goes where the note opens, and never glides.
+    var pressed: Bool { last != nil }
+
     /// A key is held down and repeating at [time].
     func held(at time: Double) -> Bool {
         repeating && last.map { time - $0.time < Self.lasts } ?? false
@@ -668,7 +672,11 @@ extension NoteTextView {
         // A selection being set: placed once it is (`placing`).
         guard !extras.placingSelection else { return }
         let visual = vim.map { $0.mode.first == "v" || $0.mode.first == "V" || $0.mode == "\u{16}" } ?? false
-        guard vimActive, let vim, !visual, selectedRange().length == 0 else {
+        // While Neovim starts, the view's selection is the editor's guess,
+        // laid out before the view has its width: the block showed there
+        // for a frame and jumped to where Neovim put the cursor. It shows
+        // from Neovim's first report.
+        guard owner == .neovimRunning, let vim, !visual, selectedRange().length == 0 else {
             invertLetter(nil)
             extras.neovimCursor?.removeFromSuperview()
             extras.neovimCursor = nil
@@ -723,7 +731,7 @@ extension NoteTextView {
         // Text that moved under the cursor is not a move: a glide and
         // particles to where an undo put the letter, then a jump to where
         // Neovim put the cursor, were a cursor going two ways at once.
-        let motion = moves && !extras.applyingEdit
+        let motion = moves && !extras.applyingEdit && extras.keys.pressed
             ? CursorMotion.of(
                 from: from, to: target, normal: vim.isNormal, repeating: extras.keys.held(at: ProcessInfo.processInfo.systemUptime),
                 animate: settings?.animateCursor ?? true, effects: effect != .none)
@@ -754,6 +762,20 @@ extension NoteTextView {
 }
 
 extension NoteTextView {
+    /// Another note in the view: the cursor appears where it opens, with no
+    /// glide from the last note's place and none of its particles. Opening
+    /// a note, Back and Forward each drew the block gliding twice across
+    /// the new note, with railgun particles, before it got to its line.
+    func forgetNeovimCursor() {
+        invertLetter(nil)
+        extras.neovimCursor?.removeFromSuperview()
+        extras.neovimCursor = nil
+        extras.neovimCursorAt = nil
+        extras.cursorEffects?.removeFromSuperview()
+        extras.cursorEffects = nil
+        extras.keys = KeyRepeat()
+    }
+
     /// The letter the block is over, or nil at the end of a line.
     func letterUnderCursor() -> NSRange? {
         let text = string as NSString

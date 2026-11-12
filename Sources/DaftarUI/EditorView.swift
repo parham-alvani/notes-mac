@@ -244,6 +244,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // Plain, until it is styled: `string =` would give it the old
         // text's attributes, a heading's perhaps.
         view.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: base))
+        view.forgetNeovimCursor()
         // A new note: the cursor is on its first line.
         revealed = (text as NSString).lineRange(for: NSRange(location: 0, length: 0))
         replacing = false

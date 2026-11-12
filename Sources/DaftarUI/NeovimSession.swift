@@ -174,6 +174,8 @@ final class NeovimSession {
             }
             for (method, params) in waiting { client.notify(method, params) }
             waiting = []
+            // The cursor shows once Neovim runs, where its first report put it.
+            view?.moveNeovimCursor()
           }
         } catch {
             let reason = unanswered ? "It did not answer in \(Self.startLimit.components.seconds) seconds." : String(describing: error)
