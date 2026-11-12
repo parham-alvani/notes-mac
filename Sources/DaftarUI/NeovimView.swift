@@ -76,6 +76,9 @@ extension NoteTextView {
             let entry = view.enclosingScrollView?.contentView.bounds.origin.y
             own(view, selector, controller)
             view.keepAnchor(from: entry)
+            // Held after a far jump: the block goes with its line. Not
+            // through an edit: the block is placed once Neovim says where.
+            if view.vimActive, Date() < view.jumpHeldUntil { view.moveNeovimCursor() }
         }
         class_addMethod(NoteTextView.self, selector, imp_implementationWithBlock(hook), method_getTypeEncoding(method))
     }()
@@ -87,6 +90,7 @@ extension NoteTextView {
         // the caret: that place stands.
         guard abs(entry - held.origin) < 0.5 else { anchor = nil; return }
         guard let line = lineRect(at: held.offset) else { return }
+        reach(line)
         let y = max(0, min(line.minY - held.y, max(0, frame.height - clip.bounds.height)))
         anchor?.origin = y
         guard abs(clip.bounds.origin.y - y) > 0.5 else { return }
@@ -195,7 +199,12 @@ extension NoteTextView {
             let start = content.offset(from: content.documentRange.location, to: near.location)
             let end = content.offset(from: content.documentRange.location, to: near.endLocation)
             let cursor = selectedRange().location
-            if cursor < start || cursor > end { layOutAround(cursor) }
+            // The block was put where the guess had the line: it goes
+            // where the line is now.
+            if cursor < start || cursor > end {
+                layOutAround(cursor)
+                moveNeovimCursor()
+            }
         }
         var y = clip.bounds.origin.y
         if let top = neovimTop, let line = lineRect(at: top) { y = line.minY - textContainerOrigin.y }
@@ -212,6 +221,7 @@ extension NoteTextView {
         // Whatever Neovim's window says, the cursor stays on screen: the view
         // fits fewer lines than Neovim thinks, under a heading.
         if let cursor = lineRect(at: selectedRange().location) {
+            reach(cursor)
             // A jump of more than a screen -- G, a search -- puts the line in
             // the middle, as Vim does, not at the edge.
             if cursor.maxY < y - height || cursor.minY > y + height * 2 { y = cursor.midY - height / 2 }
@@ -284,7 +294,10 @@ extension NoteTextView {
         self.glide += 1
         let clip = scroll.contentView
         var y = target.y
-        if let placed, placed.offset == selectedRange().location, let line = lineRect(at: placed.offset) { y = line.minY - placed.y }
+        if let placed, placed.offset == selectedRange().location, let line = lineRect(at: placed.offset) {
+            reach(line)
+            y = line.minY - placed.y
+        }
         y = max(0, min(y, max(0, frame.height - clip.bounds.height)))
         if abs(clip.bounds.origin.y - y) > 0.5 {
             // A glide still on its way stops here.
@@ -298,6 +311,18 @@ extension NoteTextView {
         // The clip copies what was drawn while it moves: the cursor's
         // line, drawn in the same moment, is drawn again where it is.
         redrawCursorLine()
+        // The lines laid out on the way moved the cursor's: the block
+        // follows it, or it stayed where the guess had put it, lines away.
+        moveNeovimCursor()
+        // The viewport's layout after this one, of the lines above, moved
+        // the cursor's line again, off the screen after `G` or `N`: its line
+        // is held where it is for a moment, as through an edit.
+        let offset = selectedRange().location
+        if let line = lineRect(at: offset) {
+            anchor = (offset, line.minY - clip.bounds.origin.y, clip.bounds.origin.y)
+            anchorUntil = Date(timeIntervalSinceNow: 0.6)
+            jumpHeldUntil = anchorUntil
+        }
     }
 
     /// The text a few screens around [offset] laid out for real, so its
@@ -313,6 +338,16 @@ extension NoteTextView {
             let range = NSTextRange(location: from, end: to)
         else { return }
         layout.ensureLayout(for: range)
+    }
+
+    /// The view's height is TextKit's guess of the whole note, and a line
+    /// laid out for real can be below it until the viewport's next layout:
+    /// a scroll to it was clamped thousands of points short, and the
+    /// cursor's line held off the screen after `G` or `N`. The view reaches
+    /// the line.
+    private func reach(_ line: NSRect) {
+        let bottom = line.maxY + textContainerOrigin.y + textContainerInset.height
+        if bottom > frame.height { setFrameSize(NSSize(width: frame.width, height: bottom)) }
     }
 
     override func keyDown(with event: NSEvent) {

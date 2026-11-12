@@ -185,6 +185,10 @@ let hasNeovim = NeovimClient.locate() != nil
             let line = try #require(view.lineRect(at: target))
             #expect(line.minY >= clip.bounds.minY && line.maxY <= clip.bounds.maxY, "\(keys): line \(line.minY) not in \(clip.bounds.minY)...\(clip.bounds.maxY)")
             if middle { #expect(abs(line.midY - clip.bounds.midY) < clip.bounds.height / 4, "\(keys): not in the middle") }
+            // The block is on the letter, not where the guess had the line.
+            let block = try #require(view.blockRect())
+            let drawn = try #require(view.extras.neovimCursor?.frame)
+            #expect(abs(drawn.minY - block.minY) < 1, "\(keys): block at \(drawn.minY), letter at \(block.minY)")
         }
         try await jump(["/", "d", "e", "f", " ", "f", "7", "\r"], to: text.range(of: "def f7(").location, middle: false)
         try await jump(["n"], to: text.range(of: "def f70(").location, middle: true)
@@ -194,6 +198,54 @@ let hasNeovim = NeovimClient.locate() != nil
         try await jump(["z", "t"], to: text.range(of: "f40(").location, middle: false)
         let top = try #require(view.lineRect(at: text.range(of: "f40(").location))
         #expect(top.minY - clip.bounds.minY < clip.bounds.height / 4)
+        await session.stop()
+    }
+
+    /// A long note of every kind of block (KVM over IP's shape: tables,
+    /// callouts, code and long paragraphs) in a small window: TextKit's
+    /// guess of a far line was a screen or more off, and the block stayed
+    /// where the guess had it, lines above its letter, or the line was put
+    /// below the view's guessed height and the view could not reach it.
+    @Test func farJumpsInAMixedNoteKeepTheBlockOnItsLetter() async throws {
+        let sections = (1...140).map { i -> String in
+            var section = "## Heading \(i)\n\n" + String(repeating: "Words of prose that wrap on the screen. ", count: 3 + (i * 7) % 19) + "mark\(i) ends it.\n\n"
+            if i % 3 == 0 { section += "| Model | Port | Notes |\n| --- | --- | --- |\n" + (1...(4 + i % 5)).map { "| V\($0) | USB \($0) | a cell long enough to wrap in a narrow window |" }.joined(separator: "\n") + "\n\n" }
+            if i % 4 == 0 { section += "> [!note]\n>\n> " + String(repeating: "A callout line that wraps. ", count: 2 + i % 6) + "\n\n" }
+            section += "```bash\n" + (0..<(2 + i % 9)).map { "echo step \($0) of section \(i)" }.joined(separator: "\n") + "\n```\n\n"
+            section += (1...(2 + i % 4)).map { "- [Link \($0)](https://example.com/\(i)/\($0)) to a page" }.joined(separator: "\n") + "\n"
+            return section
+        }
+        let text = sections.joined(separator: "\n") as NSString
+        try (text as String).write(to: root.appending(path: "Mixed.md"), atomically: true, encoding: .utf8)
+        window.setContentSize(NSSize(width: 520, height: 400))
+        window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        controller.load("Mixed.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        func jump(_ keys: [String], to target: Int) async throws {
+            for key in keys { press(key) }
+            #expect(await eventually { view.selectedRange().location == target }, "\(keys)")
+            try await Task.sleep(for: .milliseconds(700))
+            let line = try #require(view.lineRect(at: target))
+            #expect(line.minY >= clip.bounds.minY && line.maxY <= clip.bounds.maxY, "\(keys): line \(line.minY) not in \(clip.bounds.minY)...\(clip.bounds.maxY)")
+            let block = try #require(view.blockRect())
+            let drawn = try #require(view.extras.neovimCursor?.frame)
+            #expect(abs(drawn.minY - block.minY) < 1, "\(keys): block at \(drawn.minY), letter at \(block.minY)")
+        }
+        func search(_ word: String) -> [String] { ["/"] + word.map(String.init) + ["\r"] }
+        let last = text.lineRange(for: NSRange(location: text.length - 1, length: 0)).location
+        try await jump(search("mark120 "), to: text.range(of: "mark120 ").location)
+        try await jump(["g", "g", "0"], to: 0)
+        try await jump(search("mark40 "), to: text.range(of: "mark40 ").location)
+        try await jump(["G", "0"], to: last)
+        try await jump(search("mark7 "), to: text.range(of: "mark7 ").location)
+        try await jump(search("section 133"), to: text.range(of: "section 133").location)
+        try await jump(["N"], to: text.range(of: "section 133", options: .backwards).location)
+        try await jump(search("mark2 "), to: text.range(of: "mark2 ").location)
+        try await jump(["G", "0"], to: last)
         await session.stop()
     }
 

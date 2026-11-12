@@ -43,6 +43,8 @@ final class NoteTextView: NSTextView {
     /// line was put (`NeovimView.swift`).
     var glide = 0
     var placed: (offset: Int, y: CGFloat)?
+    /// Until when the line of a far jump's cursor is held (`settle`).
+    var jumpHeldUntil = Date.distantPast
     /// Where `zz`, `zt` or `zb` puts the cursor's line at the next scroll.
     var placing: Place?
     /// Where a closing bracket was put that the person did not type, so
