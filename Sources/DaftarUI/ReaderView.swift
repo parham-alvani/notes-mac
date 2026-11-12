@@ -77,28 +77,18 @@ struct ReaderView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        let schemes = SchemeHandler(store: store, remote: context.coordinator.remote)
-        configuration.setURLSchemeHandler(schemes, forURLScheme: "daftar")
-        configuration.setURLSchemeHandler(schemes, forURLScheme: "vault")
-        configuration.setURLSchemeHandler(schemes, forURLScheme: RemotePictures.scheme)
-        let controller = configuration.userContentController
-        controller.add(context.coordinator, name: "daftar")
-        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "embed")
-        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "tasks")
-        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "base")
-        controller.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "remoteImage")
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        view.navigationDelegate = context.coordinator
-        view.setValue(false, forKey: "drawsBackground")
-        #if DEBUG
-        view.isInspectable = true
-        #endif
-        context.coordinator.view = view
-        context.coordinator.loadedRemoteImages = store.settings.remoteImages
-        onView?(view)
-        view.load(URLRequest(url: Self.page))
-        return view
+        // A page loaded ahead when there is one: the reader shows its note
+        // without waiting for WebKit's process and the page's script.
+        let page = ReaderPages.shared.take(store: store)
+        let coordinator = context.coordinator
+        coordinator.remote = page.remote
+        coordinator.loads = page.spare ? 0 : 1
+        coordinator.loadedRemoteImages = page.remoteImages
+        page.view.navigationDelegate = coordinator
+        coordinator.view = page.view
+        onView?(page.view)
+        page.bridge.attach(coordinator)
+        return page.view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
@@ -136,16 +126,23 @@ struct ReaderView: NSViewRepresentable {
         /// What the page may name in a message, from what the app gave it for the note on screen.
         private(set) var trust = PageTrust()
         /// The pictures from the web the person asked for, in the note on screen.
-        let remote = RemotePictures()
+        var remote = RemotePictures()
         /// `appearance.remote_images` when the page was loaded: its policy
         /// for pictures comes with the page, so a change loads it again.
         var loadedRemoteImages = true
         /// The loads of the page the app itself asked for and WebKit has not
         /// started yet: the first, and one for each time the page is loaded
         /// again. The main frame gets no other navigation.
-        private var loads = 1
+        var loads = 1
 
         init(_ parent: ReaderView) { self.parent = parent }
+
+        /// The page's script runs: the note is drawn from the start.
+        func pageReady() {
+            ready = true
+            shown = nil
+            update()
+        }
 
         /// Shows the requested note when it is new, or again when its file
         /// changed on disk, keeping the place the person was reading.
@@ -446,9 +443,7 @@ struct ReaderView: NSViewRepresentable {
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
             switch kind {
             case "ready":
-                ready = true
-                shown = nil
-                update()
+                pageReady()
             case "toggleTask":
                 guard let request = shown, let line = body["line"] as? Int,
                     let status = (body["status"] as? String)?.first
@@ -657,6 +652,113 @@ extension ReaderView.Coordinator {
         ]
         out["check"] = cell.check
         return out
+    }
+}
+
+/// The reader's pages, each a web view with the page loaded: the next
+/// reader takes one made ahead, while the app had nothing to do, so a second
+/// pane, a drill card or the weekly review shows its note without waiting for
+/// WebKit's process and the page's script (about 150 to 300 ms). One is
+/// kept, for the store it was made for, with the policy for pictures from
+/// the web it was loaded with; a test makes its pages as it needs them.
+@MainActor
+final class ReaderPages {
+    static let shared = ReaderPages()
+
+    struct Page {
+        let view: WKWebView
+        let bridge: ReaderBridge
+        let remote: RemotePictures
+        let remoteImages: Bool
+        /// Made ahead and loaded already.
+        var spare = false
+    }
+
+    /// Pages are made ahead in the app only, not under `swift test`.
+    var ahead = Bundle.main.bundlePath.hasSuffix(".app")
+    private var spare: (page: Page, store: VaultStore)?
+    private var filling: Task<Void, Never>?
+
+    /// A page for a reader of [store]: the one made ahead when it fits, else a new one.
+    func take(store: VaultStore) -> Page {
+        defer { fill(store) }
+        if let spare, spare.store === store, spare.page.bridge.ready, spare.page.remoteImages == store.settings.remoteImages {
+            self.spare = nil
+            return spare.page
+        }
+        return make(store: store)
+    }
+
+    /// One page made ahead, once the app is idle for a moment.
+    private func fill(_ store: VaultStore) {
+        guard ahead, filling == nil else { return }
+        filling = Task { [weak self, weak store] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, let store else { return }
+            self.filling = nil
+            if let spare = self.spare, spare.store === store, spare.page.remoteImages == store.settings.remoteImages { return }
+            var page = self.make(store: store)
+            page.spare = true
+            self.spare = (page, store)
+        }
+    }
+
+    private func make(store: VaultStore) -> Page {
+        let configuration = WKWebViewConfiguration()
+        let remote = RemotePictures()
+        let schemes = SchemeHandler(store: store, remote: remote)
+        configuration.setURLSchemeHandler(schemes, forURLScheme: "daftar")
+        configuration.setURLSchemeHandler(schemes, forURLScheme: "vault")
+        configuration.setURLSchemeHandler(schemes, forURLScheme: RemotePictures.scheme)
+        let bridge = ReaderBridge()
+        let controller = configuration.userContentController
+        controller.add(bridge, name: "daftar")
+        for name in ["embed", "tasks", "base", "remoteImage"] {
+            controller.addScriptMessageHandler(bridge, contentWorld: .page, name: name)
+        }
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = bridge
+        view.setValue(false, forKey: "drawsBackground")
+        #if DEBUG
+        view.isInspectable = true
+        #endif
+        let remoteImages = store.settings.remoteImages
+        view.load(URLRequest(url: ReaderView.page))
+        return Page(view: view, bridge: bridge, remote: remote, remoteImages: remoteImages)
+    }
+}
+
+/// The page's messages, to the reader that took the page. Until one does,
+/// it notes only that the page is ready, which it tells the reader when it
+/// comes. It holds the reader weakly: WebKit keeps its handlers.
+@MainActor
+final class ReaderBridge: NSObject, WKScriptMessageHandler, WKScriptMessageHandlerWithReply, WKNavigationDelegate {
+    private weak var coordinator: ReaderView.Coordinator?
+    private(set) var ready = false
+
+    /// A page made ahead whose process ended is not given to a reader.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        ready = false
+    }
+
+    func attach(_ coordinator: ReaderView.Coordinator) {
+        self.coordinator = coordinator
+        if ready { coordinator.pageReady() }
+    }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let coordinator { return coordinator.userContentController(controller, didReceive: message) }
+        guard message.frameInfo.isMainFrame, (message.body as? [String: Any])?["kind"] as? String == "ready" else { return }
+        ready = true
+        // Nobody waits for this page yet: it draws a made-up note, so the first real one is drawn warm.
+        message.webView?.callAsyncJavaScript("daftar.warm()", arguments: [:], in: nil, in: .page)
+    }
+
+    func userContentController(
+        _ controller: WKUserContentController, didReceive message: WKScriptMessage
+    ) async -> (Any?, String?) {
+        guard let coordinator else { return (nil, nil) }
+        return await coordinator.userContentController(controller, didReceive: message)
     }
 }
 

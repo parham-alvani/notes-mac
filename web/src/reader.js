@@ -1165,6 +1165,28 @@ window.daftar = {
   },
 
   /**
+   * A page made ahead, before it shows a note: a made-up note drawn once,
+   * off the page, so the first real one finds the renderer, the code
+   * colours of the common languages, KaTeX and the page's styles ready.
+   */
+  warm() {
+    const holder = Object.assign(document.createElement("div"), { id: "warm" });
+    holder.setAttribute("aria-hidden", "true");
+    holder.style.cssText = "position: absolute; visibility: hidden; left: 0; top: 0; width: 640px; pointer-events: none;";
+    const fence = (lang, code) => "```" + lang + "\n" + code + "\n```\n\n";
+    const sample =
+      "# Title\n\nSome **bold**, _italic_, `code`, ==marked==, [[Note]], #tag and https://example.org.\n\n" +
+      "## A list\n\n- [ ] a task 📅 2026-01-01\n- [x] done\n    1. nested\n\n> [!note] A callout\n>\n> Its body.\n\n" +
+      "| a | b |\n| - | - |\n| 1 | 2 |\n\n$x^2 + \\frac{a}{b}$ and\n\n$$\\sum_{i=1}^{n} i$$\n\nسلام دنیا\n\n" +
+      ["bash", "python", "go", "yaml", "json", "javascript", "sql", "rust", "swift", "typescript"].map((lang) => fence(lang, "x = 1")).join("");
+    holder.innerHTML = render(sample, { path: "", links: {} });
+    document.body.appendChild(holder);
+    decorate(holder);
+    void holder.offsetHeight;
+    holder.remove();
+  },
+
+  /**
    * The addresses and phone numbers the app found in the note on screen,
    * after it was drawn: the app looks for them while the page draws.
    */

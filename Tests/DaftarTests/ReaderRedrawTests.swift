@@ -102,4 +102,23 @@ import WebKit
         }
         #expect(try await run(web, "document.querySelector('#note a.detected-phone').textContent") == "+34 612 345 678")
     }
+
+    /// A page made ahead goes to the next reader of its store, loaded, and to no other store's.
+    @Test func aReaderTakesAPageMadeAhead() async throws {
+        store.openSynchronously(root)
+        let pages = ReaderPages()
+        pages.ahead = true
+        _ = pages.take(store: store)
+        let other = VaultStore(settings: AppSettings(url: root.appending(path: "other/config.toml")), openVault: false)
+        // The spare is made two seconds after a take, then loads.
+        try await Task.sleep(for: .seconds(3))
+        #expect(!pages.take(store: other).spare)
+        var taken = pages.take(store: store)
+        for _ in 0..<40 where !taken.spare {
+            try await Task.sleep(for: .milliseconds(250))
+            taken = pages.take(store: store)
+        }
+        #expect(taken.spare && taken.bridge.ready)
+        #expect(try await taken.view.evaluateJavaScript("typeof daftar") as? String == "object")
+    }
 }
