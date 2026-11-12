@@ -134,7 +134,10 @@ final class ImageAnimation {
 
 /// Moves the editor's animated pictures on, about 30 times a second, while
 /// the window is on screen: each frame that changed draws its line again.
-/// Nothing moves with Reduce Motion; the first frame stays.
+/// Nothing moves with Reduce Motion; the first frame stays. A window that
+/// is hidden, minimized or covered stops the timer, and its coming back on
+/// screen starts it again: the timer woke the app 30 times a second behind
+/// other windows for nothing.
 @MainActor
 final class ImageAnimator {
     weak var view: NSTextView?
@@ -142,6 +145,8 @@ final class ImageAnimator {
     private var stills: Set<String> = []
     private var timer: Timer?
     private let start = Date()
+    /// The window that was off screen at a tick, heard until it is back.
+    private var occlusion: (window: NSWindow, observer: NSObjectProtocol)?
 
     /// The animation of the picture at [path], or nil for a still one.
     func animation(for path: String, url: URL) -> ImageAnimation? {
@@ -170,10 +175,13 @@ final class ImageAnimator {
     func stop() {
         timer?.invalidate()
         timer = nil
+        listen(to: nil)
     }
 
     /// The timer runs: a moving picture is in the note.
     var isRunning: Bool { timer != nil }
+    /// The timer waits for the window to be on screen again.
+    var isPaused: Bool { timer == nil && occlusion != nil }
     /// How many pictures' frames are kept.
     var count: Int { animations.count }
 
@@ -186,8 +194,38 @@ final class ImageAnimator {
     }
 
     func tick() {
-        guard let view, view.window?.occlusionState.contains(.visible) == true else { return }
+        guard let view, let window = view.window else { return }
+        guard window.occlusionState.contains(.visible) else { return pause(window) }
         advance(to: Date().timeIntervalSince(start))
+    }
+
+    /// The timer stops until [window] is on screen again.
+    func pause(_ window: NSWindow) {
+        timer?.invalidate()
+        timer = nil
+        listen(to: window)
+    }
+
+    private func listen(to window: NSWindow?) {
+        guard occlusion?.window !== window else { return }
+        if let occlusion { NotificationCenter.default.removeObserver(occlusion.observer) }
+        occlusion = nil
+        guard let window else { return }
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resume() }
+        }
+        occlusion = (window, observer)
+    }
+
+    /// The window is back on screen: the pictures move on from where the clock is.
+    private func resume() {
+        guard let window = occlusion?.window, window.occlusionState.contains(.visible) else { return }
+        listen(to: nil)
+        guard !animations.isEmpty else { return }
+        run()
+        tick()
     }
 
     /// Each animation to its frame at [time]; the lines on screen whose frame changed draw again.

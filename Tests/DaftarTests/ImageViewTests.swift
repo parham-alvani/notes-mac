@@ -62,6 +62,16 @@ import WebKit
         #expect(controller.images.count >= 2)
         let moves = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         #expect(controller.animator.isRunning == moves)
+        if moves {
+            // A window off screen stops the timer until it is back.
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+            window.contentView = scroll
+            controller.animator.pause(window)
+            #expect(!controller.animator.isRunning && controller.animator.isPaused)
+            controller.animator.stop()
+            #expect(!controller.animator.isPaused)
+            window.contentView = nil
+        }
         controller.load("Notes/Plain.md")
         #expect(controller.images.isEmpty)
         #expect(controller.animator.count == 0)
