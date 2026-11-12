@@ -18,6 +18,35 @@ import Testing
         window.cancelOperation(nil)
     }
 
+    /// SwiftUI's hosting view leaves full screen through the window's own
+    /// `exitFullScreenMode:` (an Escape the reader gives back), which is also
+    /// the action of View > Exit Full Screen: a Daftar window in full screen
+    /// ignores it for the Escape key only.
+    @Test func escapeFromAViewKeepsADaftarWindowInFullScreen() throws {
+        // The class whose `exitFullScreenMode:` the app changes; a SwiftUI that renamed it would let Escape out again.
+        #expect(NSClassFromString(FullScreenEscape.swiftUIWindow) != nil)
+        FullScreenEscape.guardWindows(ExitProbe.self)
+        let window = ExitProbe(contentRect: NSRect(x: -30000, y: -30000, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
+        func key(_ code: UInt16, _ characters: String) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+        }
+        let escape = try key(53, "\u{1b}")
+        window.inFullScreen = true
+        // Another window leaves full screen, Escape or not.
+        #expect(!FullScreenEscape.stays(window, FullScreenEscape.exit, during: escape))
+        window.tabbingIdentifier = "daftar.main"
+        #expect(FullScreenEscape.stays(window, FullScreenEscape.exit, during: escape))
+        #expect(FullScreenEscape.stays(window, FullScreenEscape.cancel, during: nil))
+        // The menu, its key and a click leave full screen.
+        #expect(!FullScreenEscape.stays(window, FullScreenEscape.exit, during: try key(3, "f")))
+        #expect(!FullScreenEscape.stays(window, FullScreenEscape.exit, during: nil))
+        window.perform(FullScreenEscape.exit, with: nil)
+        #expect(window.exits == 1)
+        // Not in full screen, nothing is kept.
+        window.inFullScreen = false
+        #expect(!FullScreenEscape.stays(window, FullScreenEscape.exit, during: escape))
+    }
+
     @Test func theAssistantSaysWhenTheNoteIsCut() {
         let short = NoteAssistant.prompt(.summary, title: "Plan", text: "Short.")
         #expect(short.contains("“Plan”") && short.hasSuffix("Short.") && !short.contains("first part"))
@@ -110,4 +139,18 @@ import Testing
         model.open("A.md", heading: "Top", store: store)
         #expect(model.request?.line == nil && model.request?.heading == "Top")
     }
+}
+
+/// A window with its own `exitFullScreenMode:`, as SwiftUI's has, that only
+/// counts, and that says it is in full screen when told to.
+private final class ExitProbe: NSWindow {
+    var inFullScreen = false
+    var exits = 0
+
+    override var styleMask: NSWindow.StyleMask {
+        get { inFullScreen ? super.styleMask.union(.fullScreen) : super.styleMask }
+        set { super.styleMask = newValue }
+    }
+
+    @objc(exitFullScreenMode:) func countExit(_ sender: Any?) { exits += 1 }
 }
