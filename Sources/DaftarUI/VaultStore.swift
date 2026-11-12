@@ -80,6 +80,8 @@ final class VaultStore {
     @ObservationIgnored var followers: [ObjectIdentifier: (VaultChange) -> Void] = [:]
     /// Where each note was being read, for every window.
     @ObservationIgnored let places = PlaceBook()
+    /// What the sidebar's list shows, set only when it changes.
+    @ObservationIgnored private(set) lazy var sidebar = SidebarFacts(store: self)
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings

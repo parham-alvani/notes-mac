@@ -77,17 +77,12 @@ struct FilesList: View {
     @ViewState private var dropTarget: String?
     @ViewState private var tagsOpen = false
     @ViewState private var updatedOpen = true
-    /// The task counts of the first two rows, kept until the vault changes or the day turns:
-    /// a selection, a drag over a folder or a section opened draws the sidebar again.
-    @ViewState private var groupsMemo = Memo<GroupsKey, VaultStore.TaskGroups>()
-
-    struct GroupsKey: Equatable {
-        var revision: Int
-        var today: Day
-    }
-
     var body: some View {
-        let groups = groupsMemo.value(for: GroupsKey(revision: store.revision, today: .today())) { store.taskGroups() }
+        // The list reads `store.sidebar` only: a save that changes nothing it shows does not draw it again.
+        let facts = store.sidebar
+        let today = Day.today()
+        // Past midnight the counts are of yesterday until the vault changes: counted for today here.
+        let counts = facts.counts.day == today ? facts.counts : SidebarFacts.counts(store, day: today)
         List(selection: selection) {
             Section {
                 Label {
@@ -96,8 +91,8 @@ struct FilesList: View {
                     Image(systemName: "sun.max.fill").resizable().scaledToFit().foregroundStyle(Palette.yellow)
                         .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
-                .badge(groups.today.count + groups.overdue.count)
-                .accessibilityValue(Spoken.count(groups.today.count, "task") + " due, \(groups.overdue.count) overdue")
+                .badge(counts.due + counts.overdue)
+                .accessibilityValue(Spoken.count(counts.due, "task") + " due, \(counts.overdue) overdue")
                 .tag(SidebarItem.today)
                 Label {
                     Text("Board")
@@ -105,11 +100,11 @@ struct FilesList: View {
                     Image(systemName: "rectangle.split.3x1.fill").resizable().scaledToFit().foregroundStyle(Palette.purple)
                         .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
-                .badge(groups.inProgress.count)
-                .accessibilityValue(Spoken.count(groups.inProgress.count, "task") + " in progress")
+                .badge(counts.inProgress)
+                .accessibilityValue(Spoken.count(counts.inProgress, "task") + " in progress")
                 .tag(SidebarItem.board)
             }
-            let bookmarks = store.bookmarks.entries.filter { $0.folder || store.index.files.contains($0.path) }
+            let bookmarks = store.bookmarks.entries.filter { $0.folder || facts.files.contains($0.path) }
             if !bookmarks.isEmpty {
                 Section("Bookmarks") {
                     ForEach(bookmarks, id: \.path) { entry in
@@ -122,7 +117,7 @@ struct FilesList: View {
                                 }
                             }
                         } icon: {
-                            if entry.folder, let logo = store.logo(of: entry.path).flatMap(store.url(of:)) {
+                            if entry.folder, let logo = Vault.logo(of: entry.path, in: facts.files).flatMap(store.url(of:)) {
                                 IconicImage(icon: nil, fallback: "folder.fill", fallbackColor: Palette.accent, logo: logo)
                             } else {
                                 Image(systemName: entry.folder ? "folder.fill" : "star.fill")
@@ -140,15 +135,16 @@ struct FilesList: View {
                     }
                 }
             }
-            let updated = store.updatedSinceRead
+            let updated = facts.updated
             if !updated.isEmpty {
                 Section(isExpanded: $updatedOpen) {
-                    ForEach(updated.prefix(12), id: \.self) { path in
+                    ForEach(updated.prefix(12), id: \.path) { entry in
+                        let path = entry.path
                         Label {
                             HStack {
                                 Text(Vault.title(of: path)).lineLimit(1)
                                 Spacer()
-                                if let modified = store.index.notes[path]?.modified {
+                                if let modified = entry.modified {
                                     Text(modified, format: .relative(presentation: .named, unitsStyle: .narrow))
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
@@ -160,13 +156,13 @@ struct FilesList: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityHint("Changed since you last read it")
                         .tag(SidebarItem.bookmark(path))
-                        .help("Changed on \(store.index.notes[path]?.modified.formatted(date: .abbreviated, time: .shortened) ?? "disk") since you last read it")
+                        .help("Changed on \(entry.modified?.formatted(date: .abbreviated, time: .shortened) ?? "disk") since you last read it")
                         .contextMenu {
                             Button("Mark as Read") { store.places.markRead(path) }
                         }
                     }
                     if updated.count > 1 {
-                        Button("Mark All as Read") { for path in updated { store.places.markRead(path) } }
+                        Button("Mark All as Read") { for entry in updated { store.places.markRead(entry.path) } }
                             .buttonStyle(.borderless).font(.caption).foregroundStyle(Palette.aqua)
                     }
                 } header: {
@@ -174,7 +170,7 @@ struct FilesList: View {
                 }
             }
             Section(store.name) {
-                OutlineGroup(store.tree, children: \.children) { node in
+                OutlineGroup(facts.tree, children: \.children) { node in
                     FileRow(node: node, dropTarget: dropTarget == node.path)
                         .tag(SidebarItem.file(node.folderNote ?? node.path))
                         .contextMenu { FileMenu(path: node.folderNote ?? node.path, folder: node.isFolder ? node.path : nil, model: model) }
@@ -186,7 +182,7 @@ struct FilesList: View {
                         }
                 }
             }
-            let tags = store.index.tagTree
+            let tags = facts.tagTree
             if !tags.isEmpty {
                 Section(isExpanded: $tagsOpen) {
                     OutlineGroup(tags, children: \.children) { node in
@@ -214,7 +210,7 @@ struct FilesList: View {
                         }
                     }
                 } header: {
-                    Text("Tags · \(store.index.tags.count)")
+                    Text("Tags · \(facts.tagCount)")
                 }
             }
         }
@@ -277,7 +273,7 @@ struct FileRow: View {
         Label {
             HStack(spacing: 4) {
                 Text(node.name).foregroundStyle(Vault.opensInApp(node.path) || node.isFolder ? .primary : .secondary)
-                if !node.isFolder, store.isUpdatedSinceRead(node.path) {
+                if !node.isFolder, store.sidebar.updatedPaths.contains(node.path) {
                     Circle().fill(Palette.aqua).frame(width: 6, height: 6)
                         .help("Changed since you last read it")
                         .accessibilityHidden(true)
@@ -306,7 +302,7 @@ struct FileRow: View {
     private var kind: String {
         if node.isFolder { return node.folderNote != nil ? "Folder with a folder note" : "Folder" }
         let what = Vault.isNote(node.path) ? "Note" : Vault.isImage(node.path) ? "Picture" : Vault.opensInApp(node.path) ? "File" : "File, opens in another app"
-        return store.isUpdatedSinceRead(node.path) ? what + ", changed since you last read it" : what
+        return store.sidebar.updatedPaths.contains(node.path) ? what + ", changed since you last read it" : what
     }
 
     private var attachmentSymbol: String {
