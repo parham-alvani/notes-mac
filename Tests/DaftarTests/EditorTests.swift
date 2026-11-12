@@ -454,6 +454,25 @@ import Testing
         store.settings.livePreview = true
     }
 
+    /// A selection shows the marks of every line it touches, as it grows
+    /// and shrinks, and Select All of all of them.
+    @Test func marksShowOnTheLinesASelectionTouches() throws {
+        try "## Head\n\nSome **bold** here.\n\nMore *slanted* here.\n".write(to: root.appending(path: "Notes/Sel.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Sel.md")
+        #expect(hidden("**") && hidden("*", occurrence: 5))
+        let text = view.string as NSString
+        view.setSelectedRange(NSRange(location: 0, length: text.range(of: "bold").location))
+        #expect(!hidden("##") && !hidden("**") && hidden("*", occurrence: 5))
+        view.setSelectedRange(NSRange(location: 0, length: text.range(of: "slanted").location))
+        #expect(!hidden("##") && !hidden("**") && !hidden("*", occurrence: 5))
+        view.setSelectedRange(NSRange(location: text.range(of: "bold").location, length: 3))
+        #expect(hidden("##") && !hidden("**") && hidden("*", occurrence: 5))
+        view.selectAll(nil)
+        #expect(!hidden("##") && !hidden("**") && !hidden("*", occurrence: 5))
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(!hidden("##") && hidden("**") && hidden("*", occurrence: 5))
+    }
+
     @Test func marksHideInQuotesAndOnTheLastLine() throws {
         try "Top\n\nBring the ~~old~~ new.\n\n> Bring the ~~gone~~ one.".write(to: root.appending(path: "Notes/S.md"), atomically: true, encoding: .utf8)
         controller.load("Notes/S.md")

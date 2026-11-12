@@ -130,9 +130,9 @@ import Testing
         return Double(Self.cpu() - start) / 1e6
     }
 
-    func key(_ characters: String, code: UInt16 = 0) -> NSEvent {
+    func key(_ characters: String, code: UInt16 = 0, flags: NSEvent.ModifierFlags = []) -> NSEvent {
         NSEvent.keyEvent(
-            with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters,
             isARepeat: false, keyCode: code)!
     }
@@ -213,6 +213,9 @@ import Testing
         var times: [Double] = []
         for _ in 0..<60 { times.append(frame { view.keyDown(with: key(String(UnicodeScalar(NSDownArrowFunctionKey)!), code: 125)) }) }
         report("arrow down, 60 lines", stats(times))
+        times = []
+        for _ in 0..<60 { times.append(frame { view.keyDown(with: key(String(UnicodeScalar(NSDownArrowFunctionKey)!), code: 125, flags: [.shift, .numericPad, .function])) }) }
+        report("shift-arrow down, selection of 60 lines", stats(times))
         let clip = view.enclosingScrollView!.contentView
         clip.setBoundsOrigin(.zero)
         settle(0.3)
@@ -356,7 +359,7 @@ import Testing
         let scenario = ProcessInfo.processInfo.environment["DAFTAR_PROFILE"] ?? ""
         let at = switch scenario {
         case "persian": lineEnd(text.range(of: "سلام").location)
-        case "end": text.length
+        case "end", "focus": text.length
         case "arrows", "cursors", "paste": offset(after: "## ") + 10
         default: longLineEnd()
         }
@@ -364,6 +367,10 @@ import Testing
         view.scrollRangeToVisible(NSRange(location: at, length: 0))
         settle(0.3)
         let down = String(UnicodeScalar(NSDownArrowFunctionKey)!), up = String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        if scenario == "focus" {
+            store.settings.focusMode = true
+            controller.followWritingModes()
+        }
         if scenario == "cursors" {
             view.setSelectedRange(NSRange(location: text.range(of: " plan ").location + 1, length: 4))
             view.selectAllOccurrences(nil)

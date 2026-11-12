@@ -524,10 +524,22 @@ extension EditorController {
         let start = min(old.location, text.length)
         let before = text.lineRange(for: NSRange(location: start, length: min(old.length, text.length - start)))
         guard before != now else { return }
-        storage.beginEditing()
         if NSIntersectionRange(before, now).length > 0 {
-            style(storage, range: NSUnionRange(before, now))
+            // Only the lines that came into the selection or left it: a
+            // selection grown by a line, as a drag or ⇧↓ grows it, styled
+            // every line it held, and Select All the whole note.
+            let pieces = [
+                NSRange(location: min(before.location, now.location), length: abs(before.location - now.location)),
+                NSRange(location: min(NSMaxRange(before), NSMaxRange(now)), length: abs(NSMaxRange(before) - NSMaxRange(now))),
+            ].filter { $0.length > 0 }
+            if pieces.reduce(0, { $0 + $1.length }) > Self.atOnce, session == nil {
+                // The lines on screen now, the rest between frames.
+                return restyleProgressively(around: view.viewportOffsets()?.location ?? now.location, headStyled: false)
+            }
+            storage.beginEditing()
+            for piece in pieces { style(storage, range: piece) }
         } else {
+            storage.beginEditing()
             for range in [old, now] where NSMaxRange(range) <= storage.length {
                 style(storage, range: text.lineRange(for: range))
             }
