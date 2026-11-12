@@ -195,8 +195,17 @@ extension NoteTextView {
         // The editor's own scroll is where an edit's layout keeps the view.
         if anchor != nil, Date() < anchorUntil { anchor = topLetter(at: y) }
         // A short glide. A window not on screen runs no animation: it would
-        // never get there.
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || window?.isVisible != true {
+        // never get there. A key held down scrolls at once: a glide at each
+        // of thirty keys a second was cut short by the next, and the view
+        // was always on its way, behind the cursor.
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || window?.isVisible != true
+            || extras.keys.held(at: ProcessInfo.processInfo.systemUptime)
+        {
+            // A glide on its way stops where this puts the view.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                clip.animator().setBoundsOrigin(target)
+            }
             clip.setBoundsOrigin(target)
             scroll.reflectScrolledClipView(clip)
             redrawCursorLine()
