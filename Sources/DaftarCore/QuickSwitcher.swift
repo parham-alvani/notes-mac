@@ -19,6 +19,12 @@ public enum QuickSwitcher {
         /// The folders and the name, as a word with a `/` is matched.
         let full: String
         let note: Bool
+        /// Which of the texts are plain ASCII, matched on their bytes ([Fuzzy.plainASCII]).
+        let titleASCII: Bool
+        let aliasesASCII: [Bool]
+        let foldersASCII: Bool
+        /// The path's length, which breaks a tie, counted once.
+        let length: Int
 
         public init(path: String, title: String, aliases: [String] = []) {
             self.path = path
@@ -28,6 +34,10 @@ public enum QuickSwitcher {
             full = folders.isEmpty ? self.title : folders + "/" + self.title
             // A picture opens in the app too, but ranks as the attachment it is.
             note = Vault.opensInApp(path) && !Vault.isImage(path)
+            titleASCII = Fuzzy.plainASCII(self.title)
+            aliasesASCII = self.aliases.map(Fuzzy.plainASCII)
+            foldersASCII = Fuzzy.plainASCII(folders)
+            length = path.count
         }
     }
 
@@ -53,64 +63,153 @@ public enum QuickSwitcher {
         let words = needle.split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return Ranking(paths: Array(recent.prefix(limit)), loose: false) }
         let recency = Dictionary(recent.enumerated().map { ($1, $0) }) { a, _ in a }
-        var scored: [(path: String, score: Int, match: Int, close: Bool)] = []
+        let prepared = words.map(Word.init)
+        let needleASCII = Fuzzy.plainASCII(needle)
+        var scored: [(path: String, score: Int, match: Int, close: Bool, length: Int)] = []
         scored.reserveCapacity(64)
         for candidate in candidates {
-            guard let (match, close) = score(words, candidate) else { continue }
+            guard let (match, close) = score(prepared, candidate) else { continue }
             var score = match
             if candidate.title == needle || candidate.aliases.contains(needle) || candidate.full == needle { score += 1000 }
-            else if candidate.title.hasPrefix(needle) { score += 300 }
-            else if candidate.title.contains(needle) { score += 120 }
+            else if starts(candidate.title, with: needle, ascii: needleASCII && candidate.titleASCII) { score += 300 }
+            else if holds(candidate.title, needle, ascii: needleASCII && candidate.titleASCII) { score += 120 }
             if candidate.note { score += 8 }
             // A note opened lately wins a close race, not a clear one.
             if let at = recency[candidate.path] { score += max(1, 12 - at) }
-            scored.append((candidate.path, score, match, close))
+            scored.append((candidate.path, score, match, close, candidate.length))
         }
         // Once one file holds every word closely, the files that only hold
         // the letters are noise: "car insurance" is not "Cards … Reinsurance".
         let loose = !scored.contains(where: \.close)
         if !loose { scored.removeAll { !$0.close } }
-        scored.sort { a, b in
-            if a.score != b.score { return a.score > b.score }
-            if a.path.count != b.path.count { return a.path.count < b.path.count }
-            return a.path < b.path
-        }
         // Letters spread over a path match nearly anything: once something
         // matches well, what matches under half as well is noise, not a
         // result. The words alone are compared, not the bonus of an exact
-        // name, which would leave that one note alone in the list.
+        // name, which would leave that one note alone in the list. Left
+        // out before the sort, which then orders only what may be shown.
         guard let best = scored.map(\.match).max() else { return Ranking(paths: [], loose: false) }
-        return Ranking(paths: scored.filter { $0.match == best || $0.match * 2 >= best }.prefix(limit).map(\.path), loose: loose)
+        scored.removeAll { !($0.match == best || $0.match * 2 >= best) }
+        scored.sort { a, b in
+            if a.score != b.score { return a.score > b.score }
+            if a.length != b.length { return a.length < b.length }
+            return a.path < b.path
+        }
+        return Ranking(paths: scored.prefix(limit).map(\.path), loose: loose)
+    }
+
+    /// A word of the query, with whether it is plain ASCII, worked out once per query.
+    struct Word {
+        let text: String
+        let ascii: Bool
+        init(_ text: String) {
+            self.text = text
+            ascii = Fuzzy.plainASCII(text)
+        }
+    }
+
+    /// `text.hasPrefix(prefix)`, on the bytes when both are plain ASCII.
+    static func starts(_ text: String, with prefix: String, ascii: Bool) -> Bool {
+        ascii ? text.utf8.starts(with: prefix.utf8) : text.hasPrefix(prefix)
+    }
+
+    /// `text.contains(part)`, on the bytes when both are plain ASCII.
+    static func holds(_ text: String, _ part: String, ascii: Bool) -> Bool {
+        guard ascii else { return text.contains(part) }
+        var text = text, part = part
+        return text.withUTF8 { hay in part.withUTF8 { find($0, in: hay, after: nil) } }
+    }
+
+    /// Whether [part] is in [hay], right after the byte [after] when one is given.
+    static func find(_ part: UnsafeBufferPointer<UInt8>, in hay: UnsafeBufferPointer<UInt8>, after: UInt8?) -> Bool {
+        let need = part.count + (after == nil ? 0 : 1)
+        guard need <= hay.count else { return false }
+        if part.isEmpty { return after == nil || hay.contains(after!) }
+        let first = part[0]
+        var at = after == nil ? 0 : 1
+        while at + part.count <= hay.count {
+            if hay[at] == first, after.map({ hay[at - 1] == $0 }) ?? true {
+                var same = true
+                for offset in 1..<part.count where hay[at + offset] != part[offset] {
+                    same = false
+                    break
+                }
+                if same { return true }
+            }
+            at += 1
+        }
+        return false
     }
 
     /// The sum of each word's best match, and whether every word matched
     /// closely; nil when a word matches nowhere.
     static func score(_ words: [String], _ candidate: Candidate) -> (Int, Bool)? {
+        score(words.map(Word.init), candidate)
+    }
+
+    static func score(_ words: [Word], _ candidate: Candidate) -> (Int, Bool)? {
         var total = 0, close = true
-        for word in words {
+        for prepared in words {
+            let word = prepared.text
             var best: Int?, near = false
-            func consider(_ text: String, weight: Int) {
-                guard mayMatch(word, text), let match = Fuzzy.match(word, in: text) else { return }
-                near = near || isClose(word, text, match.positions)
-                var value = match.score * 4 + weight
-                // The word as written, and at the start of a word, beats letters spread out.
-                if text.hasPrefix(word) { value += 40 } else if text.contains(" " + word) || text.contains("-" + word) || text.contains("/" + word) { value += 25 } else if text.contains(word) { value += 12 }
-                // Letters spread far apart are barely a match.
-                if let first = match.positions.first, let last = match.positions.last, last - first + 1 > word.count * 3 { value -= 30 }
+            func consider(_ text: String, ascii: Bool, weight: Int) {
+                if ascii {
+                    // A word with a letter beyond ASCII is not in an ASCII text.
+                    guard prepared.ascii else { return }
+                    var text = text, word = word
+                    guard let value = text.withUTF8({ hay in word.withUTF8 { asciiValue($0, in: hay, weight: weight, near: &near) } }) else { return }
+                    if best == nil || value > best! { best = value }
+                    return
+                }
+                guard let value = value(word, in: text, weight: weight, near: &near) else { return }
                 if best == nil || value > best! { best = value }
             }
             if word.contains("/") {
-                consider(candidate.full, weight: 30)
+                consider(candidate.full, ascii: candidate.titleASCII && candidate.foldersASCII, weight: 30)
             } else {
-                consider(candidate.title, weight: 60)
-                for alias in candidate.aliases { consider(alias, weight: 45) }
-                consider(candidate.folders, weight: 0)
+                consider(candidate.title, ascii: candidate.titleASCII, weight: 60)
+                for (alias, ascii) in zip(candidate.aliases, candidate.aliasesASCII) { consider(alias, ascii: ascii, weight: 45) }
+                consider(candidate.folders, ascii: candidate.foldersASCII, weight: 0)
             }
             guard let found = best else { return nil }
             total += found
             close = close && near
         }
         return (total, close)
+    }
+
+    /// What one word of the query is worth in one text of a candidate
+    /// (its name, an alias, its folders), nil for no match; [near] becomes
+    /// true when the match is close ([isClose]).
+    static func value(_ word: String, in text: String, weight: Int, near: inout Bool) -> Int? {
+        guard mayMatch(word, text), let match = Fuzzy.match(word, in: text) else { return nil }
+        near = near || isClose(word, text, match.positions)
+        var value = match.score * 4 + weight
+        // The word as written, and at the start of a word, beats letters spread out.
+        if text.hasPrefix(word) { value += 40 } else if text.contains(" " + word) || text.contains("-" + word) || text.contains("/" + word) { value += 25 } else if text.contains(word) { value += 12 }
+        // Letters spread far apart are barely a match.
+        if let first = match.positions.first, let last = match.positions.last, last - first + 1 > word.count * 3 { value -= 30 }
+        return value
+    }
+
+    /// [value] for a plain ASCII word in a plain ASCII text, on their
+    /// bytes, without folding the text again: the same value.
+    static func asciiValue(_ word: UnsafeBufferPointer<UInt8>, in text: UnsafeBufferPointer<UInt8>, weight: Int, near: inout Bool) -> Int? {
+        // mayMatch: every letter of the word, in order.
+        var next = 0
+        for byte in text where next < word.count && byte == word[next] { next += 1 }
+        guard next == word.count, let match = Fuzzy.matchASCII(word, in: text) else { return nil }
+        let holds = find(word, in: text, after: nil)
+        // isClose
+        if holds {
+            near = true
+        } else if let first = match.positions.first, let last = match.positions.last {
+            let start = first == 0 || [0x20, 0x2D, 0x5F, 0x2F, 0x2E, 0x28].contains(text[first - 1])  // space - _ / . (
+            if start && last - first + 1 <= word.count * 2 { near = true }
+        }
+        var value = match.score * 4 + weight
+        if text.starts(with: word) { value += 40 } else if find(word, in: text, after: 0x20) || find(word, in: text, after: 0x2D) || find(word, in: text, after: 0x2F) { value += 25 } else if holds { value += 12 }
+        if let first = match.positions.first, let last = match.positions.last, last - first + 1 > word.count * 3 { value -= 30 }
+        return value
     }
 
     /// The word as written, or its letters from the start of a word and

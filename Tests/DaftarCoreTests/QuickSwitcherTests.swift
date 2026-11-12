@@ -151,3 +151,40 @@ import Testing
         #expect(QuickSwitcher.headings("bud", in: headings).first?.line == 9)
     }
 }
+
+/// Quick open matches plain ASCII on its bytes: the same scores, positions
+/// and values as the matching on characters, for any text.
+@Suite struct QuickSwitcherASCIITests {
+    struct Seeded: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    @Test func bytesAndCharactersAgree() {
+        var random = Seeded(state: 7)
+        let letters = Array("abcdeKLmn -_/.(:Xyz")
+        func text(_ range: ClosedRange<Int>) -> String {
+            String((0..<Int.random(in: range, using: &random)).map { _ in letters.randomElement(using: &random)! })
+        }
+        for _ in 0..<4000 {
+            let hay = text(0...24)
+            let word = text(1...4).filter { !$0.isWhitespace }
+            guard !word.isEmpty else { continue }
+            var a = hay, b = word
+            let bytes = a.withUTF8 { h in b.withUTF8 { Fuzzy.matchASCII($0, in: h) } }
+            #expect(bytes == Fuzzy.match(word, in: hay), "\(word) in \(hay)")
+            for weight in [0, 60] {
+                var near1 = false, near2 = false
+                let slow = QuickSwitcher.value(word, in: hay, weight: weight, near: &near1)
+                let fast = a.withUTF8 { h in b.withUTF8 { QuickSwitcher.asciiValue($0, in: h, weight: weight, near: &near2) } }
+                #expect(slow == fast && near1 == near2, "\(word) in \(hay)")
+            }
+        }
+    }
+}

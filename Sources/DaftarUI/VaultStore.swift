@@ -1221,13 +1221,31 @@ final class VaultStore {
     /// The files the switcher can offer, notes and attachments, folded once
     /// for each version of the index rather than on every keystroke.
     @ObservationIgnored private var candidates: (revision: Int, files: Int, items: [QuickSwitcher.Candidate])?
+    /// Each file's candidate, with the aliases it was folded from and
+    /// whether it is hidden, for [hiddenRevision]: a save folds its own
+    /// note again, not the 20,000 others.
+    @ObservationIgnored private var folded: (hidden: Int, entries: [String: (aliases: [String], hidden: Bool, candidate: QuickSwitcher.Candidate)]) = (-1, [:])
 
     private func quickOpenCandidates() -> [QuickSwitcher.Candidate] {
         if let candidates, candidates.revision == revision, candidates.files == index.files.count { return candidates.items }
-        let paths = index.files.filter { !excluded.contains($0) }
-        let items = paths.map { path in
-            QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: index.notes[path]?.parsed.aliases ?? [])
+        if folded.hidden != hiddenRevision { folded = (hiddenRevision, [:]) }
+        var entries: [String: (aliases: [String], hidden: Bool, candidate: QuickSwitcher.Candidate)] = [:]
+        entries.reserveCapacity(index.files.count)
+        var items: [QuickSwitcher.Candidate] = []
+        items.reserveCapacity(index.files.count)
+        let excluded = excluded
+        for path in index.files {
+            let aliases = index.notes[path]?.parsed.aliases ?? []
+            let entry: (aliases: [String], hidden: Bool, candidate: QuickSwitcher.Candidate)
+            if let known = folded.entries[path], known.aliases == aliases {
+                entry = known
+            } else {
+                entry = (aliases, excluded.contains(path), QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: aliases))
+            }
+            entries[path] = entry
+            if !entry.hidden { items.append(entry.candidate) }
         }
+        folded.entries = entries
         candidates = (revision, index.files.count, items)
         return items
     }
