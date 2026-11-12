@@ -41,9 +41,21 @@ extension EditorController {
                 if last.location != NSNotFound { style(textStorage, range: last) }
                 return
             }
-            style(textStorage, range: rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines)
+            let range = rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines
+            // A long paste, an undo of a long cut, or a fence typed above a
+            // long note: the screens at the edit now, the rest between frames.
+            // Styling it all took 400 ms for a paste of 200,000 letters, and
+            // each letter of a fence's language near the top of a long note
+            // restyled the whole note under it.
+            if range.length > Self.atOnce, session == nil {
+                return restyleProgressively(around: NSMaxRange(editedRange), from: range.location, inEdit: true)
+            }
+            style(textStorage, range: range)
         }
     }
+
+    /// The most letters an edit styles at once; more are styled a part at a time.
+    static let atOnce = 24_000
 
     func restyle(all: Bool) {
         guard let storage = view?.textStorage else { return }
@@ -66,26 +78,36 @@ extension EditorController {
     ///
     /// [headStyled]: the first screens are styled already, by the run this
     /// one takes the place of (the note opened, then went to a line).
-    func restyleProgressively(around anchor: Int = 0, headStyled: Bool = false) {
+    /// [from]: the text before it is styled already, as an edit leaves it.
+    /// [inEdit]: inside the storage's own edit, from `didProcessEditing`.
+    func restyleProgressively(around anchor: Int = 0, from: Int = 0, headStyled: Bool = false, inEdit: Bool = false) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
-        let headStyled = headStyled && progressive != nil
+        // A run not finished leaves text above [from] to style: this one does it.
+        let unfinished = progressive != nil
         progressive = nil
         blockStates = .init()
-        structure = Self.structure(of: storage.string as NSString)
-        hiddenFront = frontMatterToHide()
-        view?.typingAttributes = base
+        if !inEdit {
+            structure = Self.structure(of: storage.string as NSString)
+            hiddenFront = frontMatterToHide()
+            view?.typingAttributes = base
+        }
         let part = 12_000
         let length = storage.length
         guard length > 0 else { return style(storage, range: NSRange(location: 0, length: 0)) }
         let text = storage.string as NSString
-        let headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
+        var headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
         // One edit of the storage for all the attributes: each attribute
         // set on its own had TextKit drop and find again the layout of the
         // lines after it, 70 ms to open a long note at a line.
-        storage.beginEditing()
-        defer { storage.endEditing() }
-        if !headStyled { style(storage, range: NSRange(location: 0, length: headEnd)) }
+        if !inEdit { storage.beginEditing() }
+        defer { if !inEdit { storage.endEditing() } }
+        if from >= headEnd, !unfinished {
+            // What is above [from] stands for the first screens.
+            headEnd = text.lineRange(for: NSRange(location: min(from, length), length: 0)).location
+        } else if !headStyled, from < headEnd {
+            style(storage, range: NSRange(location: 0, length: headEnd))
+        }
         // The paragraphs around the anchor, when they are not the first screens.
         let at = min(max(0, anchor), length - 1)
         var first = NSRange(location: 0, length: headEnd)

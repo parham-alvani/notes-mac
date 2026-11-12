@@ -462,4 +462,40 @@ import Testing
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
         #expect(!hidden("~~", occurrence: 2) && hidden("~~"))
     }
+
+    /// The font size of the letter at [offset]: a heading's is larger.
+    func size(at offset: Int) -> CGFloat {
+        (view.textStorage?.attribute(.font, at: offset, effectiveRange: nil) as? NSFont)?.pointSize ?? 0
+    }
+
+    /// A paste longer than the editor styles at once: the screens at the
+    /// cursor are styled with the paste, and all of it a moment later.
+    @Test func aLongPasteIsStyledAtTheCursorAtOnceAndAllOfItAfter() async throws {
+        let body = CGFloat(store.settings.textSize)
+        let block = (0..<1200).map { "## Part \($0)\n\nSome words of part \($0), and more of them.\n\n" }.joined()
+        #expect((block as NSString).length > EditorController.atOnce * 2)
+        end()
+        view.insertText(block, replacementRange: view.selectedRange())
+        let text = view.string as NSString
+        #expect(size(at: text.range(of: "## Part 1199").location + 3) > body)
+        let top = text.range(of: "## Part 0\n").location + 3
+        #expect(controller.progressive != nil)
+        let until = Date().addingTimeInterval(5)
+        while controller.progressive != nil, Date() < until { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(controller.progressive == nil)
+        #expect(size(at: top) > body)
+        #expect(size(at: text.range(of: "Some words of part 0").location) == body)
+    }
+
+    /// The keys at many cursors style the lines they edit.
+    @Test func manyCursorsStyleTheLinesTheyEdit() throws {
+        let body = CGFloat(store.settings.textSize)
+        put("one\ntwo\nthree\n", cursor: 0)
+        controller.restyle(all: true)
+        view.setCursors([NSRange(location: 0, length: 0), NSRange(location: 8, length: 0)])
+        view.insertText("# ", replacementRange: view.selectedRange())
+        #expect(view.string == "# one\ntwo\n# three\n")
+        #expect(size(at: 3) > body && size(at: 13) > body)
+        #expect(size(at: 7) == body)
+    }
 }

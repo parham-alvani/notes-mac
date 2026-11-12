@@ -285,6 +285,16 @@ import Testing
             settle(0.2)
         }
         report("select all + delete", stats(times))
+        // A fence typed near the top: each letter of its language changes
+        // the note's structure, so the lines under it are styled again.
+        controller.load("Notes/Long.md")
+        settle(0.6)
+        view.setSelectedRange(NSRange(location: offset(after: "# Bench\n"), length: 0))
+        times = []
+        for letter in "\n```swift" {
+            times.append(frame { view.keyDown(with: key(letter == "\n" ? "\r" : String(letter), code: letter == "\n" ? 36 : 0)) })
+        }
+        report("type a fence near the top, each key", stats(times))
     }
 
     @Test func manyCursors() throws {
