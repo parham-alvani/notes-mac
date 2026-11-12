@@ -29,7 +29,7 @@ import Testing
         store.settings.captureHeading = "Inbox"
         let path = try await store.capture("- [ ] Call Sara")
         #expect(path == "Journal/\(Day.today().description).md")
-        #expect(try text(path) == "# \(Day.today().description)\n## Inbox\n- [ ] Call Sara\n\n## Log\n")
+        #expect(try text(path) == "# \(Day.today().description)\n## Inbox\n\n- [ ] Call Sara\n\n## Log\n")
         // The file is read again: a change made on disk meanwhile stays.
         try "# Today\n## Inbox\n- [ ] Call Sara\n- [ ] Written elsewhere\n".write(to: root.appending(path: path), atomically: true, encoding: .utf8)
         try await store.capture("Idea")
@@ -46,7 +46,7 @@ import Testing
         store.settings.captureTarget = "Notes/Later.md"
         store.settings.captureHeading = "Ideas"
         #expect(try await store.capture("x") == "Notes/Later.md")
-        #expect(try text("Notes/Later.md") == "## Ideas\nx\n")
+        #expect(try text("Notes/Later.md") == "## Ideas\n\nx\n")
         // Never outside the vault.
         store.settings.captureTarget = "../escaped"
         await #expect(throws: (any Error).self) { try await self.store.capture("x") }
@@ -67,7 +67,7 @@ import Testing
         #expect(try await store.capture("- first", on: day) == "Scratchpad.md")
         try await store.capture("- second", on: day)
         try await store.capture("- back to the day before", on: Day(year: 2026, month: 11, day: 6))
-        #expect(try text("Scratchpad.md") == "## 2026-11-06\n\n- an older thought\n- back to the day before\n\n## 2026-11-07\n- first\n- second\n")
+        #expect(try text("Scratchpad.md") == "## 2026-11-06\n\n- an older thought\n- back to the day before\n\n## 2026-11-07\n\n- first\n- second\n")
         // Another format, and a heading with no day in it, as before.
         store.settings.captureHeading = "{{date:dddd D MMMM}}"
         #expect(store.captureHeading(on: day) == "Saturday 7 November")

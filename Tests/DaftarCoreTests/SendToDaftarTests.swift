@@ -42,7 +42,7 @@ import Testing
         let line = SendToDaftar.scratchpadLine(text: "New", url: nil)!
         let heading = SendToDaftar.heading(on: Day("2026-11-12")!)
         #expect(heading == "## 2026-11-12")
-        #expect(QuickCapture.append(line, to: "## 2026-11-11\n\n- old\n", heading: heading) == "## 2026-11-11\n\n- old\n\n## 2026-11-12\n- New\n")
+        #expect(QuickCapture.append(line, to: "## 2026-11-11\n\n- old\n", heading: heading) == "## 2026-11-11\n\n- old\n\n## 2026-11-12\n\n- New\n")
         #expect(QuickCapture.append(line, to: "## 2026-11-12\n\n- old\n\n## 2026-11-13\n", heading: heading) == "## 2026-11-12\n\n- old\n- New\n\n## 2026-11-13\n")
     }
 

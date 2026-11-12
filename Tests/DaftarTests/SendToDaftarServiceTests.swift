@@ -33,14 +33,14 @@ import Testing
     @Test func theSelectionGoesUnderTodayInTheScratchpad() async throws {
         #expect(try await store.addToScratchpad("- New", on: Day("2026-11-12")!) == "Scratchpad.md")
         try await store.addToScratchpad("- <https://example.com>", on: Day("2026-11-12")!)
-        #expect(try text("Scratchpad.md") == "## 2026-11-11\n\n- an older thought\n\n## 2026-11-12\n- New\n- <https://example.com>\n")
+        #expect(try text("Scratchpad.md") == "## 2026-11-11\n\n- an older thought\n\n## 2026-11-12\n\n- New\n- <https://example.com>\n")
         #expect(!store.isUpdatedSinceRead("Scratchpad.md"))
     }
 
     @Test func aScratchpadNotThereIsMade() async throws {
         store.settings.scratchpadNote = "Inbox/Later.md"
         #expect(try await store.addToScratchpad("- x", on: Day("2026-11-12")!) == "Inbox/Later.md")
-        #expect(try text("Inbox/Later.md") == "## 2026-11-12\n- x\n")
+        #expect(try text("Inbox/Later.md") == "## 2026-11-12\n\n- x\n")
     }
 
     @Test func theServiceReadsThePasteboard() async throws {
@@ -50,7 +50,7 @@ import Testing
         services.addToScratchpad(pasteboard(text: "Read later", url: "https://example.com/a"), userData: nil, error: &error)
         #expect(error == nil)
         for _ in 0..<40 where !((try? text("Scratchpad.md")) ?? "").contains("Read later") { try await Task.sleep(for: .milliseconds(50)) }
-        #expect(try text("Scratchpad.md").hasSuffix("## \(Day.today())\n- [Read later](https://example.com/a)\n"))
+        #expect(try text("Scratchpad.md").hasSuffix("## \(Day.today())\n\n- [Read later](https://example.com/a)\n"))
         // Nothing to add is said, and nothing is written.
         let before = try text("Scratchpad.md")
         services.addToScratchpad(pasteboard(text: "  "), userData: nil, error: &error)

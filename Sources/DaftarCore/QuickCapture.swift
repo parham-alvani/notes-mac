@@ -37,7 +37,7 @@ public enum QuickCapture {
             insert(line, inSection: found, of: headings, in: &lines, eol: eol)
         } else {
             let at = (lastFilled(lines, in: 0..<lines.count) ?? -1) + 1
-            insert([String(repeating: "#", count: wanted.level) + " " + wanted.name, line], at: at, in: &lines, eol: eol)
+            insert([String(repeating: "#", count: wanted.level) + " " + wanted.name, "", line], at: at, in: &lines, eol: eol)
         }
         return lines.joined(separator: "\n")
     }
@@ -83,17 +83,17 @@ public enum QuickCapture {
         range.last { !lines[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
-    /// [new] at [at], after a blank line when the line above would take it in:
-    /// a paragraph goes on into a plain line, and `---` above text makes a
-    /// heading of it. A list item after a list item, or anything right under
-    /// a heading, needs none.
+    /// [new] at [at], after a blank line when the line above is not blank: a
+    /// paragraph goes on into a plain line, `---` above text makes a heading of
+    /// it, and a heading wants a blank line under it, as the vault's formatter
+    /// writes it (`daftar-cli fmt`, markdownlint's MD022). Only a list item
+    /// after a list item needs none.
     private static func insert(_ new: [String], at: Int, in lines: inout [String], eol: String) {
         var block = new
         if at > 0 {
             let above = lines[at - 1].trimmingCharacters(in: .whitespacesAndNewlines)
-            let heading = above.hasPrefix("#") && (above.drop { $0 == "#" }.first.map { $0 == " " || $0 == "\t" } ?? true)
             let list = above.prefixMatch(of: listItem) != nil && new[0].prefixMatch(of: listItem) != nil
-            if !above.isEmpty && !heading && !list { block.insert("", at: 0) }
+            if !above.isEmpty && !list { block.insert("", at: 0) }
         }
         lines.insert(contentsOf: block.map { $0 + eol }, at: at)
     }

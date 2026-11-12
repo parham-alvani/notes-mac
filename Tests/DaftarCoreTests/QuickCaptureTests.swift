@@ -19,7 +19,7 @@ import Testing
         #expect(QuickCapture.append("- [ ] New", to: "# Day\n- [ ] Old\n\n\n") == "# Day\n- [ ] Old\n- [ ] New\n\n\n")
         #expect(QuickCapture.append("- [ ] New", to: "- [ ] Old") == "- [ ] Old\n- [ ] New")
         // Under a heading, at once.
-        #expect(QuickCapture.append("Idea", to: "# Day\n") == "# Day\nIdea\n")
+        #expect(QuickCapture.append("Idea", to: "# Day\n") == "# Day\n\nIdea\n")
     }
 
     @Test func goesAtTheEndOfTheSectionOnALine() {
@@ -28,7 +28,7 @@ import Testing
         #expect(QuickCapture.append("- [ ] New", to: note, headingLine: 7) == "# Week\n## Work\n- [ ] A\n\n## Home\n- [ ] B\n\n## Work\n- [ ] C\n- [ ] New\n")
         #expect(QuickCapture.append("- [ ] New", to: note, headingLine: 1) == "# Week\n## Work\n- [ ] A\n- [ ] New\n\n## Home\n- [ ] B\n\n## Work\n- [ ] C\n")
         // An empty section: right under its heading.
-        #expect(QuickCapture.append("- [ ] New", to: "## Inbox\n\n## Later\n", headingLine: 0) == "## Inbox\n- [ ] New\n\n## Later\n")
+        #expect(QuickCapture.append("- [ ] New", to: "## Inbox\n\n## Later\n", headingLine: 0) == "## Inbox\n\n- [ ] New\n\n## Later\n")
         // No heading there, or none asked: the end of the note.
         #expect(QuickCapture.append("- [ ] New", to: note, headingLine: 2) == note + "- [ ] New\n")
         #expect(QuickCapture.append("- [ ] New", to: note, headingLine: nil) == note + "- [ ] New\n")
@@ -52,17 +52,17 @@ import Testing
             QuickCapture.append("- [ ] New", to: note, heading: "## Notes")
                 == "# 2026-10-26\n## Inbox\n- [ ] Old\n\n### Later\n- [ ] Sub\n\n## Notes\nText\n\n- [ ] New\n")
         // An empty section: right under its heading.
-        #expect(QuickCapture.append("x", to: "## Inbox\n\n## Notes\n", heading: "Inbox") == "## Inbox\nx\n\n## Notes\n")
+        #expect(QuickCapture.append("x", to: "## Inbox\n\n## Notes\n", heading: "Inbox") == "## Inbox\n\nx\n\n## Notes\n")
         // An empty heading setting is the end of the note.
-        #expect(QuickCapture.append("x", to: "## Inbox\n- a\n## Notes\n", heading: " ") == "## Inbox\n- a\n## Notes\nx\n")
+        #expect(QuickCapture.append("x", to: "## Inbox\n- a\n## Notes\n", heading: " ") == "## Inbox\n- a\n## Notes\n\nx\n")
     }
 
     @Test func aMissingHeadingIsMadeAtTheEnd() {
-        #expect(QuickCapture.append("- [ ] New", to: "# Day\nText\n", heading: "Inbox") == "# Day\nText\n\n## Inbox\n- [ ] New\n")
-        #expect(QuickCapture.append("- [ ] New", to: "", heading: "### Inbox") == "### Inbox\n- [ ] New\n")
+        #expect(QuickCapture.append("- [ ] New", to: "# Day\nText\n", heading: "Inbox") == "# Day\nText\n\n## Inbox\n\n- [ ] New\n")
+        #expect(QuickCapture.append("- [ ] New", to: "", heading: "### Inbox") == "### Inbox\n\n- [ ] New\n")
         // A heading in code is not a heading.
         #expect(
-            QuickCapture.append("x", to: "```\n## Inbox\n```\n", heading: "Inbox") == "```\n## Inbox\n```\n\n## Inbox\nx\n")
+            QuickCapture.append("x", to: "```\n## Inbox\n```\n", heading: "Inbox") == "```\n## Inbox\n```\n\n## Inbox\n\nx\n")
     }
 
     @Test func keepsCRLF() {
