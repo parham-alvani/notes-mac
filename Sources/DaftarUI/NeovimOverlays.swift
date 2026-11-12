@@ -393,9 +393,10 @@ struct CursorMotion: Equatable {
 /// The keys sent to Neovim, as they come: a key held down repeats, and
 /// the cursor follows a key repeat at once, without a glide or particles.
 struct KeyRepeat {
-    /// Two presses of one key closer than this are a key held down,
-    /// whatever the event says (macOS repeats every 15 to 120 ms).
-    static let gap = 0.09
+    /// Two presses of one key closer than this are a key held down, even
+    /// when the event does not say so (a made-up one): no hand types `gg`
+    /// or `zz` that fast, and those still glide.
+    static let gap = 0.04
     /// How long after its last key a repeat counts as still going: the
     /// cursor's report comes a few milliseconds after the key.
     static let lasts = 0.25

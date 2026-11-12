@@ -144,6 +144,11 @@ import Testing
         #expect(!made.held(at: 20.07))
         made.key(40, at: 20.3, isRepeat: false)
         #expect(!made.held(at: 20.31))
+        // gg typed quickly is two presses, and glides.
+        var typed = KeyRepeat()
+        typed.key(5, at: 30, isRepeat: false)
+        typed.key(5, at: 30.07, isRepeat: false)
+        #expect(!typed.held(at: 30.08))
     }
 
     /// One effect at a time in the view: a new move's particles replace the last one's.
