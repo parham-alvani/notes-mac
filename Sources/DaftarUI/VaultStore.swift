@@ -1151,8 +1151,18 @@ final class VaultStore {
 
     // MARK: Questions the views ask
 
-    /// Week notes of the calendar, read from the index's copy of the files.
+    /// Week notes of the calendar, read from the index's copy of the files;
+    /// read again only after the index changed, not at each drawing of Today.
     func calendarDays(from start: Day, count: Int) -> [CalendarDay] {
+        if let memo = calendarMemo, memo.generation == indexGeneration, memo.start == start, memo.count == count { return memo.days }
+        let days = readCalendarDays(from: start, count: count)
+        calendarMemo = (indexGeneration, start, count, days)
+        return days
+    }
+
+    @ObservationIgnored private var calendarMemo: (generation: Int, start: Day, count: Int, days: [CalendarDay])?
+
+    func readCalendarDays(from start: Day, count: Int) -> [CalendarDay] {
         var paths: [String] = []
         for offset in stride(from: 0, to: count, by: 1) {
             let path = CalendarWeek.path(for: start.adding(days: offset))
