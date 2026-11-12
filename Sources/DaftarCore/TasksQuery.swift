@@ -613,3 +613,45 @@ extension Day {
         Self.utc.component(.weekday, from: date)
     }
 }
+
+/// A ` ```tasks ` block's answer as the reader draws it, worked out from an
+/// index off the main thread: each task with its groups, the links its text
+/// needs, and the lines the query could not read.
+public struct TaskQueryAnswer: Sendable {
+    public struct Row: Sendable {
+        public var path: String
+        public var line: Int
+        public var status: Character
+        public var text: String
+        public var groups: [String]
+        public var closed: Bool
+        /// The status's name when it is one of the vault's own.
+        public var statusName: String?
+        public var reason: String?
+        public var due: String?
+        public var scheduled: String?
+        public var done: String?
+    }
+
+    public var rows: [Row] = []
+    public var notUnderstood: [String] = []
+    public var links: [String: String] = [:]
+
+    public init(_ source: String, in path: String, index: VaultIndex, today: Day) {
+        let query = TasksQuery.parse(source, file: path)
+        let statuses = index.statuses
+        let found = query.run(index.tasksInOrder, today: today) { QueryTask($0, statuses: statuses) }
+        notUnderstood = query.notUnderstood
+        rows = found.map { task in
+            for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
+                if let target = index.resolve(link.target, from: task.path) { links[link.target] = target }
+            }
+            let status = statuses.status(task.task.status)
+            return Row(
+                path: task.path, line: task.task.line, status: task.task.status, text: task.task.text,
+                groups: query.groups(of: QueryTask(task, statuses: statuses)), closed: statuses.isClosed(task.task.status),
+                statusName: status.isDefault ? nil : status.name, reason: task.task.reason, due: task.task.due,
+                scheduled: task.task.scheduled, done: task.task.done)
+        }
+    }
+}

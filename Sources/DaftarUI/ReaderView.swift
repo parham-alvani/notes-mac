@@ -515,7 +515,7 @@ struct ReaderView: NSViewRepresentable {
             }
             if message.name == "tasks" {
                 hasQuery = true
-                return (runQuery(body["source"] as? String ?? "", in: body["path"] as? String ?? ""), nil)
+                return (await runQuery(body["source"] as? String ?? "", in: body["path"] as? String ?? ""), nil)
             }
             if message.name == "base" {
                 // ` ```base ` in a note, or `![[file.base]]`; `this` is the note.
@@ -537,33 +537,39 @@ struct ReaderView: NSViewRepresentable {
 
 extension ReaderView.Coordinator {
     /// The query's result as the page draws it: each task with the groups it
-    /// is under, its note, its line, and the links its text needs.
-    func runQuery(_ source: String, in path: String) -> [String: Any] {
+    /// is under, its note, its line, and the links its text needs. The query
+    /// runs off the main thread (`TaskQueryAnswer`): over every task of a
+    /// large vault it took ~100 ms, at each change of any note.
+    func runQuery(_ source: String, in path: String) async -> [String: Any] {
         let index = parent.store.index
-        let query = TasksQuery.parse(source, file: path)
-        let statuses = index.statuses
-        let found = query.run(index.tasksInOrder, today: .today()) { QueryTask($0, statuses: statuses) }
-        var links: [String: String] = [:]
-        let tasks: [[String: Any]] = found.map { task in
-            trust.tasks.insert(PageTrust.Task(path: task.path, line: task.task.line))
-            for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
-                if let target = index.resolve(link.target, from: task.path) { links[link.target] = target }
+        let today = Day.today()
+        let (answered, page) = await Task.detached(priority: .userInitiated) { () -> ([PageTrust.Task], Page) in
+            let answer = TaskQueryAnswer(source, in: path, index: index, today: today)
+            let tasks: [[String: Any]] = answer.rows.map { task in
+                var row: [String: Any] = [
+                    "path": task.path, "line": task.line, "status": String(task.status),
+                    "text": task.text, "title": Vault.title(of: task.path), "groups": task.groups,
+                    "closed": task.closed,
+                ]
+                // A status of the vault's own is named; the reason follows the text.
+                if let name = task.statusName { row["statusName"] = name }
+                row["reason"] = task.reason
+                row["due"] = task.due
+                row["scheduled"] = task.scheduled
+                row["done"] = task.done
+                return row
             }
-            var row: [String: Any] = [
-                "path": task.path, "line": task.task.line, "status": String(task.task.status),
-                "text": task.task.text, "title": Vault.title(of: task.path), "groups": query.groups(of: QueryTask(task, statuses: statuses)),
-                "closed": statuses.isClosed(task.task.status),
-            ]
-            // A status of the vault's own is named; the reason follows the text.
-            let status = statuses.status(task.task.status)
-            if !status.isDefault { row["statusName"] = status.name }
-            row["reason"] = task.task.reason
-            row["due"] = task.task.due
-            row["scheduled"] = task.task.scheduled
-            row["done"] = task.task.done
-            return row
-        }
-        return ["tasks": tasks, "notUnderstood": query.notUnderstood, "links": links]
+            let trusted = answer.rows.map { PageTrust.Task(path: $0.path, line: $0.line) }
+            return (trusted, Page(value: ["tasks": tasks, "notUnderstood": answer.notUnderstood, "links": answer.links]))
+        }.value
+        trust.tasks.formUnion(answered)
+        return page.value
+    }
+
+    /// What the page is handed, made off the main thread: strings, numbers
+    /// and lists of them, which nothing changes after.
+    struct Page: @unchecked Sendable {
+        var value: [String: Any]
     }
 }
 
