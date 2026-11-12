@@ -258,6 +258,11 @@ public struct ConfigFile: Sendable, Equatable {
         # dictionary, so Persian lines are not marked. Code, links, tags and
         # the front matter are never marked.
         spell_check = true
+        # Format a note you typed in with daftar-cli fmt (the vault's
+        # .prettierrc) when you leave the editor: back to the reader, another
+        # note, closing it, quitting. Never while you type. Edit › Format Note
+        # (⌥⇧⌘F) formats at any time. Needs daftar-cli 0.23.0 or later.
+        format_on_save = true
         # Neovim mode: the cursor slides to where it goes, as in Neovide.
         # "Reduce motion" in macOS turns the slide off too.
         animate_cursor = true

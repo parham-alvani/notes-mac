@@ -80,9 +80,12 @@ final class VaultStore {
     @ObservationIgnored var followers: [ObjectIdentifier: (VaultChange) -> Void] = [:]
     /// Where each note was being read, for every window.
     @ObservationIgnored let places = PlaceBook()
+    /// The audit's findings, its fixes, and format on save (`daftar-cli`).
+    let checks = VaultChecks()
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
+        checks.store = self
         if openVault, let path = settings.vaultPath { open(URL(filePath: path)) }
     }
 
@@ -126,6 +129,7 @@ final class VaultStore {
                 self.loading = false
                 self.revision += 1
                 self.lastChanged = []
+                self.checks.opened(url)
             }
         }
         Task {
@@ -233,6 +237,7 @@ final class VaultStore {
             // Every editor and reader looks at its file again.
             lastChanged = index.files
             revision += 1
+            checks.changed()
             await refreshStatus()
             if rescanAgain {
                 rescanAgain = false
@@ -277,6 +282,7 @@ final class VaultStore {
             index = updated
             lastChanged = changed
             revision += 1
+            checks.changed()
             await refreshStatus()
         }
     }

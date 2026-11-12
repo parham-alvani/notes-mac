@@ -206,6 +206,8 @@ final class WindowModel {
     var inspector = true
     /// The terminal pane under the note.
     var terminal = false
+    /// The Problems panel under the note (⇧⌘M, `ProblemsView.swift`).
+    var problems = false
     @ObservationIgnored let terminalSession = TerminalSession()
     /// Set to select the text in the reader after a search hit opens.
     var findText: String? {

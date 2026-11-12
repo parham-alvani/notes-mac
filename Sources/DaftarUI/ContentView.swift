@@ -129,14 +129,20 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        if store.loading {
-            ProgressView("Reading \(store.name)…")
-        } else if model.showsToday {
-            TodayView(model: model)
-        } else if model.showsBoard {
-            BoardView(model: model)
-        } else {
-            NotePanes(model: model)
+        Group {
+            if store.loading {
+                ProgressView("Reading \(store.name)…")
+            } else if model.showsToday {
+                TodayView(model: model)
+            } else if model.showsBoard {
+                BoardView(model: model)
+            } else {
+                NotePanes(model: model)
+            }
+        }
+        // An inset, so showing the panel leaves the note's view where it is.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if model.problems { ProblemsPanel(model: model).transition(.move(edge: .bottom)) }
         }
     }
 
@@ -181,6 +187,7 @@ struct ContentView: View {
         // The panes are their own group of glass, apart from the note's tools.
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItemGroup(placement: .primaryAction) {
+            if store.checks.counts.total > 0 { ProblemsButton(model: model) }
             Toggle(isOn: $model.terminal) { Label("Terminal", systemImage: "apple.terminal") }
                 .help("Show or hide a terminal in the vault's folder (⌃`)")
             Button { model.inspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }

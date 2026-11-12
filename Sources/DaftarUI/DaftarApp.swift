@@ -37,6 +37,7 @@ public struct DaftarApp: App {
         .commands {
             FileCommands(window: window, store: store)
             EditorModeCommands(window: window, store: store)
+            ProblemsCommands(window: window, store: store)
             CommandGroup(after: .pasteboard) {
                 Button("Copy Block Link") { window?.copyBlockLink(store: store) }
                     .keyboardShortcut("b", modifiers: [.command, .option])
@@ -276,10 +277,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated {
             store?.places.write()
-            guard let store, !store.flushers.isEmpty else { return .terminateNow }
+            guard let store, !store.flushers.isEmpty || store.checks.formatting else { return .terminateNow }
             answered = false
             Task { @MainActor in
                 await store.flushEditors()
+                // Format on save, for the notes still in an editor.
+                await store.checks.formatOpenNotes()
                 self.answer(sender)
             }
             Task { @MainActor in
@@ -536,6 +539,8 @@ private struct EditorSettings: View {
                 Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)
                 Toggle("Dim all but the cursor's paragraph (focus)", isOn: $settings.focusMode)
                 Toggle("Check spelling as you type", isOn: $settings.spellCheck)
+                Toggle("Format the note when you leave the editor", isOn: $settings.formatOnSave)
+                    .help("daftar-cli fmt, with the vault's .prettierrc: never while you type")
                 Toggle("Edit with Neovim", isOn: $settings.vimMode)
                 LabeledContent("nvim") {
                     Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)

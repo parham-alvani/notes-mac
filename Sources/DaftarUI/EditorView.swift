@@ -53,8 +53,10 @@ struct EditorView: NSViewRepresentable {
         controller.onQuit = onQuit
         controller.onOpen = onOpen
         if controller.path != path {
+            let left = controller.leaving
             controller.saveNow()
             controller.load(path)
+            controller.formatOnLeave(left, at: .otherNote)
         } else {
             controller.followDisk()
         }
@@ -66,11 +68,14 @@ struct EditorView: NSViewRepresentable {
 
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
         coordinator.checkHeadings()
+        let left = coordinator.leaving
         coordinator.saveNow()
         coordinator.stopVim()
+        coordinator.formatOnLeave(left, at: .closed)
         coordinator.animator.stop()
         coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
         coordinator.store.followers[ObjectIdentifier(coordinator)] = nil
+        coordinator.store.checks.editors[ObjectIdentifier(coordinator)] = nil
     }
 }
 
@@ -103,6 +108,13 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var locateNeovim: (String) -> URL? = { NeovimClient.locate($0) }
     /// What the file said when it was last read or written.
     private var saved = ""
+    /// What the note said when this editor took it, or took a change on
+    /// disk: format on save formats only a note typed in since
+    /// (`EditorFormat.swift`).
+    var loadedText = ""
+    /// A Neovim that was let go is still writing its file: format on save
+    /// waits for it.
+    var stopping: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var seenRevision = -1
     private var fontKey = ""
@@ -191,6 +203,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         super.init()
         store.flushers[ObjectIdentifier(self)] = { [weak self] in await self?.flush() }
         store.followers[ObjectIdentifier(self)] = { [weak self] in self?.follow($0) }
+        store.checks.editors[ObjectIdentifier(self)] = { [weak self] in self?.leaving }
     }
 
     /// Everything typed is on disk when this returns.
@@ -203,6 +216,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         self.path = path
         let text = store.text(of: path) ?? ""
         saved = text
+        loadedText = text
         headingBaseline = Sections.headings(in: text)
         headingLine = nil
         seenRevision = store.revision
@@ -295,7 +309,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         container?.setStatus(nil, mode: nil)
         // Before the next line of this turn puts another note in the view.
         session.detach()
-        Task { await session.stop(writing: writing) }
+        stopping = Task { await session.stop(writing: writing) }
     }
 
     private func showStatus() {
@@ -354,11 +368,18 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// until it has, or until its limit.
     func windowClosing() {
         checkHeadings()
+        let left = leaving
         switch owner {
         case .plain:
             saveNow()
+            formatOnLeave(left, at: .closed)
         case .neovimRunning:
-            if let session { Task { await session.saveAndWait() } }
+            if let session {
+                Task {
+                    await session.saveAndWait()
+                    self.formatOnLeave(left, at: .closed)
+                }
+            }
         case .neovimStarting, .neovimDead:
             break
         }
@@ -447,6 +468,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let view, let storage = view.textStorage else { return }
         let selection = view.selectedRange()
         saved = disk
+        loadedText = disk
         headingBaseline = Sections.headings(in: disk)
         let edit = Self.smallestEdit(from: storage.string as NSString, to: disk as NSString)
         let length = (edit.text as NSString).length

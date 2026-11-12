@@ -67,6 +67,8 @@ final class AppSettings {
     var focusMode: Bool { didSet { write("editor.focus", .bool(focusMode)) } }
     /// Spelling as you type, each paragraph in its own language.
     var spellCheck: Bool { didSet { write("editor.spell_check", .bool(spellCheck)) } }
+    /// A note typed in is formatted with `daftar-cli fmt` when the editor leaves it.
+    var formatOnSave: Bool { didSet { write("editor.format_on_save", .bool(formatOnSave)) } }
     /// Neovim mode: the cursor slides to where it goes, as Neovide's does.
     var animateCursor: Bool { didSet { write("editor.animate_cursor", .bool(animateCursor)) } }
     /// The sliding cursor stretches: its front corners go first, its back ones follow.
@@ -165,6 +167,7 @@ final class AppSettings {
         typewriter = false
         focusMode = false
         spellCheck = true
+        formatOnSave = true
         animateCursor = true
         cursorTrail = true
         cursorEffect = .none
@@ -233,6 +236,7 @@ final class AppSettings {
         typewriter = file.bool("editor.typewriter") ?? false
         focusMode = file.bool("editor.focus") ?? false
         spellCheck = file.bool("editor.spell_check") ?? true
+        formatOnSave = file.bool("editor.format_on_save") ?? true
         animateCursor = file.bool("editor.animate_cursor") ?? true
         cursorTrail = file.bool("editor.cursor_trail") ?? true
         cursorEffect = file.string("editor.cursor_effect").flatMap(CursorEffect.init(rawValue:)) ?? CursorEffect.none
