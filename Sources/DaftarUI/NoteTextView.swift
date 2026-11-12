@@ -34,6 +34,9 @@ final class NoteTextView: NSTextView {
     /// The margin's tooltip, and who answers it.
     var problemTip: NSView.ToolTipTag?
     lazy var problemTips = ProblemTips(view: self)
+    /// The source line of a line start the margin looked for last, and the
+    /// text's generation then (`EditorController.textGeneration`).
+    var problemLine: (generation: Int, offset: Int, line: Int)?
     var scrollPending = false
     /// Where `zz`, `zt` or `zb` puts the cursor's line at the next scroll.
     var placing: Place?
@@ -118,6 +121,16 @@ final class NoteTextView: NSTextView {
     static let quoteBar = NSAttributedString.Key("DaftarQuoteBar")
     /// A callout's lines, with the name of its panel's colour.
     static let calloutPanel = NSAttributedString.Key("DaftarCalloutPanel")
+
+    /// The text laid out on screen, in UTF-16 offsets; nil before the first layout.
+    func viewportOffsets() -> NSRange? {
+        guard let storage = textStorage, let layout = textLayoutManager, let content = layout.textContentManager,
+            let viewport = layout.textViewportLayoutController.viewportRange
+        else { return nil }
+        let start = max(0, content.offset(from: content.documentRange.location, to: viewport.location))
+        let end = min(storage.length, content.offset(from: content.documentRange.location, to: viewport.endLocation))
+        return NSRange(location: min(start, storage.length), length: max(0, end - min(start, storage.length)))
+    }
 
     /// The panels of the code blocks in [rect].
     private func drawCodePanels(in rect: NSRect) {

@@ -15,18 +15,90 @@ extension EditorController {
         // The text view edits its storage on the main thread only.
         nonisolated(unsafe) let textStorage = textStorage
         MainActor.assumeIsolated {
-            blockStates.edited(at: editedRange.location)
-            guard !replacing else { return }
+            textGeneration += 1
             let text = textStorage.string as NSString
             let lines = text.lineRange(for: editedRange)
+            // The state the line after the edited ones started in before the
+            // edit, when it is known: its start before the edit is a line start.
+            let before = replacing ? nil : blockStates.known(at: NSMaxRange(lines) - delta)
+            blockStates.edited(at: editedRange.location)
+            guard !replacing else { return }
             // A fence, a comment or the front matter that came or went
             // changes the lines after it too; any other edit, only its own.
-            let now = Self.structure(of: text)
-            let rest = now != structure
+            let now = Self.marks(after: editedRange, delta: delta, in: text, from: structure)
+            var rest = !now.elementsEqual(structure) { $0.mark == $1.mark }
             structure = now
             if rest { hiddenFront = frontMatterToHide() }
-            style(textStorage, range: rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines)
+            var range = lines
+            if rest, let before, NSMaxRange(lines) < text.length {
+                // The edited lines' marks changed, but the lines after them
+                // start as they did: a letter typed in a fence's language, or
+                // on a line with an inline `%%` comment or `$$`, restyled the
+                // whole note under it at each key. A fence's own lines take
+                // their colours from its language: they are restyled too.
+                let start = blockStates.state(before: lines.location, in: text)
+                let after = MarkdownHighlighter.blockState(before: NSMaxRange(lines), in: text, from: (lines.location, start))
+                if after == before {
+                    rest = false
+                    if case .fence = after, !Self.isFence(start) { range = NSUnionRange(lines, fenceBody(after: lines, state: after, in: text)) }
+                }
+            }
+            if !rest, let pieces = editPieces, pieces.allSatisfy({ NSMaxRange($0) <= text.length }) {
+                // Many cursors: the lines of each edit, not all between them.
+                var last = NSRange(location: NSNotFound, length: 0)
+                for piece in pieces {
+                    let line = text.lineRange(for: piece)
+                    if last.location != NSNotFound, NSMaxRange(last) >= line.location {
+                        last = NSUnionRange(last, line)
+                        continue
+                    }
+                    if last.location != NSNotFound { style(textStorage, range: last) }
+                    last = line
+                }
+                if last.location != NSNotFound { style(textStorage, range: last) }
+                return
+            }
+            if rest { range = NSRange(location: lines.location, length: text.length - lines.location) }
+            // A long paste, an undo of a long cut, or a fence typed above a
+            // long note: the screens at the edit now, the rest between frames.
+            // Styling it all took 400 ms for a paste of 200,000 letters, and
+            // each letter of a fence's language near the top of a long note
+            // restyled the whole note under it.
+            if range.length > Self.atOnce, session == nil {
+                return restyleProgressively(around: NSMaxRange(editedRange), from: range.location, inEdit: true)
+            }
+            style(textStorage, range: range)
+            // The state the next line starts in, for the next key's `before`.
+            if NSMaxRange(lines) < text.length { _ = blockStates.state(before: NSMaxRange(lines), in: text) }
         }
+    }
+
+    /// The most letters an edit styles at once; more are styled a part at a time.
+    static let atOnce = 24_000
+
+    static func isFence(_ state: MarkdownHighlighter.BlockState) -> Bool {
+        if case .fence = state { return true }
+        return false
+    }
+
+    /// The lines of the code block that [lines] opens, to its closing
+    /// fence, in [state] after them; to the note's end when it is open.
+    func fenceBody(after lines: NSRange, state: MarkdownHighlighter.BlockState, in text: NSString) -> NSRange {
+        let from = NSMaxRange(lines)
+        // Only a line with three of the fence's mark can close it.
+        guard case .fence(let marker) = state, let mark = marker.first else { return NSRange(location: from, length: 0) }
+        let three = String(repeating: mark, count: 3)
+        var at = from
+        while at < text.length {
+            let found = text.range(of: three, options: .literal, range: NSRange(location: at, length: text.length - at))
+            guard found.location != NSNotFound else { break }
+            let line = text.lineRange(for: found)
+            if MarkdownHighlighter.blockState(before: NSMaxRange(line), in: text, from: (from, state)) != state {
+                return NSRange(location: from, length: NSMaxRange(line) - from)
+            }
+            at = NSMaxRange(line)
+        }
+        return NSRange(location: from, length: text.length - from)
     }
 
     func restyle(all: Bool) {
@@ -34,7 +106,7 @@ extension EditorController {
         styling?.cancel()
         progressive = nil
         blockStates = .init()
-        structure = Self.structure(of: storage.string as NSString)
+        structure = Self.marks(of: storage.string as NSString, in: NSRange(location: 0, length: storage.length))
         hiddenFront = frontMatterToHide()
         storage.beginEditing()
         style(storage, range: NSRange(location: 0, length: storage.length))
@@ -47,20 +119,39 @@ extension EditorController {
     /// note opens without a pause at its top or at any line, and the rest
     /// is styled a moment later. A part above the screen keeps the letter
     /// at the top of the screen in its place, as its lines grow or shrink.
-    func restyleProgressively(around anchor: Int = 0) {
+    ///
+    /// [headStyled]: the first screens are styled already, by the run this
+    /// one takes the place of (the note opened, then went to a line).
+    /// [from]: the text before it is styled already, as an edit leaves it.
+    /// [inEdit]: inside the storage's own edit, from `didProcessEditing`.
+    func restyleProgressively(around anchor: Int = 0, from: Int = 0, headStyled: Bool = false, inEdit: Bool = false) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
+        // A run not finished leaves text above [from] to style: this one does it.
+        let unfinished = progressive != nil
         progressive = nil
         blockStates = .init()
-        structure = Self.structure(of: storage.string as NSString)
-        hiddenFront = frontMatterToHide()
-        view?.typingAttributes = base
+        if !inEdit {
+            structure = Self.marks(of: storage.string as NSString, in: NSRange(location: 0, length: storage.length))
+            hiddenFront = frontMatterToHide()
+            view?.typingAttributes = base
+        }
         let part = 12_000
         let length = storage.length
         guard length > 0 else { return style(storage, range: NSRange(location: 0, length: 0)) }
         let text = storage.string as NSString
-        let headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
-        style(storage, range: NSRange(location: 0, length: headEnd))
+        var headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
+        // One edit of the storage for all the attributes: each attribute
+        // set on its own had TextKit drop and find again the layout of the
+        // lines after it, 70 ms to open a long note at a line.
+        if !inEdit { storage.beginEditing() }
+        defer { if !inEdit { storage.endEditing() } }
+        if from >= headEnd, !unfinished {
+            // What is above [from] stands for the first screens.
+            headEnd = text.lineRange(for: NSRange(location: min(from, length), length: 0)).location
+        } else if !headStyled, from < headEnd {
+            style(storage, range: NSRange(location: 0, length: headEnd))
+        }
         // The paragraphs around the anchor, when they are not the first screens.
         let at = min(max(0, anchor), length - 1)
         var first = NSRange(location: 0, length: headEnd)
@@ -106,19 +197,34 @@ extension EditorController {
         }
     }
 
-    /// The lines that open or close a block, as written. It runs on every
-    /// key, so it reads no line on its own: it finds `$$` and `%%` anywhere,
-    /// and ```` ``` ````, `~~~` and `---` at a line's start (after spaces and
-    /// `>`), with one search each over the whole text.
+    /// The lines that open or close a block, as written: it finds `$$` and
+    /// `%%` anywhere, and ```` ``` ````, `~~~` and `---` at a line's start
+    /// (after spaces and `>`), with one search each.
     static func structure(of text: NSString) -> [String] {
-        let length = text.length
+        marks(of: text, in: NSRange(location: 0, length: text.length)).map(\.mark)
+    }
+
+    /// A line that opens or closes a block, where it starts and what it says.
+    struct Mark: Equatable {
+        var location: Int
+        var mark: String
+    }
+
+    /// The marks of the whole lines [range] of [text], in the order of the
+    /// lines. A line's marks depend on its own letters only, so an edit
+    /// finds those of its lines and keeps the others (`marks(after:)`).
+    static func marks(of text: NSString, in range: NSRange) -> [Mark] {
+        let base = range.location, length = range.length, end = NSMaxRange(range)
+        guard length > 0 else { return [] }
         // The letters copied out once and searched here: `range(of:)` took
         // about half a millisecond for each of the five marks in a long note.
-        var units = [unichar](repeating: 0, count: length)
-        text.getCharacters(&units, range: NSRange(location: 0, length: length))
+        let units = [unichar](unsafeUninitializedCapacity: length) { buffer, count in
+            text.getCharacters(buffer.baseAddress!, range: range)
+            count = length
+        }
         /// Where [count] of [mark] in a row are first, at or after [from]: a literal search.
         func find(_ mark: unichar, count: Int, from: Int) -> Int? {
-            var at = from
+            var at = from - base
             while at + count <= length {
                 guard units[at] == mark else {
                     at += 1
@@ -126,44 +232,64 @@ extension EditorController {
                 }
                 var same = 1
                 while same < count, units[at + same] == mark { same += 1 }
-                if same == count { return at }
+                if same == count { return at + base }
                 at += same
             }
             return nil
         }
-        var marks: [(Int, String)] = []
-        for mark: unichar in [36, 37] {  // `$$`, `%%`
-            var from = 0
-            while from < length {
+        var marks: [(Int, Int, String)] = []
+        for (kind, mark) in [(0, unichar(36)), (1, unichar(37))] {  // `$$`, `%%`
+            var from = base
+            while from < end {
                 guard let found = find(mark, count: 2, from: from) else { break }
                 let line = text.lineRange(for: NSRange(location: found, length: 2))
-                marks.append((line.location, text.substring(with: line)))
+                marks.append((line.location, kind, text.substring(with: line)))
                 from = NSMaxRange(line)
             }
         }
         for mark: unichar in [96, 126, 45] {  // ```` ``` ````, `~~~`, `---`
-            var from = 0
-            while from < length {
+            var from = base
+            while from < end {
                 guard let found = find(mark, count: 3, from: from) else { break }
-                var start = 0, end = 0, contents = 0
-                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found, length: 0))
+                var start = 0, lineEnd = 0, contents = 0
+                text.getLineStart(&start, end: &lineEnd, contentsEnd: &contents, for: NSRange(location: found, length: 0))
                 var at = start
-                while at < contents, [32, 9, 62].contains(units[at]) { at += 1 }
+                while at < contents, [32, 9, 62].contains(units[at - base]) { at += 1 }
                 // Only where the line's text begins.
                 if at == found {
                     let rest = text.substring(with: NSRange(location: at, length: contents - at))
                     if mark != 45 {
-                        marks.append((start, rest))
+                        marks.append((start, 2, rest))
                     } else if rest.allSatisfy({ $0 == "-" || $0 == " " }) {
-                        marks.append((start, "---"))
+                        marks.append((start, 2, "---"))
                     }
                 }
-                from = end
+                from = lineEnd
             }
         }
-        // In the order of the lines; where they are does not count, so a
-        // new line above a fence keeps the structure as it was.
-        return marks.sorted { $0.0 < $1.0 }.map(\.1)
+        // In the order of the lines, and on a line `$$`, `%%`, then a fence
+        // or a rule; where they are does not count in the structure, so a
+        // new line above a fence keeps it as it was.
+        return marks.sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map { Mark(location: $0.0, mark: $0.2) }
+    }
+
+    /// The marks after an edit, from [old], the marks before it: those of
+    /// the lines the edit touched (and the lines beside them, which a line
+    /// break typed or taken joins or splits) are found again, the others
+    /// are kept, those after it moved by [delta]. Reading the whole note
+    /// took 0.6 ms a key in a note of 140,000 letters.
+    static func marks(after edited: NSRange, delta: Int, in text: NSString, from old: [Mark]) -> [Mark] {
+        let length = text.length
+        let low = max(0, edited.location - 1)
+        let lines = text.lineRange(for: NSRange(location: low, length: min(length, NSMaxRange(edited) + 1) - low))
+        // The same lines before the edit, from the same line start to the same line end.
+        let oldEnd = NSMaxRange(lines) - delta
+        var out: [Mark] = []
+        out.reserveCapacity(old.count + 4)
+        for mark in old where mark.location < lines.location { out.append(mark) }
+        out += marks(of: text, in: lines)
+        for mark in old where mark.location >= oldEnd { out.append(Mark(location: mark.location + delta, mark: mark.mark)) }
+        return out
     }
 
     private var fontSize: CGFloat { CGFloat(store.settings.textSize) }
@@ -427,8 +553,14 @@ extension EditorController {
         let shown = { (line: NSRange) in
             self.revealed.length > 0 ? NSIntersectionRange(line, self.revealed).length > 0 : NSLocationInRange(self.revealed.location, line)
         }
+        // The spans come a line at a time, so the line of the last span is
+        // looked for first: a line range for each span read a long
+        // paragraph once for each of its marks, 2 ms a key at 4,000 letters.
+        var line = NSRange(location: NSNotFound, length: 0)
         for (index, span) in spans.enumerated() where NSMaxRange(span.range) <= storage.length {
-            let line = text.lineRange(for: span.range)
+            if line.location == NSNotFound || !NSLocationInRange(span.range.location, line) || NSMaxRange(span.range) > NSMaxRange(line) {
+                line = text.lineRange(for: span.range)
+            }
             guard !shown(line) else { continue }
             switch span.kind {
             case .markup:
@@ -471,10 +603,22 @@ extension EditorController {
         let start = min(old.location, text.length)
         let before = text.lineRange(for: NSRange(location: start, length: min(old.length, text.length - start)))
         guard before != now else { return }
-        storage.beginEditing()
         if NSIntersectionRange(before, now).length > 0 {
-            style(storage, range: NSUnionRange(before, now))
+            // Only the lines that came into the selection or left it: a
+            // selection grown by a line, as a drag or ⇧↓ grows it, styled
+            // every line it held, and Select All the whole note.
+            let pieces = [
+                NSRange(location: min(before.location, now.location), length: abs(before.location - now.location)),
+                NSRange(location: min(NSMaxRange(before), NSMaxRange(now)), length: abs(NSMaxRange(before) - NSMaxRange(now))),
+            ].filter { $0.length > 0 }
+            if pieces.reduce(0, { $0 + $1.length }) > Self.atOnce, session == nil {
+                // The lines on screen now, the rest between frames.
+                return restyleProgressively(around: view.viewportOffsets()?.location ?? now.location, headStyled: false)
+            }
+            storage.beginEditing()
+            for piece in pieces { style(storage, range: piece) }
         } else {
+            storage.beginEditing()
             for range in [old, now] where NSMaxRange(range) <= storage.length {
                 style(storage, range: text.lineRange(for: range))
             }

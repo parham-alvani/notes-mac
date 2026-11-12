@@ -22,6 +22,10 @@ test: web
 bench: web
     DAFTAR_BENCH=1 swift test -c release --filter BenchmarkTests
 
+# the plain editor's main-thread time per key and per frame, on a long note in a window, in a release build
+bench-editor: web
+    DAFTAR_BENCH=1 swift test -c release --filter EditorBenchmarkTests
+
 # build/Daftar.app, signed ad hoc
 app: web
     swift build -c release --arch arm64

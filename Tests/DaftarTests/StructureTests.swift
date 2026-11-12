@@ -57,4 +57,29 @@ import Testing
             #expect(EditorController.structure(of: text) == Self.lineByLine(text), "\((text as String).debugDescription)")
         }
     }
+
+    /// The marks an edit keeps and finds again are those of the whole text
+    /// after it, whatever the edit: a line break typed or taken (`\r\n` too),
+    /// a mark split or joined, text at either end.
+    @Test func theMarksOfAnEditAreThoseOfTheWholeText() {
+        var generator = SystemRandomNumberGenerator()
+        let typed = ["\n", "\r", "\r\n", "`", "``", "$", "%", "-", " ", ">", "x", "~", "```js\n", "$$\n", "---\n"]
+        for _ in 0..<3000 {
+            let count = Int.random(in: 0...10, using: &generator)
+            let text = NSMutableString(string: (0..<count).map { _ in Self.pieces.randomElement(using: &generator)! }.joined(separator: "\n"))
+            var marks = EditorController.marks(of: text, in: NSRange(location: 0, length: text.length))
+            for _ in 0..<4 {
+                let at = Int.random(in: 0...text.length, using: &generator)
+                let gone = Int.random(in: 0...min(3, text.length - at), using: &generator)
+                let added = Bool.random(using: &generator) ? typed.randomElement(using: &generator)! : ""
+                let before = text.copy() as! String
+                text.replaceCharacters(in: NSRange(location: at, length: gone), with: added)
+                let edited = NSRange(location: at, length: (added as NSString).length)
+                marks = EditorController.marks(after: edited, delta: (added as NSString).length - gone, in: text, from: marks)
+                let whole = EditorController.marks(of: text, in: NSRange(location: 0, length: text.length))
+                #expect(marks == whole, "\(before.debugDescription) -> \((text as String).debugDescription)")
+                if marks != whole { return }
+            }
+        }
+    }
 }

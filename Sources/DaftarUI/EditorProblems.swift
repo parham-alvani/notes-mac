@@ -31,14 +31,11 @@ extension NoteTextView {
 
     /// The dots of the lines on screen.
     func drawProblemMarks(in rect: NSRect) {
-        guard !problemMarks.isEmpty, let storage = textStorage, storage.length > 0, let layout = textLayoutManager,
-            let content = layout.textContentManager, let viewport = layout.textViewportLayoutController.viewportRange
-        else { return }
+        guard !problemMarks.isEmpty, let storage = textStorage, storage.length > 0, let viewport = viewportOffsets() else { return }
         let text = storage.string as NSString
-        let start = max(0, content.offset(from: content.documentRange.location, to: viewport.location))
-        let end = min(text.length, content.offset(from: content.documentRange.location, to: viewport.endLocation))
-        var offset = text.lineRange(for: NSRange(location: min(start, text.length), length: 0)).location
-        var line = EditorController.line(of: offset, in: text)
+        let end = NSMaxRange(viewport)
+        var offset = text.lineRange(for: NSRange(location: viewport.location, length: 0)).location
+        var line = line(of: offset, in: text)
         let x = problemMarkX
         while offset <= end {
             if let marks = problemMarks[line], let row = lineRect(at: offset) {
@@ -52,6 +49,23 @@ extension NoteTextView {
             offset = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
             line += 1
         }
+    }
+
+    /// The source line of the line start [offset]: the lines counted from
+    /// the place asked last, while the text is the same, not from the top
+    /// of the note at every frame of a scroll.
+    private func line(of offset: Int, in text: NSString) -> Int {
+        let generation = controller?.textGeneration ?? -1
+        var line: Int
+        if let last = problemLine, last.generation == generation, generation >= 0, last.offset <= text.length {
+            let low = min(last.offset, offset), high = max(last.offset, offset)
+            let between = EditorController.newlines(in: NSRange(location: low, length: high - low), of: text)
+            line = offset >= last.offset ? last.line + between : last.line - between
+        } else {
+            line = EditorController.line(of: offset, in: text)
+        }
+        problemLine = (generation, offset, line)
+        return line
     }
 
     /// The messages of the line at [point], one a line.
