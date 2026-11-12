@@ -495,12 +495,18 @@ struct SearchResults: View {
         let asked = model.query
         let query = model.query.trimmingCharacters(in: .whitespaces)
         if query.hasPrefix("#"), !query.contains(" ") {
+            // Every note's tags, folded: off the main thread, as the full-text search is.
             let tag = Slugs.fold(String(query.dropFirst()))
-            hits = store.index.notes.values
-                .filter { !store.excluded.contains($0.path) }
-                .filter { $0.parsed.tags.contains { Slugs.fold($0) == tag || Slugs.fold($0).hasPrefix(tag + "/") } }
-                .map { SearchIndex.Hit(path: $0.path, snippet: "") }
-                .sorted { $0.path < $1.path }
+            let index = store.index, excluded = store.excluded
+            let found = await Task.detached(priority: .userInitiated) {
+                index.notes.values
+                    .filter { $0.parsed.tags.contains { Slugs.fold($0) == tag || Slugs.fold($0).hasPrefix(tag + "/") } }
+                    .filter { !excluded.contains($0.path) }
+                    .map { SearchIndex.Hit(path: $0.path, snippet: "") }
+                    .sorted { $0.path < $1.path }
+            }.value
+            guard !Task.isCancelled, asked == model.query else { return }
+            hits = found
             searchedFor = asked
             return
         }
