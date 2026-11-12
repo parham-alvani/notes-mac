@@ -340,8 +340,8 @@ private struct BuildRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(title).font(.callout)
-                Spacer()
+                Text(title).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
                 Button("Cancel") { MeaningService.shared.cancelBuild() }
                     .buttonStyle(.borderless).controlSize(.small)
                     .accessibilityLabel(build.downloading ? "Cancel the download" : "Cancel indexing")
