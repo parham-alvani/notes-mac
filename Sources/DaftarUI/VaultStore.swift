@@ -445,12 +445,14 @@ final class VaultStore {
         guard let root, let note = index.notes[path] else { return [] }
         let names = [Vault.title(of: path)] + note.parsed.aliases
         let linking = Set((index.backlinks[path] ?? []).map(\.source))
-        var sources = Set<String>()
-        for name in names where name.count >= UnlinkedMentions.shortest {
-            for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
-        }
-        let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
+        let search = search, excluded = excluded
         return await Task.detached(priority: .userInitiated) {
+            // The full-text searches too: each runs SQLite, after every save of the note.
+            var sources = Set<String>()
+            for name in names where name.count >= UnlinkedMentions.shortest {
+                for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
+            }
+            let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
             var out: [MentionHit] = []
             for source in candidates {
                 guard let text = try? String(contentsOf: root.appending(path: source), encoding: .utf8) else { continue }
