@@ -617,7 +617,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         offset = min(offset, text.length)
         // A note still being styled a part at a time is styled from this
         // line first, so the line is laid out as it will stay.
-        if let done = progressive, !NSLocationInRange(offset, done) { restyleProgressively(around: offset) }
+        if let done = progressive, !NSLocationInRange(offset, done) { restyleProgressively(around: offset, headStyled: true) }
         // The view shows the line at once, Neovim or not: while Neovim
         // starts, a view left at the top of the note showed the top first
         // and then jumped to the line.

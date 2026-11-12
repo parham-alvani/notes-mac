@@ -47,9 +47,13 @@ extension EditorController {
     /// note opens without a pause at its top or at any line, and the rest
     /// is styled a moment later. A part above the screen keeps the letter
     /// at the top of the screen in its place, as its lines grow or shrink.
-    func restyleProgressively(around anchor: Int = 0) {
+    ///
+    /// [headStyled]: the first screens are styled already, by the run this
+    /// one takes the place of (the note opened, then went to a line).
+    func restyleProgressively(around anchor: Int = 0, headStyled: Bool = false) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
+        let headStyled = headStyled && progressive != nil
         progressive = nil
         blockStates = .init()
         structure = Self.structure(of: storage.string as NSString)
@@ -60,7 +64,12 @@ extension EditorController {
         guard length > 0 else { return style(storage, range: NSRange(location: 0, length: 0)) }
         let text = storage.string as NSString
         let headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
-        style(storage, range: NSRange(location: 0, length: headEnd))
+        // One edit of the storage for all the attributes: each attribute
+        // set on its own had TextKit drop and find again the layout of the
+        // lines after it, 70 ms to open a long note at a line.
+        storage.beginEditing()
+        defer { storage.endEditing() }
+        if !headStyled { style(storage, range: NSRange(location: 0, length: headEnd)) }
         // The paragraphs around the anchor, when they are not the first screens.
         let at = min(max(0, anchor), length - 1)
         var first = NSRange(location: 0, length: headEnd)
