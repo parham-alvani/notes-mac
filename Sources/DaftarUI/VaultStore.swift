@@ -217,8 +217,6 @@ final class VaultStore {
         if read != beautitab { beautitab = read }
     }
 
-    func setIndexForProbe(_ updated: VaultIndex) { index = updated; revision += 1 }
-
     /// For tests: what the file watcher reports, without waiting for it.
     func noteChanged(_ path: String) {
         lastChanged = [path]
@@ -1165,7 +1163,7 @@ final class VaultStore {
 
     @ObservationIgnored private var calendarMemo: (generation: Int, start: Day, count: Int, days: [CalendarDay])?
 
-    func readCalendarDays(from start: Day, count: Int) -> [CalendarDay] {
+    private func readCalendarDays(from start: Day, count: Int) -> [CalendarDay] {
         var paths: [String] = []
         for offset in stride(from: 0, to: count, by: 1) {
             let path = CalendarWeek.path(for: start.adding(days: offset))

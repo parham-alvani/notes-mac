@@ -52,7 +52,7 @@ final class SidebarFacts {
         refresh()
     }
 
-    func refresh() {
+    private func refresh() {
         guard let store else { return }
         let index = store.index
         let tree = store.tree
