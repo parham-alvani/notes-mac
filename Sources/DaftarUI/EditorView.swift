@@ -113,6 +113,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// The text is being replaced whole, and styled after.
     var replacing = false
     var styling: Task<Void, Never>?
+    /// The part of the note styled so far while the rest is styled a part
+    /// at a time (`restyleProgressively`); nil when all of it is.
+    var progressive: NSRange?
     private var shownMode = ""
     // What the styling keeps (`EditorStyling.swift`).
     /// The lines the selection is on, where every mark shows.
@@ -222,6 +225,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         revealed = (text as NSString).lineRange(for: NSRange(location: 0, length: 0))
         replacing = false
         restyleProgressively()
+        // Styled with the fonts of now: the view's first update does not style it all again.
+        fontKey = textSizeKey
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.scrollToBeginningOfDocument(nil)
         view.undoManager?.removeAllActions()
@@ -487,9 +492,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         )
     }
 
-    func applyTextSize() {
+    /// What the styling's fonts depend on: a change styles the whole note again.
+    private var textSizeKey: String {
         let settings = store.settings
-        let key = "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
+        return "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
+    }
+
+    func applyTextSize() {
+        let key = textSizeKey
         view?.fitMargins()
         guard key != fontKey else { return }
         fontKey = key
@@ -567,6 +577,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             offset = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
         }
         offset = min(offset, text.length)
+        // A note still being styled a part at a time is styled from this
+        // line first, so the line is laid out as it will stay.
+        if let done = progressive, !NSLocationInRange(offset, done) { restyleProgressively(around: offset) }
         // The view shows the line at once, Neovim or not: while Neovim
         // starts, a view left at the top of the note showed the top first
         // and then jumped to the line.

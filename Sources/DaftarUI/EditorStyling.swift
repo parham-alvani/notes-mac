@@ -31,6 +31,7 @@ extension EditorController {
     func restyle(all: Bool) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
+        progressive = nil
         structure = Self.structure(of: storage.string as NSString)
         hiddenFront = frontMatterToHide()
         storage.beginEditing()
@@ -39,34 +40,65 @@ extension EditorController {
         view?.typingAttributes = base
     }
 
-    /// The first screens at once, the rest a part at a time between frames:
-    /// a long note opens without a pause, and its end is styled a moment later.
-    func restyleProgressively() {
+    /// The first screens and the screens around [anchor] at once, the rest
+    /// a part at a time between frames, below and above in turn: a long
+    /// note opens without a pause at its top or at any line, and the rest
+    /// is styled a moment later. A part above the screen keeps the letter
+    /// at the top of the screen in its place, as its lines grow or shrink.
+    func restyleProgressively(around anchor: Int = 0) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
+        progressive = nil
         structure = Self.structure(of: storage.string as NSString)
         hiddenFront = frontMatterToHide()
         view?.typingAttributes = base
         let part = 12_000
-        func next(after start: Int) -> NSRange? {
-            let length = storage.length
-            guard start < length else { return nil }
-            let text = storage.string as NSString
-            let end = NSMaxRange(text.paragraphRange(for: NSRange(location: min(start + part, length - 1), length: 0)))
-            return NSRange(location: start, length: end - start)
+        let length = storage.length
+        guard length > 0 else { return style(storage, range: NSRange(location: 0, length: 0)) }
+        let text = storage.string as NSString
+        let headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
+        style(storage, range: NSRange(location: 0, length: headEnd))
+        // The paragraphs around the anchor, when they are not the first screens.
+        let at = min(max(0, anchor), length - 1)
+        var first = NSRange(location: 0, length: headEnd)
+        if at + part / 2 > headEnd {
+            let low = max(headEnd, text.paragraphRange(for: NSRange(location: max(0, at - part / 2), length: 0)).location)
+            let high = NSMaxRange(text.paragraphRange(for: NSRange(location: min(at + part / 2, length - 1), length: 0)))
+            first = NSRange(location: low, length: high - low)
+            style(storage, range: first)
         }
-        guard let first = next(after: 0) else { return style(storage, range: NSRange(location: 0, length: 0)) }
-        style(storage, range: first)
-        var done = NSMaxRange(first)
-        guard done < storage.length else { return }
+        guard first.location > headEnd || NSMaxRange(first) < length else { return }
+        progressive = first
         styling = Task { [weak self] in
+            var down = true
             while let self, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(1))
-                guard !Task.isCancelled, let storage = self.view?.textStorage, let range = next(after: done) else { return }
+                guard !Task.isCancelled, let view = self.view, let storage = view.textStorage, let done = self.progressive else { return }
+                let length = storage.length
+                let text = storage.string as NSString
+                let head = min(headEnd, length)
+                let below = min(NSMaxRange(done), length), above = max(head, min(done.location, length))
+                guard below < length || above > head else {
+                    self.progressive = nil
+                    return
+                }
+                // Below and above in turn, until one side is done; the first screens are.
+                if below >= length { down = false } else if above <= head { down = true }
+                let range: NSRange
+                if down {
+                    let end = NSMaxRange(text.paragraphRange(for: NSRange(location: min(below + part, length - 1), length: 0)))
+                    range = NSRange(location: below, length: end - below)
+                    self.progressive = NSRange(location: above, length: end - above)
+                } else {
+                    let start = max(head, text.paragraphRange(for: NSRange(location: max(0, above - part), length: 0)).location)
+                    range = NSRange(location: start, length: above - start)
+                    self.progressive = NSRange(location: start, length: below - start)
+                    view.holdScroll(editing: range, with: range.length)
+                }
+                down.toggle()
                 storage.beginEditing()
                 self.style(storage, range: range)
                 storage.endEditing()
-                done = NSMaxRange(range)
             }
         }
     }
