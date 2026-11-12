@@ -18,6 +18,11 @@ struct BoardView: View {
     /// grouping draws the board again and must not walk every task again.
     @ViewState private var shownMemo = Memo<ShownKey, [VaultTask]>()
     @ViewState private var filesMemo = Memo<Int, [String]>()
+    /// The columns and the count of open tasks, kept until the tasks, a
+    /// filter, the grouping or the day change: a card dragged over a
+    /// column draws the board again, and the columns of 53,000 tasks took
+    /// 100 to 370 ms to make.
+    @ViewState private var columnsMemo = Memo<ColumnsKey, (columns: [TaskBoard.Column], open: Int)>()
 
     private struct ShownKey: Equatable {
         var revision: Int
@@ -25,12 +30,24 @@ struct BoardView: View {
         var query: String
     }
 
+    private struct ColumnsKey: Equatable {
+        var shown: ShownKey
+        var grouping: TaskBoard.Grouping
+        var allClosed: Bool
+        var today: Day
+        var statuses: TaskStatuses
+    }
+
     var body: some View {
         let tasks = shown
         let statuses = store.index.statuses
-        let columns = TaskBoard.columns(tasks, by: grouping, today: .today(), closedWithin: allClosed ? nil : 14, statuses: statuses)
+        let today = Day.today()
+        let key = ColumnsKey(shown: ShownKey(revision: store.revision, file: file, query: query), grouping: grouping, allClosed: allClosed, today: today, statuses: statuses)
+        let (columns, open) = columnsMemo.value(for: key) {
+            (TaskBoard.columns(tasks, by: grouping, today: today, closedWithin: allClosed ? nil : 14, statuses: statuses), tasks.filter { $0.task.isOpen(in: statuses) }.count)
+        }
         VStack(spacing: 0) {
-            header(count: tasks.filter { $0.task.isOpen(in: statuses) }.count)
+            header(count: open)
             if columns.allSatisfy(\.tasks.isEmpty) {
                 ContentUnavailableView {
                     Label(query.isEmpty ? "No tasks" : "No task matches “\(query)”", systemImage: "checklist")

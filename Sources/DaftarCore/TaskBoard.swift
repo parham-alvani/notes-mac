@@ -53,10 +53,10 @@ public enum TaskBoard {
                 }
             }
             return [
-                Column(id: "todo", title: "To Do", tasks: todo.sorted(by: open), drop: .status(" ")),
-                Column(id: "doing", title: "In Progress", tasks: doing.sorted(by: open), drop: .status("/")),
-                Column(id: "done", title: "Done", tasks: done.sorted { closed($0.task.done, $1.task.done, $0, $1) }, drop: .status("x")),
-                Column(id: "cancelled", title: "Cancelled", tasks: cancelled.sorted { closed($0.task.cancelled, $1.task.cancelled, $0, $1) }, drop: .status("-")),
+                Column(id: "todo", title: "To Do", tasks: sortedOpen(todo), drop: .status(" ")),
+                Column(id: "doing", title: "In Progress", tasks: sortedOpen(doing), drop: .status("/")),
+                Column(id: "done", title: "Done", tasks: sortedClosed(done, by: \.done), drop: .status("x")),
+                Column(id: "cancelled", title: "Cancelled", tasks: sortedClosed(cancelled, by: \.cancelled), drop: .status("-")),
             ]
         case .day:
             let tomorrow = today.adding(days: 1), week = today.adding(days: 7)
@@ -78,13 +78,34 @@ public enum TaskBoard {
                 ("later", "Later", nil),
                 ("none", "No Date", .due(nil)),
             ]
-            return all.map { Column(id: $0.0, title: $0.1, tasks: (columns[$0.0] ?? []).sorted(by: open), drop: $0.2) }
+            return all.map { Column(id: $0.0, title: $0.1, tasks: sortedOpen(columns[$0.0] ?? []), drop: $0.2) }
         case .file:
             let byFile = Dictionary(grouping: tasks.filter { $0.task.isOpen(in: statuses) }, by: \.path)
-            return byFile.keys.sorted { Vault.title(of: $0).localizedStandardCompare(Vault.title(of: $1)) == .orderedAscending }.map {
-                Column(id: $0, title: Vault.title(of: $0), tasks: byFile[$0]!.sorted(by: open), drop: nil)
+            // Each title once, not twice in every comparison of the sort.
+            let titled = byFile.keys.map { (path: $0, title: Vault.title(of: $0)) }
+            return titled.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }.map {
+                Column(id: $0.path, title: $0.title, tasks: sortedOpen(byFile[$0.path]!), drop: nil)
             }
         }
+    }
+
+    /// [tasks] in the order of [open], with each task's day and rank worked
+    /// out once before the sort: the comparator made them again for every
+    /// comparison, a third of a second for a column of 35,000 tasks.
+    static func sortedOpen(_ tasks: [VaultTask]) -> [VaultTask] {
+        let keys = tasks.map { (day: $0.task.day ?? "9999", rank: rank($0.task.priority)) }
+        return tasks.indices.sorted { i, j in
+            if keys[i].day != keys[j].day { return keys[i].day < keys[j].day }
+            if keys[i].rank != keys[j].rank { return keys[i].rank < keys[j].rank }
+            let a = tasks[i], b = tasks[j]
+            return (a.path, a.task.line) < (b.path, b.task.line)
+        }.map { tasks[$0] }
+    }
+
+    /// [tasks] in the order of [closed], by the date at [date].
+    static func sortedClosed(_ tasks: [VaultTask], by date: KeyPath<ParsedTask, String?>) -> [VaultTask] {
+        let keys = tasks.map { $0.task[keyPath: date] }
+        return tasks.indices.sorted { i, j in closed(keys[i], keys[j], tasks[i], tasks[j]) }.map { tasks[$0] }
     }
 
     /// The order of open tasks: by day, the ones with none last, then by
