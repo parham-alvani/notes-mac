@@ -25,8 +25,8 @@ extension EditorController {
             guard !replacing else { return }
             // A fence, a comment or the front matter that came or went
             // changes the lines after it too; any other edit, only its own.
-            let now = Self.structure(of: text)
-            var rest = now != structure
+            let now = Self.marks(after: editedRange, delta: delta, in: text, from: structure)
+            var rest = !now.elementsEqual(structure) { $0.mark == $1.mark }
             structure = now
             if rest { hiddenFront = frontMatterToHide() }
             var range = lines
@@ -106,7 +106,7 @@ extension EditorController {
         styling?.cancel()
         progressive = nil
         blockStates = .init()
-        structure = Self.structure(of: storage.string as NSString)
+        structure = Self.marks(of: storage.string as NSString, in: NSRange(location: 0, length: storage.length))
         hiddenFront = frontMatterToHide()
         storage.beginEditing()
         style(storage, range: NSRange(location: 0, length: storage.length))
@@ -132,7 +132,7 @@ extension EditorController {
         progressive = nil
         blockStates = .init()
         if !inEdit {
-            structure = Self.structure(of: storage.string as NSString)
+            structure = Self.marks(of: storage.string as NSString, in: NSRange(location: 0, length: storage.length))
             hiddenFront = frontMatterToHide()
             view?.typingAttributes = base
         }
@@ -197,19 +197,34 @@ extension EditorController {
         }
     }
 
-    /// The lines that open or close a block, as written. It runs on every
-    /// key, so it reads no line on its own: it finds `$$` and `%%` anywhere,
-    /// and ```` ``` ````, `~~~` and `---` at a line's start (after spaces and
-    /// `>`), with one search each over the whole text.
+    /// The lines that open or close a block, as written: it finds `$$` and
+    /// `%%` anywhere, and ```` ``` ````, `~~~` and `---` at a line's start
+    /// (after spaces and `>`), with one search each.
     static func structure(of text: NSString) -> [String] {
-        let length = text.length
+        marks(of: text, in: NSRange(location: 0, length: text.length)).map(\.mark)
+    }
+
+    /// A line that opens or closes a block, where it starts and what it says.
+    struct Mark: Equatable {
+        var location: Int
+        var mark: String
+    }
+
+    /// The marks of the whole lines [range] of [text], in the order of the
+    /// lines. A line's marks depend on its own letters only, so an edit
+    /// finds those of its lines and keeps the others (`marks(after:)`).
+    static func marks(of text: NSString, in range: NSRange) -> [Mark] {
+        let base = range.location, length = range.length, end = NSMaxRange(range)
+        guard length > 0 else { return [] }
         // The letters copied out once and searched here: `range(of:)` took
         // about half a millisecond for each of the five marks in a long note.
-        var units = [unichar](repeating: 0, count: length)
-        text.getCharacters(&units, range: NSRange(location: 0, length: length))
+        let units = [unichar](unsafeUninitializedCapacity: length) { buffer, count in
+            text.getCharacters(buffer.baseAddress!, range: range)
+            count = length
+        }
         /// Where [count] of [mark] in a row are first, at or after [from]: a literal search.
         func find(_ mark: unichar, count: Int, from: Int) -> Int? {
-            var at = from
+            var at = from - base
             while at + count <= length {
                 guard units[at] == mark else {
                     at += 1
@@ -217,44 +232,64 @@ extension EditorController {
                 }
                 var same = 1
                 while same < count, units[at + same] == mark { same += 1 }
-                if same == count { return at }
+                if same == count { return at + base }
                 at += same
             }
             return nil
         }
-        var marks: [(Int, String)] = []
-        for mark: unichar in [36, 37] {  // `$$`, `%%`
-            var from = 0
-            while from < length {
+        var marks: [(Int, Int, String)] = []
+        for (kind, mark) in [(0, unichar(36)), (1, unichar(37))] {  // `$$`, `%%`
+            var from = base
+            while from < end {
                 guard let found = find(mark, count: 2, from: from) else { break }
                 let line = text.lineRange(for: NSRange(location: found, length: 2))
-                marks.append((line.location, text.substring(with: line)))
+                marks.append((line.location, kind, text.substring(with: line)))
                 from = NSMaxRange(line)
             }
         }
         for mark: unichar in [96, 126, 45] {  // ```` ``` ````, `~~~`, `---`
-            var from = 0
-            while from < length {
+            var from = base
+            while from < end {
                 guard let found = find(mark, count: 3, from: from) else { break }
-                var start = 0, end = 0, contents = 0
-                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found, length: 0))
+                var start = 0, lineEnd = 0, contents = 0
+                text.getLineStart(&start, end: &lineEnd, contentsEnd: &contents, for: NSRange(location: found, length: 0))
                 var at = start
-                while at < contents, [32, 9, 62].contains(units[at]) { at += 1 }
+                while at < contents, [32, 9, 62].contains(units[at - base]) { at += 1 }
                 // Only where the line's text begins.
                 if at == found {
                     let rest = text.substring(with: NSRange(location: at, length: contents - at))
                     if mark != 45 {
-                        marks.append((start, rest))
+                        marks.append((start, 2, rest))
                     } else if rest.allSatisfy({ $0 == "-" || $0 == " " }) {
-                        marks.append((start, "---"))
+                        marks.append((start, 2, "---"))
                     }
                 }
-                from = end
+                from = lineEnd
             }
         }
-        // In the order of the lines; where they are does not count, so a
-        // new line above a fence keeps the structure as it was.
-        return marks.sorted { $0.0 < $1.0 }.map(\.1)
+        // In the order of the lines, and on a line `$$`, `%%`, then a fence
+        // or a rule; where they are does not count in the structure, so a
+        // new line above a fence keeps it as it was.
+        return marks.sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map { Mark(location: $0.0, mark: $0.2) }
+    }
+
+    /// The marks after an edit, from [old], the marks before it: those of
+    /// the lines the edit touched (and the lines beside them, which a line
+    /// break typed or taken joins or splits) are found again, the others
+    /// are kept, those after it moved by [delta]. Reading the whole note
+    /// took 0.6 ms a key in a note of 140,000 letters.
+    static func marks(after edited: NSRange, delta: Int, in text: NSString, from old: [Mark]) -> [Mark] {
+        let length = text.length
+        let low = max(0, edited.location - 1)
+        let lines = text.lineRange(for: NSRange(location: low, length: min(length, NSMaxRange(edited) + 1) - low))
+        // The same lines before the edit, from the same line start to the same line end.
+        let oldEnd = NSMaxRange(lines) - delta
+        var out: [Mark] = []
+        out.reserveCapacity(old.count + 4)
+        for mark in old where mark.location < lines.location { out.append(mark) }
+        out += marks(of: text, in: lines)
+        for mark in old where mark.location >= oldEnd { out.append(Mark(location: mark.location + delta, mark: mark.mark)) }
+        return out
     }
 
     private var fontSize: CGFloat { CGFloat(store.settings.textSize) }

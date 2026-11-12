@@ -128,7 +128,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// The note's block delimiters in order: fences, `$$`, `%%` and `---`
     /// lines. An edit that changes them restyles the rest of the note; any
     /// other edit restyles its own lines only.
-    var structure: [String] = []
+    var structure: [Mark] = []
     /// The text is being replaced whole, and styled after.
     var replacing = false
     /// The edits of many cursors being made, where their text is after
