@@ -34,7 +34,7 @@ final class MeaningService {
     @ObservationIgnored private var changedDuringBuild = false
     @ObservationIgnored private weak var store: VaultStore?
     /// Finds the `daftar-cli` to run; a test gives its own.
-    @ObservationIgnored var findCLI: () -> String? = { PDFExport.cli() }
+    @ObservationIgnored var findCLI: () -> String? = { DaftarCLI.locate() }
     /// The `daftar-cli` that was too old, by its date: an upgrade changes it.
     @ObservationIgnored private var oldCLI: (path: String, date: Date?)?
 
@@ -43,26 +43,26 @@ final class MeaningService {
     /// The notes nearest [query] in meaning, or why there are none. Nil when
     /// the task was cancelled (a key typed over it).
     func search(_ query: String, vault: URL) async -> Result<[Meaning.Hit], Meaning.Failure>? {
-        await ask(Meaning.searchArguments(vault: vault, query: query), priority: .userInitiated)
+        await ask(Meaning.searchArguments(vault: vault, query: query), vault: vault, priority: .userInitiated)
     }
 
     /// The notes nearest [note] that it does not link to yet.
     func related(_ note: String, vault: URL) async -> Result<[Meaning.Hit], Meaning.Failure>? {
-        await ask(Meaning.relatedArguments(vault: vault, note: note), priority: .utility)
+        await ask(Meaning.relatedArguments(vault: vault, note: note), vault: vault, priority: .utility)
     }
 
-    private func ask(_ arguments: [String], priority: QualityOfService) async -> Result<[Meaning.Hit], Meaning.Failure>? {
+    private func ask(_ arguments: [String], vault: URL, priority: QualityOfService) async -> Result<[Meaning.Hit], Meaning.Failure>? {
         guard let cli = findCLI() else {
             availability = .notInstalled
-            return .failure(.failed(CLIProcess.notInstalled))
+            return .failure(.failed(DaftarCLI.notInstalled))
         }
         // One notice for an old `daftar-cli`, not a process at every key.
         if let oldCLI, oldCLI.path == cli, oldCLI.date == Self.modified(cli) { return .failure(.needsUpgrade) }
-        let output: CLIProcess.Output
+        let output: DaftarCLI.Output
         do {
-            output = try await CLIProcess.run(cli: cli, arguments, priority: priority)
+            output = try await DaftarCLI.run(cli, arguments, in: vault, quality: priority)
         } catch {
-            return Task.isCancelled ? nil : .failure(.failed((error as? CLIProcess.Failure).map(Self.describe) ?? error.localizedDescription))
+            return Task.isCancelled ? nil : .failure(.failed(DaftarCLI.describe(error)))
         }
         guard !output.cancelled, !Task.isCancelled else { return nil }
         guard output.status == 0 else {
@@ -94,13 +94,6 @@ final class MeaningService {
         (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
 
-    private static func describe(_ failure: CLIProcess.Failure) -> String {
-        switch failure {
-        case .notInstalled: CLIProcess.notInstalled
-        case .couldNotRun(let why): "daftar-cli could not run: \(why)"
-        }
-    }
-
     // MARK: The index
 
     /// Downloads the model (531 MB, once) and builds the index, in the
@@ -129,13 +122,13 @@ final class MeaningService {
             }
             guard let cli = findCLI() else {
                 availability = .notInstalled
-                if download { buildError = CLIProcess.notInstalled }
+                if download { buildError = DaftarCLI.notInstalled }
                 return
             }
             do {
-                let output = try await CLIProcess.run(
-                    cli: cli, Meaning.indexArguments(vault: vault, download: download),
-                    priority: download ? .utility : .background
+                let output = try await DaftarCLI.run(
+                    cli, Meaning.indexArguments(vault: vault, download: download), in: vault,
+                    quality: download ? .utility : .background
                 ) { line in
                     guard let step = Meaning.progress(line) else { return }
                     Task { @MainActor in
@@ -151,7 +144,7 @@ final class MeaningService {
                     if download { buildError = failure.message }
                 }
             } catch {
-                if download { buildError = (error as? CLIProcess.Failure).map(Self.describe) ?? error.localizedDescription }
+                if download, !(error is CancellationError) { buildError = DaftarCLI.describe(error) }
             }
         }
     }

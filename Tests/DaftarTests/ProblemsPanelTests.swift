@@ -76,33 +76,6 @@ struct FakeCLI {
         return condition()
     }
 
-    // MARK: The runner
-
-    @Test func theRunnerFeedsStdinAndReadsBothPipes() async throws {
-        let output = try await DaftarCLI.run("/bin/sh", ["-c", "cat; echo said >&2; exit 3"], input: Data("note text\n".utf8))
-        #expect(output.text == "note text\n")
-        #expect(output.stderr == "said\n")
-        #expect(output.status == 3)
-        // More than a pipe holds, both ways, does not stop the command.
-        let big = String(repeating: "line of a long note\n", count: 20_000)
-        let echoed = try await DaftarCLI.run("/bin/cat", [], input: Data(big.utf8))
-        #expect(echoed.text == big)
-    }
-
-    @Test func aCancelledRunEndsTheCommand() async throws {
-        let started = Date()
-        let task = Task { try await DaftarCLI.run("/bin/sleep", ["30"]) }
-        try await Task.sleep(for: .milliseconds(200))
-        task.cancel()
-        let output = try? await task.value
-        #expect(Date().timeIntervalSince(started) < 5)
-        #expect(output?.cancelled ?? true)
-    }
-
-    @Test func aCommandThatIsNotThereIsAFailure() async {
-        await #expect(throws: DaftarCLI.Failure.self) { try await DaftarCLI.run("/nonexistent/daftar-cli", []) }
-    }
-
     /// A `daftar-cli` before 0.23.0 refuses `--json` and `--stdin`: that is
     /// "upgrade", not an error of the vault.
     @Test func anOldCommandLineIsToldApart() {

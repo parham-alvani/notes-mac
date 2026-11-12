@@ -303,6 +303,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// No `daftar-cli` outlives the app: an index build, an audit or a
+    /// review still running is ended, after format on save had its turn.
+    func applicationWillTerminate(_ notification: Notification) {
+        DaftarCLI.endAll()
+    }
+
     private var answered = false
 
     @MainActor private func answer(_ sender: NSApplication) {

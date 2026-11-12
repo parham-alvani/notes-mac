@@ -25,6 +25,6 @@ import Testing
 
     @Test func aFailedReviewSaysWhy() {
         #expect(WeeklyReviewSheet.failure("daftar-cli: Reviews/2026-11-07 to 2026-11-13.md is there already\n") == "Reviews/2026-11-07 to 2026-11-13.md is there already")
-        #expect(WeeklyReviewSheet.failure("error: unrecognized subcommand 'review'\n").hasPrefix("The weekly review needs a newer daftar-cli"))
+        #expect(WeeklyReviewSheet.failure("error: unrecognized subcommand 'review'\n").hasPrefix("The weekly review needs daftar-cli 0.8.0 or later"))
     }
 }

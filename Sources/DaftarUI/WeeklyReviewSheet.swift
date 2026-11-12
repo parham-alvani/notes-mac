@@ -97,7 +97,7 @@ struct WeeklyReviewSheet: View {
     private func load() async {
         guard let root = store.root else { return error = "No vault is open." }
         do {
-            let output = try await CLIProcess.run(WeeklyReview.arguments(vault: root, day: preview.day))
+            let output = try await DaftarCLI.run(DaftarCLI.locate(), WeeklyReview.arguments(vault: root, day: preview.day), in: root)
             guard !output.cancelled else { return }
             if output.status == 0 {
                 markdown = String(decoding: output.stdout, as: UTF8.self)
@@ -105,7 +105,8 @@ struct WeeklyReviewSheet: View {
                 error = Self.failure(output.stderr)
             }
         } catch {
-            self.error = Self.describe(error)
+            guard !(error is CancellationError) else { return }
+            self.error = DaftarCLI.describe(error)
         }
     }
 
@@ -117,7 +118,7 @@ struct WeeklyReviewSheet: View {
         Task {
             defer { saving = false }
             do {
-                let output = try await CLIProcess.run(WeeklyReview.arguments(vault: root, day: preview.day, write: true))
+                let output = try await DaftarCLI.run(DaftarCLI.locate(), WeeklyReview.arguments(vault: root, day: preview.day, write: true), in: root)
                 guard output.status == 0 else { return error = Self.failure(output.stderr) }
                 let path = WeeklyReview.writtenPath(String(decoding: output.stdout, as: UTF8.self), vault: root) ?? preview.path
                 // The index takes the new file from the watcher; wait for it, a moment at most.
@@ -126,7 +127,7 @@ struct WeeklyReviewSheet: View {
                 dismiss()
                 model.open(path, store: store)
             } catch {
-                self.error = Self.describe(error)
+                self.error = DaftarCLI.describe(error)
             }
         }
     }
@@ -134,17 +135,9 @@ struct WeeklyReviewSheet: View {
     /// What a failed run says: its last line, as Export as PDF says it.
     static func failure(_ errors: String) -> String {
         if errors.contains("unrecognized subcommand 'review'") || errors.contains("unexpected argument '--day'") {
-            return "The weekly review needs a newer daftar-cli: brew upgrade parham-alvani/tap/daftar-cli"
+            return "The weekly review needs daftar-cli 0.8.0 or later: brew upgrade parham-alvani/tap/daftar-cli"
         }
         return PDFExport.failure(errors)
-    }
-
-    private static func describe(_ error: Error) -> String {
-        switch error as? CLIProcess.Failure {
-        case .notInstalled?: CLIProcess.notInstalled
-        case .couldNotRun(let why)?: "daftar-cli could not run: \(why)"
-        case nil: error.localizedDescription
-        }
     }
 }
 

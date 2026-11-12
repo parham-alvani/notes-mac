@@ -63,7 +63,7 @@ import Testing
         let service = MeaningService()
         service.findCLI = { nil }
         let result = await service.search("kafka", vault: folder)
-        #expect(throws: Meaning.Failure.failed(CLIProcess.notInstalled)) { try result?.get() }
+        #expect(throws: Meaning.Failure.failed(DaftarCLI.notInstalled)) { try result?.get() }
         #expect(service.availability == .notInstalled)
     }
 
