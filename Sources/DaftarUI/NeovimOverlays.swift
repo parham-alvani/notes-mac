@@ -761,31 +761,43 @@ extension NoteTextView {
 
     /// The letter under the block in the background's colour, or none. A
     /// rendering attribute, as focus mode's, so the text and undo do not
-    /// change; it is taken off the whole note, so an edit that moved the
-    /// letter leaves none behind.
+    /// change. The letter it was on goes back to its colour: by itself when
+    /// the text is as it was, or with the whole note when an edit may have
+    /// moved it, or when focus mode dims (which has to be put back after).
+    /// Taking it off the whole note at every move had TextKit draw every
+    /// line again: stalls of up to 90 ms after a move in a long note.
     func invertLetter(_ range: NSRange?) {
-        let now = range.map { ($0, (string as NSString).length) }
+        let length = (string as NSString).length
+        let now = range.map { ($0, length) }
         guard extras.invertedLetter?.0 != now?.0 || extras.invertedLetter?.1 != now?.1 else { return }
-        let had = extras.invertedLetter != nil
+        let old = extras.invertedLetter
         extras.invertedLetter = now
-        if had, let layout = textLayoutManager, let content = layout.textContentManager {
-            layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
-            // Focus mode's dimming was taken off with it.
-            extras.focused = nil
-            controller?.dim()
+        if let old, let layout = textLayoutManager, let content = layout.textContentManager {
+            if old.1 == length, extras.focused == nil, let letter = textRange(of: old.0) {
+                layout.removeRenderingAttribute(.foregroundColor, for: letter)
+            } else {
+                layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
+                // Focus mode's dimming was taken off with it.
+                extras.focused = nil
+                controller?.dim()
+            }
         }
         showInvertedLetter()
+    }
+
+    /// [range] of the text as TextKit 2 names it, when it is in the text.
+    private func textRange(of range: NSRange) -> NSTextRange? {
+        guard NSMaxRange(range) <= (string as NSString).length, let content = textLayoutManager?.textContentManager,
+            let from = content.location(content.documentRange.location, offsetBy: range.location),
+            let to = content.location(from, offsetBy: range.length)
+        else { return nil }
+        return NSTextRange(location: from, end: to)
     }
 
     /// The letter under the block, in the background's colour again: focus
     /// mode takes every colour off when it dims.
     func showInvertedLetter() {
-        guard let range = extras.invertedLetter?.0, NSMaxRange(range) <= (string as NSString).length,
-            let layout = textLayoutManager, let content = layout.textContentManager,
-            let from = content.location(content.documentRange.location, offsetBy: range.location),
-            let to = content.location(from, offsetBy: range.length),
-            let textRange = NSTextRange(location: from, end: to)
-        else { return }
+        guard let range = extras.invertedLetter?.0, let layout = textLayoutManager, let textRange = textRange(of: range) else { return }
         layout.addRenderingAttribute(.foregroundColor, value: NSPalette.background, for: textRange)
     }
 }
