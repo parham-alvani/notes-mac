@@ -43,7 +43,14 @@ struct Breadcrumb: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Path of the note")
         .task(id: "\(path)\u{0}\(store.revision)") {
-            words = Vault.isNote(path) ? store.text(of: path).map { EditorController.words(in: $0 as NSString, range: NSRange(location: 0, length: ($0 as NSString).length)) } : nil
+            // Read and counted off the main thread: a few milliseconds at each save of a long note.
+            let file = Vault.isNote(path) ? store.url(of: path) : nil
+            let counted = await Task.detached(priority: .userInitiated) {
+                file.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+                    .map { EditorController.words(in: $0 as NSString, range: NSRange(location: 0, length: ($0 as NSString).length)) }
+            }.value
+            guard !Task.isCancelled else { return }
+            words = counted
         }
         .overlay(alignment: .bottom) {
             LinearGradient(colors: [Palette.accent.opacity(0.5), Palette.pink.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing)
