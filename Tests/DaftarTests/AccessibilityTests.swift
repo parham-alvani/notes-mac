@@ -121,6 +121,24 @@ import WebKit
         #expect(found.contains { $0.name == "Heading level 3, Two" })
     }
 
+    /// The Problems panel says each finding's level and line in words, and
+    /// names its icon buttons.
+    @Test func theProblemsPanelSaysEachFindingInWords() async throws {
+        let cli = try FakeCLI()
+        store.checks.opened(root)
+        store.checks.locate = { cli.path }
+        store.checks.refresh()
+        for _ in 0..<100 where store.checks.problems.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        let found = try await elements(ProblemsPanel(model: WindowModel()), size: CGSize(width: 900, height: 300))
+        expectNamedButtons(found)
+        let names = found.map(\.name)
+        #expect(names.contains("Error, line 2: the body is joined to the title. callout-body"))
+        #expect(names.contains("Warning, line 1: bare URL. MD034"))
+        #expect(names.contains("Fix MD034 in Home"))
+        #expect(names.contains("Hide Problems"))
+        #expect(names.contains("Check Again"))
+    }
+
     @Test func aSplitPaneHasANamedCloseButton() async throws {
         let model = WindowModel()
         model.open("Notes.md", store: store)

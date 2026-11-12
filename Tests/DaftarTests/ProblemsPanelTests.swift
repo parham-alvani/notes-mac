@@ -234,6 +234,33 @@ struct FakeCLI {
         #expect(try text("Notes/Plan.md") == "# Plan\n*  item\n")
     }
 
+    /// The editor's margin: the audit's findings by line, their messages on
+    /// hover, and nothing in the text changes for them.
+    @Test func theMarginSaysTheProblemsOfALine() throws {
+        let controller = EditorController(store: store)
+        let scroll = NoteTextView.scrollableNoteView()
+        let view = scroll.documentView as! NoteTextView
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 800, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = scroll
+        defer { window.contentView = nil }
+        view.controller = controller
+        controller.view = view
+        controller.load("Notes/Plan.md")
+        let error = Problem(tool: .lint, level: .error, path: "Notes/Plan.md", line: 2, code: "MD004", message: "list style", fixable: true)
+        let warning = Problem(tool: .check, level: .warning, path: "Notes/Plan.md", line: 2, code: "w", message: "a warning")
+        let before = view.string
+        view.show(problems: Problems.lines([error, warning], of: "Notes/Plan.md"))
+        #expect(view.problemMarks.keys.sorted() == [1])
+        #expect(view.problemTip != nil)
+        let row = try #require(view.lineRect(at: ("# Plan\n" as NSString).length))
+        #expect(view.problemText(at: NSPoint(x: 2, y: row.midY)) == "Error: list style (MD004)\nWarning: a warning (w)")
+        #expect(view.problemText(at: NSPoint(x: 2, y: try #require(view.lineRect(at: 0)).midY)) == "")
+        view.display()
+        #expect(view.string == before)
+        view.show(problems: [:])
+        #expect(view.problemTip == nil)
+    }
+
     /// Edit › Format Note in the editor: the text on screen, as one step to undo.
     @Test func formatNoteInTheEditorIsOneUndoStep() async throws {
         let cli = try FakeCLI()

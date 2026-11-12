@@ -112,8 +112,16 @@ struct ProblemsPanel: View {
         }
         .frame(height: 240)
         .background(.background)
+        // The panel takes the keys when it opens, so Escape closes it; a
+        // click on a finding gives them to the note.
+        .focusable()
+        .focusEffectDisabled()
         .focused($focused)
         .onExitCommand { close() }
+        .onKeyPress(.escape) {
+            close()
+            return .handled
+        }
         .onAppear { focused = true }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Problems")

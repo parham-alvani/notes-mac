@@ -286,7 +286,7 @@ struct NotePaneView: View {
                 model.extractReplace = replace
                 model.fileAction = .extract(folder: model.currentFolder, text: text)
             }, onHeadingsRenamed: { pane.headingOffer = $0 }, jump: pane.editorJump, onQuit: { pane.editing = false },
-                onOpen: { model.open($0, in: pane, store: store) })
+                onOpen: { model.open($0, in: pane, store: store) }, problems: store.checks.marks(for: path))
             .safeAreaInset(edge: .top, spacing: 0) { PropertiesView(path: path) }
             .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model, onClose: onClose) }
     }

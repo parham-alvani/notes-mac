@@ -22,6 +22,8 @@ struct EditorView: NSViewRepresentable {
     var onQuit: (() -> Void)?
     /// Another note was opened inside Neovim (`:e`, `gf`): the pane opens it.
     var onOpen: ((String) -> Void)?
+    /// What the audit found in the note, by line, for the margin.
+    var problems: [Int: [Problem]] = [:]
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
@@ -42,6 +44,7 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.onOpen = onOpen
         context.coordinator.lastJump = jump
         view.focusWhenShown = true
+        view.show(problems: problems)
         return container
     }
 
@@ -64,6 +67,7 @@ struct EditorView: NSViewRepresentable {
         controller.followVimSetting()
         controller.jump(jump)
         controller.followWritingModes()
+        controller.view?.show(problems: problems)
     }
 
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {

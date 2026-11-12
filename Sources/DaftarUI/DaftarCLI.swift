@@ -45,15 +45,19 @@ enum DaftarCLI {
     /// Runs [cli] with [arguments], with [input] on its stdin, and gives
     /// what it wrote. Never on the main thread: the process is waited for on
     /// a queue of its own, its two pipes are read at once (a full pipe would
-    /// stop it), and a cancelled task ends it. [quality] is the process's
+    /// stop it), and a cancelled task ends it. It runs in [directory] when
+    /// given. [quality] is the process's
     /// own: a check of the whole vault runs as `.utility`, so it never takes
     /// the cores from typing.
     static func run(
-        _ cli: String, _ arguments: [String], input: Data? = nil, quality: QualityOfService = .userInitiated
+        _ cli: String, _ arguments: [String], input: Data? = nil, in directory: URL? = nil, quality: QualityOfService = .userInitiated
     ) async throws -> Output {
         let process = Process()
         process.executableURL = URL(filePath: cli)
         process.arguments = arguments
+        // In the vault's folder: a note's path is read from where the
+        // command runs, as well as from `--vault`.
+        if let directory { process.currentDirectoryURL = directory }
         process.qualityOfService = quality
         let out = Pipe(), errors = Pipe()
         process.standardOutput = out

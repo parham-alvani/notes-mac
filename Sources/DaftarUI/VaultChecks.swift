@@ -158,7 +158,7 @@ final class VaultChecks {
         for arguments in Self.auditArguments(vault: root, profile: Self.hasAuditProfile(root)) {
             let output: DaftarCLI.Output
             do {
-                output = try await DaftarCLI.run(cli, arguments, quality: .utility)
+                output = try await DaftarCLI.run(cli, arguments, in: root, quality: .utility)
             } catch is CancellationError {
                 return
             } catch {
@@ -192,6 +192,13 @@ final class VaultChecks {
         guard asked, !said, let notice = Self.explanation(state) else { return }
         said = true
         store?.notice = notice
+    }
+
+    /// The findings of [path] by source line, for the editor's margin. It
+    /// reads [problems], so a view that asks is drawn again after an audit.
+    func marks(for path: String) -> [Int: [Problem]] {
+        guard !problems.isEmpty, let found = byPath[path] else { return [:] }
+        return Problems.lines(found, of: path)
     }
 
     /// The findings the panel lists, by note, worked out once for each
@@ -260,7 +267,7 @@ final class VaultChecks {
             defer { fixing = false }
             await store.flushEditors()
             for arguments in Self.fixArguments(vault: root, tools: tools, paths: paths) {
-                guard let output = try? await DaftarCLI.run(cli, arguments), self.root == root else { return }
+                guard let output = try? await DaftarCLI.run(cli, arguments, in: root), self.root == root else { return }
                 if DaftarCLI.tooOld(output) || Self.refusesPaths(output, paths) {
                     store.notice = DaftarCLI.upgrade
                     return
@@ -310,7 +317,7 @@ final class VaultChecks {
         guard let root else { return .failure(.failed("No vault is open.")) }
         guard let cli = locate() else { return .failure(.noCLI) }
         do {
-            let output = try await DaftarCLI.run(cli, Self.formatArguments(vault: root, path: path), input: Data(text.utf8))
+            let output = try await DaftarCLI.run(cli, Self.formatArguments(vault: root, path: path), input: Data(text.utf8), in: root)
             if DaftarCLI.tooOld(output) { return .failure(.tooOld) }
             guard output.status == 0, !output.cancelled else { return .failure(.failed(DaftarCLI.failure(output.stderr))) }
             return .success(output.text)
