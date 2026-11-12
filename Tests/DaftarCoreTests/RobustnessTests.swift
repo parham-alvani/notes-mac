@@ -397,6 +397,20 @@ import Testing
         }
     }
 
+    @Test func drillCardsFromAnyNoteAndStateFromAnyText() {
+        for text in Self.samples(800, seed: 21, pieces: 30) {
+            let cards = Drill.cards(path: "A/B.md", text: text)
+            let lines = Sections.lines(text).lines
+            // Each card is a heading of the note, once, with text in its answer.
+            #expect(Set(cards.map(\.id)).count == cards.count)
+            #expect(cards.allSatisfy { $0.line < lines.count && $0.id.hasPrefix("A/B.md#") && $0.context.first == "B" })
+            #expect(cards.allSatisfy { !$0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            // A state file of any text reads, and what it writes reads back the same.
+            let state = DrillState(text: text)
+            #expect(DrillState(text: state.text) == state)
+        }
+    }
+
     @Test func blockIdsGoInAnyNote() {
         for text in Self.samples(800, seed: 13, pieces: 25) {
             let lines = text.components(separatedBy: "\n").count
