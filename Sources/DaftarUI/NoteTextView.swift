@@ -35,6 +35,11 @@ final class NoteTextView: NSTextView {
     var problemTip: NSView.ToolTipTag?
     lazy var problemTips = ProblemTips(view: self)
     var scrollPending = false
+    /// The last scroll with Neovim: the glide it started (a later one
+    /// replaces it), the letter at the cursor, and where on screen its
+    /// line was put (`NeovimView.swift`).
+    var glide = 0
+    var placed: (offset: Int, y: CGFloat)?
     /// Where `zz`, `zt` or `zb` puts the cursor's line at the next scroll.
     var placing: Place?
     /// Where a closing bracket was put that the person did not type, so
