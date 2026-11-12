@@ -276,6 +276,10 @@ struct CursorTrail {
     static let short = 0.04
     /// The corners' times, from the one most in front, as parts of [length].
     static let shares = [0.35, 0.5, 0.9, 1.0]
+    /// The corners' easing, a cubic ease out, as the view's glide's curve
+    /// (`CAMediaTimingFunction` has no cubic of its own; these points are one).
+    static var curve: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.33, 1, 0.68, 1) }
+    static func eased(_ part: Double) -> Double { 1 - pow(1 - part, 3) }
 
     /// Top left, top right, bottom right, bottom left.
     private(set) var corners: [CGPoint]
@@ -321,13 +325,22 @@ struct CursorTrail {
         }
     }
 
+    /// From where the corners are at [time], all of them to the target in
+    /// [length]: a cursor that goes with the view's glide, in its time.
+    mutating func retime(at time: Double, length: Double) {
+        _ = step(at: time)
+        from = corners
+        started = time
+        lengths = Array(repeating: length, count: 4)
+    }
+
     /// The corners at [time]; true while one still moves.
     mutating func step(at time: Double) -> Bool {
         let to = Self.points(target)
         var moving = false
         for index in 0..<4 {
             let part = lengths[index] <= 0 ? 1 : min(1, max(0, (time - started) / lengths[index]))
-            let eased = 1 - pow(1 - part, 3)
+            let eased = Self.eased(part)
             corners[index] = CGPoint(
                 x: from[index].x + (to[index].x - from[index].x) * eased,
                 y: from[index].y + (to[index].y - from[index].y) * eased)
@@ -433,6 +446,12 @@ final class NeovimCursor: NSView {
             link.add(to: .main, forMode: .common)
             self.link = link
         }
+    }
+
+    /// A glide on its way goes on with the view's scroll, in [duration].
+    func glide(over duration: Double) {
+        guard link != nil else { return }
+        trail.retime(at: CACurrentMediaTime(), length: duration)
     }
 
     @objc private func tick() {

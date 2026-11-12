@@ -154,15 +154,29 @@ extension NoteTextView {
     }
 
     /// The cursor and the window move in the same Neovim update, as two
-    /// messages: one scroll for both, a moment later, not two jumps.
+    /// messages: one scroll for both, a moment later, not two jumps. The
+    /// moment is the end of this turn of the run loop, before the next
+    /// frame: on the main queue, a frame was drawn in between, with the
+    /// cursor at its new place and the view at its old one, and after `G`
+    /// or `gg` that frame laid out and drew a screen nobody saw for 20 ms.
     private func scrollSoon() {
         guard !scrollPending else { return }
         scrollPending = true
-        DispatchQueue.main.async { [weak self] in
-            self?.scrollPending = false
-            self?.scroll()
+        let loop = CFRunLoopGetMain()
+        CFRunLoopPerformBlock(loop, CFRunLoopMode.commonModes.rawValue) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.scrollPending else { return }
+                self.scrollPending = false
+                self.scroll()
+            }
         }
+        CFRunLoopWakeUp(loop)
     }
+
+    /// How long the view glides: to a place on screen or near (`<C-d>`,
+    /// `zt`), and for the last screen of a jump of more than two (`G`).
+    static let glide = 0.12
+    static let farGlide = 0.15
 
     private func scroll() {
         guard let scroll = enclosingScrollView else { return }
@@ -218,9 +232,14 @@ extension NoteTextView {
             clip.setBoundsOrigin(NSPoint(x: target.x, y: y > clip.bounds.origin.y ? y - height : y + height))
             scroll.reflectScrolledClipView(clip)
         }
+        let duration = far ? Self.farGlide : Self.glide
+        // A cursor gliding to its new place goes with the view, in the same
+        // time and curve: on its own it went faster, and on screen it ran
+        // down past its row and came back as the view caught up (<C-d>, zt, n).
+        if !far { extras.neovimCursor?.glide(over: duration) }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = far ? 0.2 : 0.15
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.duration = duration
+            context.timingFunction = CursorTrail.curve
             clip.animator().setBoundsOrigin(target)
         } completionHandler: { [weak self] in
             // AppKit ends an animation on the main thread.

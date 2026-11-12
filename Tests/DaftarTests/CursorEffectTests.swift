@@ -60,6 +60,23 @@ import Testing
         #expect(particles.particles.count == CursorParticles.most)
     }
 
+    /// A glide that goes on with the view's scroll: from where the corners
+    /// are, all together, to the same place, in the scroll's time.
+    @Test func aGlideGoesWithTheScroll() {
+        var trail = CursorTrail(from)
+        trail.move(to: to, at: 0, trail: true, short: false)
+        _ = trail.step(at: 0.02)
+        let stretched = trail.bounds.width
+        trail.retime(at: 0.02, length: 0.12)
+        let halfway = trail.step(at: 0.02 + 0.06)
+        #expect(halfway)
+        // All four corners go the same part of the way: the stretch only shrinks.
+        #expect(trail.bounds.width < stretched && trail.bounds.width > to.width)
+        let still = !trail.step(at: 0.02 + 0.121)
+        #expect(still)
+        #expect(trail.bounds == to)
+    }
+
     /// The cursor never trails the text: typing and a key held down move it
     /// at once; a jump in normal mode glides, with the particles.
     @Test func onlyAJumpGlides() {
