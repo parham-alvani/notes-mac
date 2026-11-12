@@ -612,7 +612,14 @@ struct InspectorView: View {
                 // before looking again, but not for a note just opened.
                 if mentionsFor == path { try? await Task.sleep(for: .milliseconds(600)) }
                 guard !Task.isCancelled else { return }
-                places = Detected.find(in: store.text(of: path) ?? "").filter { $0.kind == .address }
+                // The data detector takes about 100 ms on a long note: not on the main thread.
+                let file = store.url(of: path)
+                let addresses = await Task.detached(priority: .userInitiated) {
+                    let text = file.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+                    return Detected.find(in: text).filter { $0.kind == .address }
+                }.value
+                guard !Task.isCancelled else { return }
+                places = addresses
                 placesFor = path
                 let found = await store.unlinkedMentions(of: path)
                 guard !Task.isCancelled else { return }
