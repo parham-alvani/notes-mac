@@ -485,4 +485,28 @@ import Testing
         #expect(!store.moveTask(task, to: .status("x")))
         #expect(try text("Notes/Plan.md") == "# Plan\n- [ ] First 📅 2026-10-30\n- [/] Second\n")
     }
+
+    /// A card dropped on the job board writes its note's `job_stage` line
+    /// and nothing else, after the editors save, and only while the note's
+    /// stage is the one the card showed.
+    @Test func aJobCardMovesByItsStageAlone() async throws {
+        try FileManager.default.createDirectory(at: root.appending(path: "Companies/Acme"), withIntermediateDirectories: true)
+        let note = "---\njob_stage: \"applied\"\njob_channel: \"Ashby (acme)\"\n---\n# Acme\n"
+        try note.write(to: root.appending(path: "Companies/Acme/Acme.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let search = await store.jobSearch(quiet: true)
+        let acme = try #require(search.applications.first)
+        #expect(acme.stage == "applied" && acme.channel == "Ashby")
+        let editor = typing("Companies/Acme/Acme.md", note + "Typed.\n")
+        #expect(store.setJobStage(acme, to: "screening"))
+        #expect(await eventually { (try? text("Companies/Acme/Acme.md"))?.contains("screening") == true })
+        #expect(editor.saves == 1)
+        #expect(try text("Companies/Acme/Acme.md") == note.replacingOccurrences(of: "\"applied\"", with: "\"screening\"") + "Typed.\n")
+        // The card still says applied: the note moved on, and nothing is written.
+        store.flushers[ObjectIdentifier(editor)] = nil
+        store.openSynchronously(root)
+        #expect(!store.setJobStage(acme, to: "rejected"))
+        #expect(store.notice?.contains("changed in its note") == true)
+        #expect(try text("Companies/Acme/Acme.md").contains("\"screening\""))
+    }
 }

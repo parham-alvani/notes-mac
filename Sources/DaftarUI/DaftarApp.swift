@@ -131,6 +131,8 @@ public struct DaftarApp: App {
                     .keyboardShortcut("1")
                 Button("Board") { window?.showsBoard = true }
                     .keyboardShortcut("2")
+                Button("Job Search") { window?.showsJobs = true }
+                    .keyboardShortcut("j", modifiers: [.command, .shift])
                 Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
                     .keyboardShortcut("3")
                     .disabled(window == nil || store.root == nil)

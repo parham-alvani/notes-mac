@@ -705,6 +705,31 @@ final class VaultStore {
         }
     }
 
+    /// Sets the `job_stage` of [application]'s note to [stage], a card
+    /// dropped on the job board: only that property's line is written, with
+    /// the properties form's writer. False when the note's stage is no
+    /// longer the one the card showed.
+    @discardableResult
+    func setJobStage(_ application: JobApplication, to stage: String) -> Bool {
+        afterEditors { self.setJobStageNow(application, to: stage) }
+    }
+
+    private func setJobStageNow(_ application: JobApplication, to stage: String) -> Bool {
+        guard let root, url(of: application.path) != nil, index.files.contains(application.path) else { return false }
+        do {
+            try ownEdit(application.path, in: root) { try JobSearch.settingStage(in: $0, from: application.stage, to: stage) }
+            changed([application.path])
+            requestSync()
+            return true
+        } catch JobSearch.StageFailure.unwritable(let reason) {
+            notice = "\(application.company)'s properties are YAML the form cannot write back the same, so the stage was not changed. \(reason)"
+        } catch {
+            notice = "\(application.company)'s stage changed in its note before the drop. Nothing was written."
+            changed([application.path])
+        }
+        return false
+    }
+
     /// Sets [task]'s status to [status] from a status menu, with [reason]
     /// or none. False when its line no longer holds the task the menu showed.
     @discardableResult

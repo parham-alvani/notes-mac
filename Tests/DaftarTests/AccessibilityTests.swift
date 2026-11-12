@@ -104,6 +104,19 @@ import WebKit
         #expect(names.contains { $0.hasPrefix("To do, ") || $0.hasPrefix("To Do, ") || $0.contains(", 2 tasks") })
     }
 
+    @Test func jobCardsAreElementsWithTheirApplication() async throws {
+        try FileManager.default.createDirectory(at: root.appending(path: "Companies/Acme"), withIntermediateDirectories: true)
+        try "---\njob_stage: screening\njob_roles:\n  - Platform Engineer\njob_channel: LinkedIn\n---\n"
+            .write(to: root.appending(path: "Companies/Acme/Acme.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let found = try await elements(JobBoardView(model: WindowModel()), size: CGSize(width: 1600, height: 800))
+        expectNamedButtons(found)
+        let names = found.map(\.name)
+        #expect(names.contains { $0.hasPrefix("Acme, Screening, Platform Engineer, via LinkedIn") })
+        #expect(names.contains("Screening, 1 application"))
+        #expect(names.contains { $0.hasPrefix("Closed, ") })
+    }
+
     @Test func theSidebarSaysWhatColoursAndIconsSay() async throws {
         let model = WindowModel()
         let found = try await elements(FilesList(model: model), size: CGSize(width: 320, height: 900))
