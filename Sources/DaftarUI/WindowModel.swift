@@ -320,16 +320,17 @@ final class WindowModel {
     }
 
     /// New Task's form: for the note on screen, in the section the cursor
-    /// is in; with no note, for the scratchpad when it is there.
-    func newTask(store: VaultStore) {
+    /// is in; with no note, for the scratchpad when it is there. [text]
+    /// fills the form's text (New Daftar Task from another app).
+    func newTask(store: VaultStore, text: String = "") {
         if let path, showsText, Vault.isNote(path) {
             let headings = Sections.headings(in: store.text(of: path) ?? "")
             let heading = cursorLine.flatMap { Sections.heading(at: $0, in: headings) }.map { headings[$0].line }
-            taskNew = NewTask(path: path, headingLine: heading)
+            taskNew = NewTask(path: path, headingLine: heading, text: text)
         } else {
             let scratchpad = store.scratchpadPath
             let found = store.index.files.first { Slugs.fold($0) == Slugs.fold(scratchpad) }
-            taskNew = NewTask(path: found ?? "", headingLine: nil)
+            taskNew = NewTask(path: found ?? "", headingLine: nil, text: text)
         }
     }
 
@@ -443,11 +444,17 @@ final class WindowModel {
     }
 
     /// `daftar://open?path=Folder/Note.md[&mode=edit]`, which the
-    /// notifications use, `daftar://open?path=today`, and `daftar://terminal`.
+    /// notifications use, `daftar://open?path=today`, `daftar://terminal`,
+    /// and `daftar://new-task?text=…` (New Daftar Task from another app),
+    /// which only fills the form.
     func handle(_ url: URL, store: VaultStore) {
         guard url.scheme == "daftar" else { return }
         if url.host == "terminal" {
             terminal = true
+            return
+        }
+        if let text = SendToDaftar.newTaskText(url) {
+            newTask(store: store, text: text)
             return
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []

@@ -269,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FullScreenEscape.install()
             Notifier.shared.start()
             QuickCaptureController.shared.start()
+            DaftarServices.shared.start()
         }
     }
 

@@ -26,6 +26,45 @@
     <true/>
     <key>NSHumanReadableCopyright</key>
     <string>GPL-3.0</string>
+    <!-- Services › Add to Daftar Scratchpad and New Daftar Task, from any app (Services.swift). -->
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Add to Daftar Scratchpad</string>
+            </dict>
+            <key>NSMessage</key>
+            <string>addToScratchpad</string>
+            <key>NSPortName</key>
+            <string>Daftar</string>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>public.url</string>
+            </array>
+            <key>NSRequiredContext</key>
+            <dict/>
+        </dict>
+        <dict>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>New Daftar Task</string>
+            </dict>
+            <key>NSMessage</key>
+            <string>newTask</string>
+            <key>NSPortName</key>
+            <string>Daftar</string>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+            </array>
+            <key>NSRequiredContext</key>
+            <dict/>
+        </dict>
+    </array>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
