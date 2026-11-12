@@ -8,7 +8,8 @@ import WebKit
 @testable import DaftarUI
 
 /// The reader drawing a note again, in a real web view on a made-up vault:
-/// a change on disk draws only the blocks that changed.
+/// a change on disk draws only the blocks that changed, and the addresses
+/// and numbers the app finds after the note is on screen still become links.
 @MainActor
 @Suite(.serialized) struct ReaderRedrawTests {
     let root: URL
@@ -88,5 +89,17 @@ import WebKit
         #expect(try await run(web, "document.querySelector('#note input.task-list-item-checkbox').dataset.line") == "129")
         #expect(try await run(web, "[...document.querySelectorAll('#note > p')].find((p) => p.textContent === 'Paragraph 40.').dataset.line") == "83")
         #expect(try await run(web, "window.scrollY") == before)
+    }
+
+    /// The numbers are found after the note is drawn, and linked then.
+    @Test func aNumberFoundAfterTheNoteIsDrawnBecomesALink() async throws {
+        try "# Call\n\nRing +34 612 345 678 today.\n".write(to: root.appending(path: "Call.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let (web, window) = try await page("Call.md")
+        defer { window.orderOut(nil) }
+        for _ in 0..<40 where try await run(web, "String(!!document.querySelector('#note a.detected-phone'))") != "true" {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        #expect(try await run(web, "document.querySelector('#note a.detected-phone').textContent") == "+34 612 345 678")
     }
 }

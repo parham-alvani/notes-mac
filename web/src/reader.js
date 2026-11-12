@@ -1164,6 +1164,15 @@ window.daftar = {
     timing.mark("done");
   },
 
+  /**
+   * The addresses and phone numbers the app found in the note on screen,
+   * after it was drawn: the app looks for them while the page draws.
+   */
+  detect(path, items) {
+    if (path !== current.path || current.canvas || current.image) return;
+    linkDetected(document.getElementById("note"), items);
+  },
+
   /** Scrolls to a heading by its text, or to a `^block` id. */
   scrollTo(anchor) {
     const main = document.getElementById("note");

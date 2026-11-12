@@ -249,15 +249,16 @@ struct ReaderView: NSViewRepresentable {
                 showCanvas(request, source: text, keepScroll: keepScroll)
                 return
             }
-            let parsed = NoteParser.parse(text)
-            // Coming back from the editor draws the same text again: its
-            // addresses are not looked for again (tens of ms in a long note).
-            let detected: [Detected.Item]
+            let parsed = Self.parsed(text, of: request, in: store)
+            // The addresses and numbers in the text are looked for off the
+            // main thread, after the note is on screen (tens of ms in a long
+            // note), and given to the page when found. Coming back from the
+            // editor draws the same text again: they are not looked for again.
+            var detected: [Detected.Item] = []
             if let last = lastDetected, last.text == text {
                 detected = last.items
             } else {
-                detected = Detected.find(in: text)
-                lastDetected = (text, detected)
+                findDetected(in: text, path: request.path, show: showCount)
             }
             trust.detected = Set(detected.map { PageTrust.Found(kind: $0.kind.rawValue, value: $0.value) })
             var note: [String: Any] = [
@@ -289,6 +290,35 @@ struct ReaderView: NSViewRepresentable {
                 }
             }
             if !keepScroll, request.text == nil { takeKeys() }
+        }
+
+        /// The note's parse: the index's, when the file is the one the index
+        /// read (its date is the same), else the text's own. Parsing a long
+        /// note again took 3 to 25 ms of each opening.
+        static func parsed(_ text: String, of request: ReaderRequest, in store: VaultStore) -> ParsedNote {
+            if request.text == nil, let entry = store.index.notes[request.path],
+                let modified = (try? store.url(of: request.path)?.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                modified == entry.modified
+            {
+                return entry.parsed
+            }
+            return NoteParser.parse(text)
+        }
+
+        /// Looks for the addresses and numbers in [text] off the main thread,
+        /// then links them in the page, unless another note was shown since.
+        private func findDetected(in text: String, path: String, show: Int) {
+            Task { [weak self] in
+                let items = await Task.detached(priority: .userInitiated) { Detected.find(in: text) }.value
+                guard let self, show == self.showCount else { return }
+                self.lastDetected = (text, items)
+                guard !items.isEmpty else { return }
+                self.trust.detected = Set(items.map { PageTrust.Found(kind: $0.kind.rawValue, value: $0.value) })
+                self.view?.callAsyncJavaScript(
+                    "daftar.detect(path, items)",
+                    arguments: ["path": path, "items": items.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] }],
+                    in: nil, in: .page)
+            }
         }
 
         /// A note just opened gets the keys, so `j` and `k` move the reading
