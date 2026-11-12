@@ -77,6 +77,18 @@ import Testing
         #expect(trail.bounds == to)
     }
 
+    /// Text laid out again under a glide moves the whole way with it.
+    @Test func aGlideMovesWithTheText() {
+        var trail = CursorTrail(from)
+        trail.move(to: to, at: 0, trail: true, short: false)
+        _ = trail.step(at: CursorTrail.length / 2)
+        let before = trail.bounds
+        trail.shift(to: to.offsetBy(dx: 0, dy: 30))
+        #expect(trail.bounds == before.offsetBy(dx: 0, dy: 30))
+        _ = trail.step(at: CursorTrail.length)
+        #expect(trail.bounds == to.offsetBy(dx: 0, dy: 30))
+    }
+
     /// The cursor never trails the text: typing and a key held down move it
     /// at once; a jump in normal mode glides, with the particles.
     @Test func onlyAJumpGlides() {

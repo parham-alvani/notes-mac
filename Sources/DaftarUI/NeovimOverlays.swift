@@ -325,6 +325,16 @@ struct CursorTrail {
         }
     }
 
+    /// The text moved under a glide: where it started and where it goes
+    /// move with it, by the same amount.
+    mutating func shift(to rect: NSRect) {
+        let dx = rect.midX - target.midX, dy = rect.midY - target.midY
+        func moved(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x + dx, y: point.y + dy) }
+        from = from.map(moved)
+        corners = corners.map(moved)
+        target = rect
+    }
+
     /// From where the corners are at [time], all of them to the target in
     /// [length]: a cursor that goes with the view's glide, in its time.
     mutating func retime(at time: Double, length: Double) {
@@ -450,6 +460,13 @@ final class NeovimCursor: NSView {
             link.add(to: .main, forMode: .common)
             self.link = link
         }
+    }
+
+    /// The text moved under a glide: it goes on, from and to places as far moved.
+    func shift(to rect: NSRect) {
+        trail.shift(to: rect)
+        frame = trail.bounds
+        needsDisplay = true
     }
 
     /// A glide on its way goes on with the view's scroll, in [duration].
@@ -723,6 +740,14 @@ extension NoteTextView {
         let place = (selectedRange().location, (string as NSString).length)
         let stayed = extras.neovimCursorAt.map { $0 == place } ?? false
         extras.neovimCursorAt = place
+        // Laid out again during a glide (the lines above it got their real
+        // heights): the whole way moves with the text and the glide goes
+        // on. Placed at once, the block jumped out of its glide.
+        if stayed, cursor.moving {
+            cursor.shift(to: target)
+            cursor.onSettle = { [weak self] in self?.invertLetter(letter) }
+            return
+        }
         // A jump of a screen or more, or a first place, is at once; a window
         // not on screen runs no animation.
         let moves = !first && !stayed && abs(from.midY - target.midY) < visibleRect.height && window?.isVisible == true
