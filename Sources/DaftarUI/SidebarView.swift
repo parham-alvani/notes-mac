@@ -826,6 +826,9 @@ struct QuickOpenView: View {
     @ViewState private var results: [SwitcherRow] = []
     /// The rows only hold the query's letters, spread out.
     @ViewState private var loose = false
+    /// The query and the index revision [results] were worked out for:
+    /// Return with the same ones opens a row without ranking every file again.
+    @ViewState private var resultsFor: (query: String, revision: Int)?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -957,7 +960,8 @@ struct QuickOpenView: View {
     }
 
     private func rows() -> (rows: [SwitcherRow], loose: Bool) {
-        store.switcherRows(model.switcherQuery, recent: model.recent, current: model.showsPage ? nil : model.path)
+        resultsFor = (model.switcherQuery, store.revision)
+        return store.switcherRows(model.switcherQuery, recent: model.recent, current: model.showsPage ? nil : model.path)
     }
 
     private var emptyText: String {
@@ -1016,8 +1020,15 @@ struct QuickOpenView: View {
     }
 
     private func choose(_ shown: [SwitcherRow]) {
-        // The results for the text in the field now, whatever the list shows.
-        let results = rows().rows
+        // The results for the text in the field now, whatever the list shows:
+        // the list's own when they were worked out for this text and this index.
+        let current = resultsFor.map { $0.query == model.switcherQuery && $0.revision == store.revision } ?? false
+        var results = shown
+        if !current {
+            let fresh = rows()
+            (results, loose) = (fresh.rows, fresh.loose)
+            self.results = results
+        }
         if results != shown { selected = 0 }
         guard results.indices.contains(selected) else {
             // Return on an empty list ends the field's editing; the focus
