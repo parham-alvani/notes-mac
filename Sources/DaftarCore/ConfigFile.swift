@@ -323,6 +323,16 @@ public struct ConfigFile: Sendable, Equatable {
         # gives one note (target = "Scratchpad.md") a section for each day.
         heading = ""
 
+        [meaning]
+        # Search by meaning: a section "By meaning" under the sidebar's search
+        # and "Related notes" in the inspector, by `daftar-cli` (0.23.0 or
+        # later) and its model, run on this Mac, offline, Persian and English
+        # alike. The model (531 MB) is downloaded once, only when you ask.
+        search = true
+        # Minutes the vault is still after a change before the index reads
+        # the changed notes again, in the background; 0 never.
+        refresh_minutes = 10
+
         [home]
         # The picture behind the home page, which a window or a pane with no
         # note shows: an absolute path, a ~ path or a path in the vault, of a

@@ -374,6 +374,8 @@ struct SearchResults: View {
     @ViewState private var searchedFor: String?
     /// Notes by name, as ⌘P finds them, at once on each key.
     @ViewState private var names: [String] = []
+    /// Notes by meaning, by `daftar-cli`, a moment after the last key.
+    @ViewState private var meaning = MeaningQuery()
 
     private var searched: Bool { searchedFor == model.query }
 
@@ -427,14 +429,41 @@ struct SearchResults: View {
                     .contextMenu { FileMenu(path: hit.path, model: model) }
                 }
             }
+            if showsMeaning {
+                Section {
+                    let listed = Set(names).union(searched ? hits.map(\.path) : [])
+                    MeaningRows(query: meaning, key: model.query.trimmingCharacters(in: .whitespaces),
+                        leaving: { listed.contains($0) || store.excluded.contains($0) },
+                        empty: "Nothing more by meaning.") { hit in
+                        model.open(hit.path, line: hit.zeroBasedLine, store: store)
+                    }
+                } header: {
+                    SectionTitle(title: "By meaning", count: 0, color: Palette.purple)
+                }
+            }
         }
         .listStyle(.sidebar)
         .overlay {
-            if searched && hits.isEmpty && names.isEmpty { ContentUnavailableView.search(text: model.query) }
+            if searched && hits.isEmpty && names.isEmpty && !showsMeaning { ContentUnavailableView.search(text: model.query) }
         }
-        .onAppear { findNames() }
-        .onChange(of: model.query) { findNames() }
+        .onAppear {
+            findNames()
+            meaning.search(model.query, store: store)
+        }
+        .onChange(of: model.query) {
+            findNames()
+            meaning.search(model.query, store: store)
+        }
+        // The model just downloaded, or the setting turned on: ask again.
+        .onChange(of: MeaningService.shared.generation) { meaning.search(model.query, store: store, delay: .zero) }
+        .onChange(of: store.settings.meaningSearch) { meaning.search(model.query, store: store, delay: .zero) }
         .task(id: "\(model.query)|\(store.revision)") { await run() }
+    }
+
+    /// The section by meaning, for words, with the setting on.
+    private var showsMeaning: Bool {
+        let query = model.query.trimmingCharacters(in: .whitespaces)
+        return store.settings.meaningSearch && !query.isEmpty && !query.hasPrefix("#")
     }
 
     private var firstWord: String? {
@@ -510,6 +539,8 @@ struct InspectorView: View {
     /// The addresses the note names, found with the mentions.
     @ViewState private var places: [Detected.Item] = []
     @ViewState private var placesFor = ""
+    /// The notes nearest this one in meaning, by `daftar-cli related`.
+    @ViewState private var related = MeaningQuery()
 
     /// The note's links, each once, with where it goes when it goes anywhere.
     private func outgoingLinks(_ note: NoteEntry, from path: String) -> [(target: String, path: String?, embed: Bool)] {
@@ -560,6 +591,16 @@ struct InspectorView: View {
                     }
                 } header: {
                     SectionTitle(title: "Unlinked mentions", count: mentionsFor == path ? mentions.count : 0, color: Palette.purple)
+                }
+                if store.settings.meaningSearch {
+                    Section {
+                        MeaningRows(query: related, key: path, leaving: { $0 == path || store.excluded.contains($0) },
+                            empty: "No note is near this one in meaning.") { hit in
+                            model.open(hit.path, line: hit.zeroBasedLine, store: store)
+                        }
+                    } header: {
+                        SectionTitle(title: "Related notes", count: 0, color: Palette.purple)
+                    }
                 }
                 let outgoing = outgoingLinks(note, from: path)
                 if !outgoing.isEmpty {
@@ -612,6 +653,7 @@ struct InspectorView: View {
                 // before looking again, but not for a note just opened.
                 if mentionsFor == path { try? await Task.sleep(for: .milliseconds(600)) }
                 guard !Task.isCancelled else { return }
+                related.relate(path, store: store)
                 places = Detected.find(in: store.text(of: path) ?? "").filter { $0.kind == .address }
                 placesFor = path
                 let found = await store.unlinkedMentions(of: path)
@@ -619,6 +661,9 @@ struct InspectorView: View {
                 mentions = found
                 mentionsFor = path
             }
+            // The index was built again, or the setting turned on.
+            .onChange(of: MeaningService.shared.generation) { related.relate(path, store: store) }
+            .onChange(of: store.settings.meaningSearch) { related.relate(path, store: store) }
         } else if !model.showsPage, let path = model.path, Vault.isImage(path) {
             // A picture has no outline: the notes that show it or link to it.
             let backlinks = (store.index.backlinks[path] ?? []).filter { !store.excluded.contains($0.source) }

@@ -519,4 +519,21 @@ import Testing
             #expect(page.html == html)
         }
     }
+
+    /// What `daftar-cli` prints for search by meaning is read without a
+    /// crash, whatever it is: a hit is in the vault, a step of a build is
+    /// between 0 and 1, a failure says something.
+    @Test func meaningOutputReadsWhateverItIs() {
+        for text in Self.samples(600, seed: 15) {
+            if let hits = try? Meaning.hits(Data(text.utf8)) {
+                #expect(hits.allSatisfy { !$0.path.isEmpty && !$0.path.hasPrefix("/") && $0.zeroBasedLine >= 0 })
+            }
+            for line in text.components(separatedBy: "\n") {
+                if let step = Meaning.progress(line) { #expect((0...1).contains(step.fraction)) }
+            }
+            for status: Int32 in [1, 2, 3] {
+                if case .failed(let said) = Meaning.failure(status: status, errors: text) { #expect(!said.isEmpty) }
+            }
+        }
+    }
 }

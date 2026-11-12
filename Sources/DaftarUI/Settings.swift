@@ -87,6 +87,10 @@ final class AppSettings {
     var captureHeading: String { didSet { write("capture.heading", .string(captureHeading)) } }
     /// The one inbox note ⌥⌘S opens, a vault path; empty is `Scratchpad.md`.
     var scratchpadNote: String { didSet { write("scratchpad.note", .string(scratchpadNote)) } }
+    /// Search by meaning in the sidebar and related notes in the inspector, by `daftar-cli`'s model.
+    var meaningSearch: Bool { didSet { write("meaning.search", .bool(meaningSearch)) } }
+    /// Minutes the vault is still after a change before the index of meaning reads it again; 0 never.
+    var meaningRefresh: Int { didSet { write("meaning.refresh_minutes", .int(meaningRefresh)) } }
     /// The home page's picture, as the file has it: absolute, `~` or in the vault; empty is none.
     var homeImage: String { didSet { write("home.image", .string(homeImage)) } }
     /// What ⌘T opens: the home page, or the note the window shows.
@@ -176,6 +180,8 @@ final class AppSettings {
         captureTarget = "daily"
         captureHeading = ""
         scratchpadNote = "Scratchpad.md"
+        meaningSearch = true
+        meaningRefresh = 10
         homeImage = ""
         newTab = .home
         hiddenNames = Self.defaultHiddenNames
@@ -245,6 +251,8 @@ final class AppSettings {
         captureTarget = file.string("capture.target") ?? "daily"
         captureHeading = file.string("capture.heading") ?? ""
         scratchpadNote = file.string("scratchpad.note") ?? "Scratchpad.md"
+        meaningSearch = file.bool("meaning.search") ?? true
+        meaningRefresh = max(0, file.int("meaning.refresh_minutes") ?? 10)
         homeImage = file.string("home.image") ?? ""
         newTab = file.string("home.new_tab").flatMap(NewTab.init(rawValue:)) ?? .home
         hiddenNames = file.strings("files.hidden") ?? Self.defaultHiddenNames
