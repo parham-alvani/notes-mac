@@ -131,6 +131,24 @@ import WebKit
         #expect(found.contains { $0.name == "Folder Work" })
     }
 
+    @Test func reviewCardsSaysTheQuestionAndHidesTheAnswer() async throws {
+        let deck = root.appending(path: Drill.folder)
+        try FileManager.default.createDirectory(at: deck, withIntermediateDirectories: true)
+        try "## Part 1\n\n### Q1. What is a goroutine?\n\nA function run on its own.\n".write(to: deck.appending(path: "Go.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        store.drill.follow(store)
+        for _ in 0..<100 where !store.drill.ready { try await Task.sleep(for: .milliseconds(20)) }
+        let model = WindowModel()
+        model.showsDrill = true
+        let found = try await elements(DrillView(model: model))
+        expectNamedButtons(found)
+        #expect(found.contains { $0.name.hasPrefix("Question: Q1. What is a goroutine?. From Go › Part 1") })
+        #expect(found.contains { $0.name == "Review Cards, Card 1 of 1" })
+        #expect(found.contains { $0.name == "Show Answer" })
+        // The answer is not read out before it is shown.
+        #expect(!found.contains { $0.value.contains("A function run on its own") || $0.name.contains("A function run on its own") })
+    }
+
     @Test func theHomePageNamesItsControlsAndHidesThePicture() async throws {
         try FileManager.default.createDirectory(at: root.appending(path: ".obsidian/plugins/beautitab"), withIntermediateDirectories: true)
         try #"{"greetingText": "Hello, Tester.", "showBookmarks": true}"#

@@ -87,6 +87,7 @@ struct ContentView: View {
         }
         .focusedSceneValue(\.window, model)
         .background(TabbedWindow(model: model))
+        .drillDeckFollows(store)
         .onAppear {
             // Every window follows a move or a delete, wherever it was made.
             let window = model
@@ -125,6 +126,7 @@ struct ContentView: View {
     private var title: String {
         if model.showsToday { return "Today" }
         if model.showsBoard { return "Board" }
+        if model.showsDrill { return "Review Cards" }
         return model.path.map(Vault.title(of:)) ?? store.name
     }
 
@@ -135,6 +137,8 @@ struct ContentView: View {
             TodayView(model: model)
         } else if model.showsBoard {
             BoardView(model: model)
+        } else if model.showsDrill {
+            DrillView(model: model)
         } else {
             NotePanes(model: model)
         }
