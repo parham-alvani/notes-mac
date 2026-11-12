@@ -74,7 +74,9 @@ import WebKit
             window.scrollTo(0, 900); 1
             """)
         try await Task.sleep(for: .milliseconds(200))
-        let before = try await run(web, "window.scrollY")
+        let shown = "String(Math.round([...document.querySelectorAll('#note > *')].find((el) => el.getBoundingClientRect().bottom > 0).getBoundingClientRect().top))"
+        let first = "[...document.querySelectorAll('#note > *')].find((el) => el.getBoundingClientRect().bottom > 0).textContent"
+        let before = (try await run(web, first), try await run(web, shown), Double(try await run(web, "window.scrollY")) ?? 0)
         // Four lines in place of one, near the top: everything below is three lines down.
         try note(top: "First paragraph, changed\nover two lines.\n\nAnd one more.").write(to: root.appending(path: "Long.md"), atomically: true, encoding: .utf8)
         store.noteChanged("Long.md")
@@ -88,7 +90,11 @@ import WebKit
         #expect(try await run(web, "document.querySelector('#note > ul > li').dataset.line") == "129")
         #expect(try await run(web, "document.querySelector('#note input.task-list-item-checkbox').dataset.line") == "129")
         #expect(try await run(web, "[...document.querySelectorAll('#note > p')].find((p) => p.textContent === 'Paragraph 40.').dataset.line") == "83")
-        #expect(try await run(web, "window.scrollY") == before)
+        // The text being read stays where it is: the page moved down by
+        // what was added above it (WebKit has no scroll anchoring).
+        #expect(try await run(web, first) == before.0)
+        #expect(try await run(web, shown) == before.1)
+        #expect((Double(try await run(web, "window.scrollY")) ?? 0) > before.2)
     }
 
     /// The numbers are found after the note is drawn, and linked then.

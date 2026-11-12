@@ -1028,7 +1028,11 @@ function remember(main) {
  * added above them, and only those between are replaced. False when the
  * page holds no note drawn by `remember`.
  */
+/** The block a patch keeps in place on screen, and where it was. */
+const patchAnchor = { block: null };
+
 function patch(main, html) {
+  patchAnchor.block = null;
   const old = [...main.children];
   if (old.length === 0 || old.some((el) => el.source === undefined)) return false;
   const template = document.createElement("template");
@@ -1052,6 +1056,13 @@ function patch(main, html) {
     }
   }
   const after = old[old.length - end] ?? null;
+  // The first block on screen, when it is kept: the page is put back so
+  // it stays where it is. WebKit has no scroll anchoring, and a paragraph
+  // added above the window (a pull, a save from elsewhere) slid the text
+  // being read down by its height.
+  const shown = old.find((el) => el.getBoundingClientRect().bottom > 0);
+  const index = shown ? old.indexOf(shown) : -1;
+  if (index >= 0 && (index < start || index >= old.length - end)) patchAnchor.block = { el: shown, top: shown.getBoundingClientRect().top };
   for (const el of old.slice(start, old.length - end)) el.remove();
   for (let i = start; i < fresh.length - end; i++) {
     const el = fresh[i];
@@ -1145,7 +1156,12 @@ window.daftar = {
     // editor, a pull) stays where it was. The code blocks' heads and the
     // folds above it change the page's height, so the place is set after
     // them: set before, the page slid by their height.
-    if (keep !== null) window.scrollTo(0, keep);
+    if (keep !== null) {
+      window.scrollTo(0, keep);
+      const anchor = patchAnchor.block;
+      patchAnchor.block = null;
+      if (anchor?.el.isConnected) window.scrollBy(0, anchor.el.getBoundingClientRect().top - anchor.top);
+    }
     // A link to a heading inside a folded section opens the section.
     if (keep === null && note.heading) this.scrollTo(note.heading);
     reading.restore(note.line ?? (keep !== null ? reading.line : null));
