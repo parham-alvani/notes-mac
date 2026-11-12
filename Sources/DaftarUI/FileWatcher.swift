@@ -36,7 +36,11 @@ final class FileWatcher: @unchecked Sendable {
     }
 
     init(root: URL, handler: @escaping (Set<String>) -> Void, rescan: @escaping () -> Void = {}) {
-        base = root.resolvingSymlinksInPath().path.removingSuffixSlash + "/"
+        // FSEvents gives real paths: `/private/tmp/…`, which
+        // `resolvingSymlinksInPath` would make `/tmp/…`, and no event would
+        // be in the vault.
+        let real = Self.realPath(root)
+        base = real.removingSuffixSlash + "/"
         self.handler = handler
         self.rescan = rescan
         var context = FSEventStreamContext(
@@ -49,13 +53,20 @@ final class FileWatcher: @unchecked Sendable {
             watcher.report(list.prefix(count))
         }
         stream = FSEventStreamCreate(
-            nil, callback, &context, [root.resolvingSymlinksInPath().path] as CFArray,
+            nil, callback, &context, [real] as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.2,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer))
         if let stream {
             FSEventStreamSetDispatchQueue(stream, DispatchQueue(label: "daftar.watcher"))
             FSEventStreamStart(stream)
         }
+    }
+
+    /// The path of [url] with every link resolved, `/private` kept.
+    static func realPath(_ url: URL) -> String {
+        guard let resolved = realpath(url.path, nil) else { return url.resolvingSymlinksInPath().path }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     deinit {

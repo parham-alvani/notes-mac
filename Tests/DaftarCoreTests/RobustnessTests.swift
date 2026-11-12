@@ -192,6 +192,28 @@ import Testing
         }
     }
 
+    /// `daftar-cli --json` output from any bytes: every finding has a path
+    /// and a line of at least 0, the grouping keeps each one once, and the
+    /// lines Neovim is given take the old text to the new.
+    @Test func problemsAndFormatChangesFromAnyText() {
+        var random = Seeded(state: 17)
+        let words = ["{", "}", ",", ":", "\"tool\"", "\"level\"", "\"path\"", "\"line\"", "\"column\"", "\"code\"", "\"message\"",
+            "\"fixable\"", "\"check\"", "\"lint\"", "\"fmt\"", "\"error\"", "\"warning\"", "\"a.md\"", "\"\"", "0", "-3", "12", "1e999",
+            "null", "true", "\n", " "]
+        for _ in 0..<2000 {
+            let text = (0..<Int.random(in: 0...40, using: &random)).map { _ in words.randomElement(using: &random)! }.joined()
+            let problems = Problems.parse(text)
+            #expect(problems.allSatisfy { !$0.path.isEmpty && $0.line >= 0 && ($0.column ?? 1) >= 1 })
+            #expect(Problems.grouped(problems).reduce(0) { $0 + $1.problems.count } == Set(problems.map(\.id)).count)
+        }
+        let notes = Self.samples(200, seed: 18)
+        for (old, new) in zip(notes, notes.dropFirst()) {
+            var lines = NoteFormat.lines(of: old)
+            if let change = NoteFormat.changedLines(from: old, to: new) { lines.replaceSubrange(change.start..<change.end, with: change.lines) }
+            #expect(lines == NoteFormat.lines(of: new))
+        }
+    }
+
     @Test func canvasesFromAnyJSON() throws {
         var random = Seeded(state: 11)
         let words = ["{", "}", "[", "]", ",", ":", "\"nodes\"", "\"edges\"", "\"id\"", "\"type\"", "\"text\"", "\"file\"", "\"link\"", "\"group\"",
@@ -397,6 +419,38 @@ import Testing
         }
     }
 
+    @Test func drillCardsFromAnyNoteAndStateFromAnyText() {
+        for text in Self.samples(800, seed: 21, pieces: 30) {
+            let cards = Drill.cards(path: "A/B.md", text: text)
+            let lines = Sections.lines(text).lines
+            // Each card is a heading of the note, once, with text in its answer.
+            #expect(Set(cards.map(\.id)).count == cards.count)
+            #expect(cards.allSatisfy { $0.line < lines.count && $0.id.hasPrefix("A/B.md#") && $0.context.first == "B" })
+            #expect(cards.allSatisfy { !$0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            // A state file of any text reads, and what it writes reads back the same.
+            let state = DrillState(text: text)
+            #expect(DrillState(text: state.text) == state)
+        }
+    }
+
+    @Test func jobStagesAndQuietNotesFromAnyText() {
+        let stages = ["applied", "screening", "rejected"]
+        for (index, text) in Self.samples(800, seed: 21, pieces: 25).enumerated() {
+            let stage = stages[index % 3]
+            let note = "---\njob_stage: \(stage)\njob_next: " + text.prefix(16).replacingOccurrences(of: "\n", with: " ") + "\n---\n" + text
+            _ = QuietRules.standard.quiet(note, today: Day(year: 2026, month: 11, day: 6))
+            _ = QuietRules.standard.quiet(text, today: Day(year: 2026, month: 11, day: 6))
+            _ = JobSearch.propertyLine(text, key: "job_next")
+            _ = LocalTime.read(text)
+            // A stage set keeps every line but its own.
+            guard let moved = try? JobSearch.settingStage(in: note, from: stage, to: "offer") else { continue }
+            let before = note.components(separatedBy: "\n"), after = moved.components(separatedBy: "\n")
+            #expect(before.count == after.count, "\(note.debugDescription)")
+            #expect(zip(before, after).filter { $0 != $1 }.count <= 1, "\(note.debugDescription)")
+            #expect(after[1] == "job_stage: offer", "\(note.debugDescription)")
+        }
+    }
+
     @Test func blockIdsGoInAnyNote() {
         for text in Self.samples(800, seed: 13, pieces: 25) {
             let lines = text.components(separatedBy: "\n").count
@@ -517,6 +571,25 @@ import Testing
             let page = QuickLookPreview.attach(html ?? "", root: root, path: "Note.md")
             #expect(page.attachments.isEmpty)
             #expect(page.html == html)
+        }
+    }
+
+    /// What `daftar-cli` prints for search by meaning and the weekly review
+    /// is read without a crash, whatever it is: a hit is in the vault, a
+    /// step of a build is between 0 and 1, a failure says something.
+    @Test func meaningAndReviewOutputReadsWhateverItIs() {
+        for text in Self.samples(600, seed: 15) {
+            if let hits = try? Meaning.hits(Data(text.utf8)) {
+                #expect(hits.allSatisfy { !$0.path.isEmpty && !$0.path.hasPrefix("/") && $0.zeroBasedLine >= 0 })
+            }
+            for line in text.components(separatedBy: "\n") {
+                if let step = Meaning.progress(line) { #expect((0...1).contains(step.fraction)) }
+                if let span = WeeklyReview.span(ofPath: line) { #expect(span.from <= span.to) }
+            }
+            for status: Int32 in [1, 2, 3] {
+                if case .failed(let said) = Meaning.failure(status: status, errors: text) { #expect(!said.isEmpty) }
+            }
+            _ = WeeklyReview.newest(in: text.components(separatedBy: "\n"))
         }
     }
 }

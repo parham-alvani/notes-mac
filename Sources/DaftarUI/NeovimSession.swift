@@ -741,6 +741,24 @@ final class NeovimSession {
         if unanswered { ended() }
     }
 
+    /// Lines [start]..<[end] (from 0) of the note's buffer become [lines],
+    /// then the buffer is written: Format Note in Neovim mode. One
+    /// `nvim_buf_set_lines` is one step of Neovim's undo, and the cursor,
+    /// marks and folds outside those lines stay. False when the buffer is
+    /// not the text that was formatted any more ([expected] lines), or
+    /// Neovim does not run.
+    func replace(lines start: Int, _ end: Int, with lines: [String], expected: [String]) async -> Bool {
+        guard case .running = state else { return false }
+        saveSoon?.cancel()
+        let id = MessagePackValue.int(Int64(buffer))
+        let now = try? await client.request("nvim_buf_get_lines", [id, 0, -1, false]).arrayValue?.compactMap(\.stringValue)
+        guard now == expected else { return false }
+        let replacement = MessagePackValue.array(lines.map { .string($0) })
+        guard (try? await client.request("nvim_buf_set_lines", [id, .int(Int64(start)), .int(Int64(end)), false, replacement])) != nil else { return false }
+        _ = try? await within(Self.saveLimit) { try await client.request("nvim_command", ["silent! update"]) }
+        return true
+    }
+
     /// Where the cursor goes once Neovim runs: the line the reader was on.
     private var startOffset: Int?
 

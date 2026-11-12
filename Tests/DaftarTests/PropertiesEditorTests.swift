@@ -31,6 +31,19 @@ import Testing
         controller.load("Notes/Plan.md")
     }
 
+    /// A save reads the form again only when what it is read from changed.
+    @Test func theFormIsReadAgainOnlyWhenItsFrontMatterChanged() {
+        let note = "---\ntags: [a]\n---\nBody\n"
+        let key = PropertiesView.formKey("A.md", note)
+        #expect(PropertiesView.formKey("A.md", note + "More body\n") == key)
+        #expect(PropertiesView.formKey("A.md", "---\ntags: [b]\n---\nBody\n") != key)
+        #expect(PropertiesView.formKey("B.md", note) != key)
+        // With no front matter, a new one takes the note's line ends.
+        #expect(PropertiesView.formKey("A.md", "Body\n") == PropertiesView.formKey("A.md", "Other\n"))
+        #expect(PropertiesView.formKey("A.md", "Body\r\n") != PropertiesView.formKey("A.md", "Body\n"))
+        #expect(PropertiesView.formKey("A.md", "Body\r") == PropertiesView.formKey("A.md", "Body\n"))
+    }
+
     @Test func theFrontMatterIsHiddenAndOutOfReach() throws {
         let length = (Self.front as NSString).length
         #expect(controller.hiddenFront == length)

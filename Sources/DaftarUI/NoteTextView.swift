@@ -28,6 +28,12 @@ final class NoteTextView: NSTextView {
     var anchorUntil = Date.distantPast
     /// Where Neovim's window starts, when it moved since the last scroll.
     var neovimTop: Int?
+    /// What the audit found in the note, by source line from 0: a dot in the
+    /// margin, its message on hover (`EditorProblems.swift`).
+    var problemMarks: [Int: [Problem]] = [:]
+    /// The margin's tooltip, and who answers it.
+    var problemTip: NSView.ToolTipTag?
+    lazy var problemTips = ProblemTips(view: self)
     var scrollPending = false
     /// Where `zz`, `zt` or `zb` puts the cursor's line at the next scroll.
     var placing: Place?
@@ -173,6 +179,7 @@ final class NoteTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawCodePanels(in: rect)
+        drawProblemMarks(in: rect)
         guard selectedRange().length == 0, let line = cursorLineRect() else { return }
         // Where the tint is, as drawn: the next move clears this rect, even
         // when live preview moved the lines since.
@@ -372,7 +379,10 @@ final class NoteTextView: NSTextView {
     func fitMargins() {
         let settings = AppSettings.shared
         let side = Self.sideMargin(width: bounds.width, textSize: settings.textSize, textWidth: settings.textWidth)
-        if abs(textContainerInset.width - side) > 1 { textContainerInset = NSSize(width: side, height: 28) }
+        if abs(textContainerInset.width - side) > 1 {
+            textContainerInset = NSSize(width: side, height: 28)
+            showProblemTips()
+        }
     }
 
     /// Each side's margin in a view [width] wide: what the measure of

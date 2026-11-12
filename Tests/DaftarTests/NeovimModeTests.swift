@@ -283,6 +283,51 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// Format Note in Neovim mode: the buffer takes the lines that changed,
+    /// as one step of Neovim's undo, and Neovim writes the file.
+    @Test func formatNotePutsTheFormattedLinesInTheBuffer() async throws {
+        let cli = try FakeCLI()
+        try "# Plan\n*  item\nend\n".write(to: root.appending(path: "Format.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        store.checks.opened(root)
+        store.checks.locate = { cli.path }
+        controller.load("Format.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        controller.formatNote()
+        #expect(await eventually { view.string == "# Plan\n- item\nend\n" })
+        #expect(await eventually {
+            (try? String(contentsOf: root.appending(path: "Format.md"), encoding: .utf8)) == "# Plan\n- item\nend\n"
+        })
+        press("u")
+        #expect(await eventually { view.string == "# Plan\n*  item\nend\n" })
+        await session.stop(writing: false)
+    }
+
+    /// Format on save in Neovim mode: leaving the note lets Neovim write
+    /// what was typed, and the file is formatted after that write, never
+    /// before it.
+    @Test func leavingANoteFormatsItOnceNeovimHasWrittenIt() async throws {
+        let cli = try FakeCLI()
+        try "# Plan\n".write(to: root.appending(path: "Leave.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        store.checks.opened(root)
+        store.checks.locate = { cli.path }
+        controller.load("Leave.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        for key in "GA\r*  item\u{1B}" { press(String(key)) }
+        #expect(await eventually { view.string == "# Plan\n*  item\n" })
+        let left = controller.leaving
+        controller.saveNow()
+        controller.load("Note.md")
+        controller.formatOnLeave(left, at: .otherNote)
+        #expect(await eventually {
+            (try? String(contentsOf: root.appending(path: "Leave.md"), encoding: .utf8)) == "# Plan\n- item\n"
+        })
+        controller.stopVim(writing: false)
+    }
+
     /// The editor opens on the line the reader was at, and tells the pane
     /// that line, so the reader comes back to it: never the note's top.
     @Test func theEditorOpensAtTheReadersLine() async throws {

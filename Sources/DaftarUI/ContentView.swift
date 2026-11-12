@@ -31,7 +31,7 @@ struct ContentView: View {
                         detail
                     }
                 }
-                .inspector(isPresented: Binding { model.inspector && !model.showsPage } set: { model.inspector = $0 }) {
+                .inspector(isPresented: $model.inspectorShown) {
                     InspectorView(model: model)
                         .inspectorColumnWidth(min: 200, ideal: 260, max: 400)
                 }
@@ -73,6 +73,7 @@ struct ContentView: View {
         }
         .sheet(item: $model.taskCancel) { CancelTaskSheet(request: $0) }
         .sheet(item: $model.taskNew) { TaskEditSheet(new: $0) }
+        .sheet(item: $model.weeklyReview) { WeeklyReviewSheet(preview: $0, model: model) }
         .sheet(item: $model.fileAction) { action in
             FileActionSheet(action: action, model: model)
         }
@@ -87,6 +88,7 @@ struct ContentView: View {
         }
         .focusedSceneValue(\.window, model)
         .background(TabbedWindow(model: model))
+        .drillDeckFollows(store)
         .onAppear {
             // Every window follows a move or a delete, wherever it was made.
             let window = model
@@ -125,18 +127,30 @@ struct ContentView: View {
     private var title: String {
         if model.showsToday { return "Today" }
         if model.showsBoard { return "Board" }
+        if model.showsDrill { return "Review Cards" }
+        if model.showsJobs { return "Job Search" }
         return model.path.map(Vault.title(of:)) ?? store.name
     }
 
     @ViewBuilder private var detail: some View {
-        if store.loading {
-            ProgressView("Reading \(store.name)…")
-        } else if model.showsToday {
-            TodayView(model: model)
-        } else if model.showsBoard {
-            BoardView(model: model)
-        } else {
-            NotePanes(model: model)
+        Group {
+            if store.loading {
+                ProgressView("Reading \(store.name)…")
+            } else if model.showsToday {
+                TodayView(model: model)
+            } else if model.showsBoard {
+                BoardView(model: model)
+            } else if model.showsJobs {
+                JobBoardView(model: model)
+            } else if model.showsDrill {
+                DrillView(model: model)
+            } else {
+                NotePanes(model: model)
+            }
+        }
+        // An inset, so showing the panel leaves the note's view where it is.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if model.problems { ProblemsPanel(model: model).transition(.move(edge: .bottom)) }
         }
     }
 
@@ -181,6 +195,7 @@ struct ContentView: View {
         // The panes are their own group of glass, apart from the note's tools.
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItemGroup(placement: .primaryAction) {
+            if store.checks.counts.total > 0 { ProblemsButton(model: model) }
             Toggle(isOn: $model.terminal) { Label("Terminal", systemImage: "apple.terminal") }
                 .help("Show or hide a terminal in the vault's folder (⌃`)")
             Button { model.inspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }

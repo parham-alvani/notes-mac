@@ -23,6 +23,7 @@ public struct DaftarApp: App {
                     delegate.store = store
                     QuickCaptureController.shared.store = store
                     VaultFollower.shared.follow(store)
+                    MeaningService.shared.follow(store)
                 }
                 // The settings file can change under the app: follow it.
                 .onChange(of: store.settings.syncInterval) { store.scheduleAutoSync() }
@@ -37,6 +38,7 @@ public struct DaftarApp: App {
         .commands {
             FileCommands(window: window, store: store)
             EditorModeCommands(window: window, store: store)
+            ProblemsCommands(window: window, store: store)
             CommandGroup(after: .pasteboard) {
                 Button("Copy Block Link") { window?.copyBlockLink(store: store) }
                     .keyboardShortcut("b", modifiers: [.command, .option])
@@ -144,6 +146,13 @@ public struct DaftarApp: App {
                 }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
                 .disabled(window?.periodicNeighbour(1, store: store) == nil)
+                Button("Weekly Review") { window?.openWeeklyReview(store: store) }
+                    .keyboardShortcut("4")
+                    .disabled(window == nil || store.root == nil)
+                Button("Review Cards") { window?.showsDrill = true }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Job Search") { window?.showsJobs = true }
+                    .keyboardShortcut("j", modifiers: [.command, .shift])
                 Divider()
                 Button("Sync Now") { Task { await store.sync() } }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
@@ -181,6 +190,7 @@ public struct DaftarApp: App {
             .onAppear {
                 QuickCaptureController.shared.store = store
                 VaultFollower.shared.follow(store)
+                MeaningService.shared.follow(store)
             }
         }
         .menuBarExtraStyle(.window)
@@ -264,6 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FullScreenEscape.install()
             Notifier.shared.start()
             QuickCaptureController.shared.start()
+            DaftarServices.shared.start()
         }
     }
 
@@ -276,10 +287,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated {
             store?.places.write()
-            guard let store, !store.flushers.isEmpty else { return .terminateNow }
+            guard let store, !store.flushers.isEmpty || store.checks.formatting else { return .terminateNow }
             answered = false
             Task { @MainActor in
                 await store.flushEditors()
+                // Format on save, for the notes still in an editor.
+                await store.checks.formatOpenNotes()
                 self.answer(sender)
             }
             Task { @MainActor in
@@ -288,6 +301,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return .terminateLater
         }
+    }
+
+    /// No `daftar-cli` outlives the app: an index build, an audit or a
+    /// review still running is ended, after format on save had its turn.
+    func applicationWillTerminate(_ notification: Notification) {
+        DaftarCLI.endAll()
     }
 
     private var answered = false
@@ -397,6 +416,14 @@ private struct GeneralSettings: View {
                 Toggle("Show hidden files", isOn: $settings.showHidden)
             } footer: {
                 Text("Files with these names, in any folder, and Obsidian's excluded files are not in the file tree, quick open, search or the graph. A link to one still opens it.")
+            }
+            Section {
+                Toggle("Search by meaning", isOn: $settings.meaningSearch)
+                Stepper(settings.meaningRefresh == 0 ? "Keep the index fresh: never" : "Keep the index fresh: \(settings.meaningRefresh) min after a change",
+                    value: $settings.meaningRefresh, in: 0...240, step: 5)
+                    .disabled(!settings.meaningSearch)
+            } footer: {
+                Text("“By meaning” under the search and “Related notes” in the inspector, with daftar-cli's model on this Mac. The model (531 MB) is downloaded once, when you ask.")
             }
             Section {
                 Toggle("Send reading and writing time to WakaTime", isOn: $settings.wakatime)
@@ -536,6 +563,8 @@ private struct EditorSettings: View {
                 Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)
                 Toggle("Dim all but the cursor's paragraph (focus)", isOn: $settings.focusMode)
                 Toggle("Check spelling as you type", isOn: $settings.spellCheck)
+                Toggle("Format the note when you leave the editor", isOn: $settings.formatOnSave)
+                    .help("daftar-cli fmt, with the vault's .prettierrc: never while you type")
                 Toggle("Edit with Neovim", isOn: $settings.vimMode)
                 LabeledContent("nvim") {
                     Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)

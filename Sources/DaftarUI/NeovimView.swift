@@ -102,6 +102,14 @@ extension NoteTextView {
     func center(_ offset: Int) {
         guard let scroll = enclosingScrollView, let line = lineRect(at: offset) else { return scrollRangeToVisible(NSRange(location: offset, length: 0)) }
         let clip = scroll.contentView
+        // Not laid out yet (the editor is made before its window sizes it):
+        // the middle of a view 0 points high is its top, so the line is put
+        // in the middle at the first layout that gives it a height.
+        guard clip.bounds.height >= 1 else {
+            extras.pendingCenter = offset
+            return
+        }
+        extras.pendingCenter = nil
         let y = max(0, min(line.midY - clip.bounds.height / 2, max(0, frame.height - clip.bounds.height)))
         clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
         scroll.reflectScrolledClipView(clip)

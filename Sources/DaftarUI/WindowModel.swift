@@ -18,6 +18,14 @@ final class WindowModel {
         get { page == .board }
         set { page = newValue ? .board : (page == .board ? nil : page) }
     }
+    var showsDrill: Bool {
+        get { page == .drill }
+        set { page = newValue ? .drill : (page == .drill ? nil : page) }
+    }
+    var showsJobs: Bool {
+        get { page == .jobs }
+        set { page = newValue ? .jobs : (page == .jobs ? nil : page) }
+    }
     /// A page, not a note, is on screen.
     var showsPage: Bool { page != nil }
     /// The note panes: one, or two side by side after Split Right. The
@@ -201,11 +209,23 @@ final class WindowModel {
     var taskCancel: TaskCancel?
     /// Where New Task puts the task, while its form is open.
     var taskNew: NewTask?
+    /// This week's review, shown before it is written (`WeeklyReviewSheet`).
+    var weeklyReview: ReviewPreview?
     /// After an extract: puts the new note's link where the selection was.
     @ObservationIgnored var extractReplace: ((String) -> Void)?
     var inspector = true
+    /// The inspector as the window shows it: never on a page, and the
+    /// person's choice for the notes. SwiftUI writes false when a page hides
+    /// it, which is not the person closing it: kept, the inspector stayed
+    /// shut on every note after Today, Review Cards or Job Search.
+    var inspectorShown: Bool {
+        get { inspector && !showsPage }
+        set { if !showsPage { inspector = newValue } }
+    }
     /// The terminal pane under the note.
     var terminal = false
+    /// The Problems panel under the note (⇧⌘M, `ProblemsView.swift`).
+    var problems = false
     @ObservationIgnored let terminalSession = TerminalSession()
     /// Set to select the text in the reader after a search hit opens.
     var findText: String? {
@@ -318,16 +338,17 @@ final class WindowModel {
     }
 
     /// New Task's form: for the note on screen, in the section the cursor
-    /// is in; with no note, for the scratchpad when it is there.
-    func newTask(store: VaultStore) {
+    /// is in; with no note, for the scratchpad when it is there. [text]
+    /// fills the form's text (New Daftar Task from another app).
+    func newTask(store: VaultStore, text: String = "") {
         if let path, showsText, Vault.isNote(path) {
             let headings = Sections.headings(in: store.text(of: path) ?? "")
             let heading = cursorLine.flatMap { Sections.heading(at: $0, in: headings) }.map { headings[$0].line }
-            taskNew = NewTask(path: path, headingLine: heading)
+            taskNew = NewTask(path: path, headingLine: heading, text: text)
         } else {
             let scratchpad = store.scratchpadPath
             let found = store.index.files.first { Slugs.fold($0) == Slugs.fold(scratchpad) }
-            taskNew = NewTask(path: found ?? "", headingLine: nil)
+            taskNew = NewTask(path: found ?? "", headingLine: nil, text: text)
         }
     }
 
@@ -441,17 +462,23 @@ final class WindowModel {
     }
 
     /// `daftar://open?path=Folder/Note.md[&mode=edit]`, which the
-    /// notifications use, `daftar://open?path=today`, and `daftar://terminal`.
+    /// notifications use, `daftar://open?path=today` (or `board`, `drill`, `jobs`),
+    /// `daftar://terminal`, and `daftar://new-task?text=…` (New Daftar Task
+    /// from another app), which only fills the form.
     func handle(_ url: URL, store: VaultStore) {
         guard url.scheme == "daftar" else { return }
         if url.host == "terminal" {
             terminal = true
             return
         }
+        if let text = SendToDaftar.newTaskText(url) {
+            newTask(store: store, text: text)
+            return
+        }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard url.host == "open", let path = items.first(where: { $0.name == "path" })?.value else { return }
-        if path == "today" || path == "board" {
-            page = path == "today" ? .today : .board
+        if let named = Page(named: path) {
+            page = named
             return
         }
         open(path, store: store)
@@ -701,6 +728,13 @@ enum NSPalette {
 }
 
 /// A page the detail column shows in place of a note.
-enum Page: Hashable {
+enum Page: String, Hashable {
     case today, board
+    /// Review Cards: the drill cards due (`DrillView`).
+    case drill
+    /// The job search's board (`JobBoardView`).
+    case jobs
+
+    /// The page a `daftar://open?path=` names: `today`, `board`, `drill`, `jobs`.
+    init?(named: String) { self.init(rawValue: named) }
 }

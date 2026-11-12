@@ -258,6 +258,11 @@ public struct ConfigFile: Sendable, Equatable {
         # dictionary, so Persian lines are not marked. Code, links, tags and
         # the front matter are never marked.
         spell_check = true
+        # Format a note you typed in with daftar-cli fmt (the vault's
+        # .prettierrc) when you leave the editor: back to the reader, another
+        # note, closing it, quitting. Never while you type. Edit › Format Note
+        # (⌥⇧⌘F) formats at any time. Needs daftar-cli 0.23.0 or later.
+        format_on_save = true
         # Neovim mode: the cursor slides to where it goes, as in Neovide.
         # "Reduce motion" in macOS turns the slide off too.
         animate_cursor = true
@@ -322,6 +327,16 @@ public struct ConfigFile: Sendable, Equatable {
         # It may hold the day, as a template does: "## {{date:YYYY-MM-DD}}"
         # gives one note (target = "Scratchpad.md") a section for each day.
         heading = ""
+
+        [meaning]
+        # Search by meaning: a section "By meaning" under the sidebar's search
+        # and "Related notes" in the inspector, by `daftar-cli` (0.23.0 or
+        # later) and its model, run on this Mac, offline, Persian and English
+        # alike. The model (531 MB) is downloaded once, only when you ask.
+        search = true
+        # Minutes the vault is still after a change before the index reads
+        # the changed notes again, in the background; 0 never.
+        refresh_minutes = 10
 
         [home]
         # The picture behind the home page, which a window or a pane with no

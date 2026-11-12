@@ -6,6 +6,8 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case today
     case board
+    /// Review Cards, while cards are due.
+    case drill
     case file(String)
     /// A bookmark: the same file as its row in the tree, a row of its own.
     case bookmark(String)
@@ -77,17 +79,12 @@ struct FilesList: View {
     @ViewState private var dropTarget: String?
     @ViewState private var tagsOpen = false
     @ViewState private var updatedOpen = true
-    /// The task counts of the first two rows, kept until the vault changes or the day turns:
-    /// a selection, a drag over a folder or a section opened draws the sidebar again.
-    @ViewState private var groupsMemo = Memo<GroupsKey, VaultStore.TaskGroups>()
-
-    struct GroupsKey: Equatable {
-        var revision: Int
-        var today: Day
-    }
-
     var body: some View {
-        let groups = groupsMemo.value(for: GroupsKey(revision: store.revision, today: .today())) { store.taskGroups() }
+        // The list reads `store.sidebar` only: a save that changes nothing it shows does not draw it again.
+        let facts = store.sidebar
+        let today = Day.today()
+        // Past midnight the counts are of yesterday until the vault changes: counted for today here.
+        let counts = facts.counts.day == today ? facts.counts : SidebarFacts.counts(store, day: today)
         List(selection: selection) {
             Section {
                 Label {
@@ -96,8 +93,8 @@ struct FilesList: View {
                     Image(systemName: "sun.max.fill").resizable().scaledToFit().foregroundStyle(Palette.yellow)
                         .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
-                .badge(groups.today.count + groups.overdue.count)
-                .accessibilityValue(Spoken.count(groups.today.count, "task") + " due, \(groups.overdue.count) overdue")
+                .badge(counts.due + counts.overdue)
+                .accessibilityValue(Spoken.count(counts.due, "task") + " due, \(counts.overdue) overdue")
                 .tag(SidebarItem.today)
                 Label {
                     Text("Board")
@@ -105,11 +102,22 @@ struct FilesList: View {
                     Image(systemName: "rectangle.split.3x1.fill").resizable().scaledToFit().foregroundStyle(Palette.purple)
                         .frame(width: IconicImage.slot, height: IconicImage.slot)
                 }
-                .badge(groups.inProgress.count)
-                .accessibilityValue(Spoken.count(groups.inProgress.count, "task") + " in progress")
+                .badge(counts.inProgress)
+                .accessibilityValue(Spoken.count(counts.inProgress, "task") + " in progress")
                 .tag(SidebarItem.board)
+                if store.drill.counts.due > 0 {
+                    Label {
+                        Text("Review Cards")
+                    } icon: {
+                        Image(systemName: "rectangle.on.rectangle.angled").resizable().scaledToFit().foregroundStyle(Palette.green)
+                            .frame(width: IconicImage.slot, height: IconicImage.slot)
+                    }
+                    .badge(store.drill.counts.due)
+                    .accessibilityValue(Spoken.count(store.drill.counts.due, "card") + " due")
+                    .tag(SidebarItem.drill)
+                }
             }
-            let bookmarks = store.bookmarks.entries.filter { $0.folder || store.index.files.contains($0.path) }
+            let bookmarks = store.bookmarks.entries.filter { $0.folder || facts.files.contains($0.path) }
             if !bookmarks.isEmpty {
                 Section("Bookmarks") {
                     ForEach(bookmarks, id: \.path) { entry in
@@ -122,7 +130,7 @@ struct FilesList: View {
                                 }
                             }
                         } icon: {
-                            if entry.folder, let logo = Vault.logo(of: entry.path, in: store.index.files).flatMap(store.url(of:)) {
+                            if entry.folder, let logo = Vault.logo(of: entry.path, in: facts.files).flatMap(store.url(of:)) {
                                 IconicImage(icon: nil, fallback: "folder.fill", fallbackColor: Palette.accent, logo: logo)
                             } else {
                                 Image(systemName: entry.folder ? "folder.fill" : "star.fill")
@@ -140,15 +148,16 @@ struct FilesList: View {
                     }
                 }
             }
-            let updated = store.updatedSinceRead
+            let updated = facts.updated
             if !updated.isEmpty {
                 Section(isExpanded: $updatedOpen) {
-                    ForEach(updated.prefix(12), id: \.self) { path in
+                    ForEach(updated.prefix(12), id: \.path) { entry in
+                        let path = entry.path
                         Label {
                             HStack {
                                 Text(Vault.title(of: path)).lineLimit(1)
                                 Spacer()
-                                if let modified = store.index.notes[path]?.modified {
+                                if let modified = entry.modified {
                                     Text(modified, format: .relative(presentation: .named, unitsStyle: .narrow))
                                         .font(.caption2).foregroundStyle(.secondary)
                                 }
@@ -160,13 +169,13 @@ struct FilesList: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityHint("Changed since you last read it")
                         .tag(SidebarItem.bookmark(path))
-                        .help("Changed on \(store.index.notes[path]?.modified.formatted(date: .abbreviated, time: .shortened) ?? "disk") since you last read it")
+                        .help("Changed on \(entry.modified?.formatted(date: .abbreviated, time: .shortened) ?? "disk") since you last read it")
                         .contextMenu {
                             Button("Mark as Read") { store.places.markRead(path) }
                         }
                     }
                     if updated.count > 1 {
-                        Button("Mark All as Read") { for path in updated { store.places.markRead(path) } }
+                        Button("Mark All as Read") { for entry in updated { store.places.markRead(entry.path) } }
                             .buttonStyle(.borderless).font(.caption).foregroundStyle(Palette.aqua)
                     }
                 } header: {
@@ -174,7 +183,7 @@ struct FilesList: View {
                 }
             }
             Section(store.name) {
-                OutlineGroup(store.tree, children: \.children) { node in
+                OutlineGroup(facts.tree, children: \.children) { node in
                     FileRow(node: node, dropTarget: dropTarget == node.path)
                         .tag(SidebarItem.file(node.folderNote ?? node.path))
                         .contextMenu { FileMenu(path: node.folderNote ?? node.path, folder: node.isFolder ? node.path : nil, model: model) }
@@ -186,7 +195,7 @@ struct FilesList: View {
                         }
                 }
             }
-            let tags = store.index.tagTree
+            let tags = facts.tagTree
             if !tags.isEmpty {
                 Section(isExpanded: $tagsOpen) {
                     OutlineGroup(tags, children: \.children) { node in
@@ -214,7 +223,7 @@ struct FilesList: View {
                         }
                     }
                 } header: {
-                    Text("Tags · \(store.index.tags.count)")
+                    Text("Tags · \(facts.tagCount)")
                 }
             }
         }
@@ -252,11 +261,15 @@ struct FilesList: View {
         Binding {
             if model.showsToday { return .today }
             if model.showsBoard { return .board }
+            if model.showsDrill { return .drill }
+            // Job Search has no row: no note is picked under it either.
+            if model.showsPage { return nil }
             return model.path.map { .file($0) }
         } set: { item in
             switch item {
             case .today: model.showsToday = true
             case .board: model.showsBoard = true
+            case .drill: model.showsDrill = true
             case .tag(let tag): model.searchTag(tag)
             case .file(let path) where store.index.files.contains(path),
                 .bookmark(let path) where store.index.files.contains(path):
@@ -277,7 +290,7 @@ struct FileRow: View {
         Label {
             HStack(spacing: 4) {
                 Text(node.name).foregroundStyle(Vault.opensInApp(node.path) || node.isFolder ? .primary : .secondary)
-                if !node.isFolder, store.isUpdatedSinceRead(node.path) {
+                if !node.isFolder, store.sidebar.updatedPaths.contains(node.path) {
                     Circle().fill(Palette.aqua).frame(width: 6, height: 6)
                         .help("Changed since you last read it")
                         .accessibilityHidden(true)
@@ -306,7 +319,7 @@ struct FileRow: View {
     private var kind: String {
         if node.isFolder { return node.folderNote != nil ? "Folder with a folder note" : "Folder" }
         let what = Vault.isNote(node.path) ? "Note" : Vault.isImage(node.path) ? "Picture" : Vault.opensInApp(node.path) ? "File" : "File, opens in another app"
-        return store.isUpdatedSinceRead(node.path) ? what + ", changed since you last read it" : what
+        return store.sidebar.updatedPaths.contains(node.path) ? what + ", changed since you last read it" : what
     }
 
     private var attachmentSymbol: String {
@@ -374,6 +387,8 @@ struct SearchResults: View {
     @ViewState private var searchedFor: String?
     /// Notes by name, as ⌘P finds them, at once on each key.
     @ViewState private var names: [String] = []
+    /// Notes by meaning, by `daftar-cli`, a moment after the last key.
+    @ViewState private var meaning = MeaningQuery()
 
     private var searched: Bool { searchedFor == model.query }
 
@@ -427,14 +442,41 @@ struct SearchResults: View {
                     .contextMenu { FileMenu(path: hit.path, model: model) }
                 }
             }
+            if showsMeaning {
+                Section {
+                    let listed = Set(names).union(searched ? hits.map(\.path) : [])
+                    MeaningRows(query: meaning, key: model.query.trimmingCharacters(in: .whitespaces),
+                        leaving: { listed.contains($0) || store.excluded.contains($0) },
+                        empty: "Nothing more by meaning.") { hit in
+                        model.open(hit.path, line: hit.zeroBasedLine, store: store)
+                    }
+                } header: {
+                    SectionTitle(title: "By meaning", count: 0, color: Palette.purple)
+                }
+            }
         }
         .listStyle(.sidebar)
         .overlay {
-            if searched && hits.isEmpty && names.isEmpty { ContentUnavailableView.search(text: model.query) }
+            if searched && hits.isEmpty && names.isEmpty && !showsMeaning { ContentUnavailableView.search(text: model.query) }
         }
-        .onAppear { findNames() }
-        .onChange(of: model.query) { findNames() }
+        .onAppear {
+            findNames()
+            meaning.search(model.query, store: store)
+        }
+        .onChange(of: model.query) {
+            findNames()
+            meaning.search(model.query, store: store)
+        }
+        // The model just downloaded, or the setting turned on: ask again.
+        .onChange(of: MeaningService.shared.generation) { meaning.search(model.query, store: store, delay: .zero) }
+        .onChange(of: store.settings.meaningSearch) { meaning.search(model.query, store: store, delay: .zero) }
         .task(id: "\(model.query)|\(store.revision)") { await run() }
+    }
+
+    /// The section by meaning, for words, with the setting on.
+    private var showsMeaning: Bool {
+        let query = model.query.trimmingCharacters(in: .whitespaces)
+        return store.settings.meaningSearch && !query.isEmpty && !query.hasPrefix("#")
     }
 
     private var firstWord: String? {
@@ -510,6 +552,8 @@ struct InspectorView: View {
     /// The addresses the note names, found with the mentions.
     @ViewState private var places: [Detected.Item] = []
     @ViewState private var placesFor = ""
+    /// The notes nearest this one in meaning, by `daftar-cli related`.
+    @ViewState private var related = MeaningQuery()
 
     /// The note's links, each once, with where it goes when it goes anywhere.
     private func outgoingLinks(_ note: NoteEntry, from path: String) -> [(target: String, path: String?, embed: Bool)] {
@@ -560,6 +604,16 @@ struct InspectorView: View {
                     }
                 } header: {
                     SectionTitle(title: "Unlinked mentions", count: mentionsFor == path ? mentions.count : 0, color: Palette.purple)
+                }
+                if store.settings.meaningSearch {
+                    Section {
+                        MeaningRows(query: related, key: path, leaving: { $0 == path || store.excluded.contains($0) },
+                            empty: "No note is near this one in meaning.") { hit in
+                            model.open(hit.path, line: hit.zeroBasedLine, store: store)
+                        }
+                    } header: {
+                        SectionTitle(title: "Related notes", count: 0, color: Palette.purple)
+                    }
                 }
                 let outgoing = outgoingLinks(note, from: path)
                 if !outgoing.isEmpty {
@@ -612,13 +666,24 @@ struct InspectorView: View {
                 // before looking again, but not for a note just opened.
                 if mentionsFor == path { try? await Task.sleep(for: .milliseconds(600)) }
                 guard !Task.isCancelled else { return }
-                places = Detected.find(in: store.text(of: path) ?? "").filter { $0.kind == .address }
+                related.relate(path, store: store)
+                // The data detector takes about 100 ms on a long note: not on the main thread.
+                let file = store.url(of: path)
+                let addresses = await Task.detached(priority: .userInitiated) {
+                    let text = file.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+                    return Detected.find(in: text).filter { $0.kind == .address }
+                }.value
+                guard !Task.isCancelled else { return }
+                places = addresses
                 placesFor = path
                 let found = await store.unlinkedMentions(of: path)
                 guard !Task.isCancelled else { return }
                 mentions = found
                 mentionsFor = path
             }
+            // The index was built again, or the setting turned on.
+            .onChange(of: MeaningService.shared.generation) { related.relate(path, store: store) }
+            .onChange(of: store.settings.meaningSearch) { related.relate(path, store: store) }
         } else if !model.showsPage, let path = model.path, Vault.isImage(path) {
             // A picture has no outline: the notes that show it or link to it.
             let backlinks = (store.index.backlinks[path] ?? []).filter { !store.excluded.contains($0.source) }

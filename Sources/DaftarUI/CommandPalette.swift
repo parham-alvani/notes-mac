@@ -35,6 +35,15 @@ enum PaletteCommands {
             PaletteCommand(id: "periodic", title: store.periodic.period.current, group: "Go", symbol: "calendar", color: Palette.aqua, shortcut: "⌘3") {
                 model.openPeriodicNote(store: store)
             },
+            PaletteCommand(id: "weekly-review", title: "Weekly Review", group: "Go", symbol: "calendar.badge.checkmark", color: Palette.aqua, shortcut: "⌘4") {
+                model.openWeeklyReview(store: store)
+            },
+            PaletteCommand(id: "drill", title: "Review Cards", group: "Go", symbol: "rectangle.on.rectangle.angled", color: Palette.green, shortcut: "⇧⌘R") {
+                model.showsDrill = true
+            },
+            PaletteCommand(id: "jobs", title: "Job Search", group: "Go", symbol: "briefcase.fill", color: Palette.green, shortcut: "⇧⌘J") {
+                model.showsJobs = true
+            },
             PaletteCommand(id: "random", title: "Open Random Note", group: "Go", symbol: "dice.fill", color: Palette.purple) {
                 let notes = store.index.notes.keys.filter { !store.excluded.contains($0) }
                 if let path = notes.randomElement() { model.open(path, store: store) }
@@ -198,6 +207,7 @@ enum PaletteCommands {
             ]
         }
         out += editor(model: model, store: store)
+        out += problems(model: model, store: store)
         if model.showsImage {
             out = out.filter { !Self.textOnly.contains($0.id) } + image(model: model, store: store)
         }

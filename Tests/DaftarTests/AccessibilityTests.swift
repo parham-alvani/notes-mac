@@ -104,6 +104,19 @@ import WebKit
         #expect(names.contains { $0.hasPrefix("To do, ") || $0.hasPrefix("To Do, ") || $0.contains(", 2 tasks") })
     }
 
+    @Test func jobCardsAreElementsWithTheirApplication() async throws {
+        try FileManager.default.createDirectory(at: root.appending(path: "Companies/Acme"), withIntermediateDirectories: true)
+        try "---\njob_stage: screening\njob_roles:\n  - Platform Engineer\njob_channel: LinkedIn\n---\n"
+            .write(to: root.appending(path: "Companies/Acme/Acme.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let found = try await elements(JobBoardView(model: WindowModel()), size: CGSize(width: 1600, height: 800))
+        expectNamedButtons(found)
+        let names = found.map(\.name)
+        #expect(names.contains { $0.hasPrefix("Acme, Screening, Platform Engineer, via LinkedIn") })
+        #expect(names.contains("Screening, 1 application"))
+        #expect(names.contains { $0.hasPrefix("Closed, ") })
+    }
+
     @Test func theSidebarSaysWhatColoursAndIconsSay() async throws {
         let model = WindowModel()
         let found = try await elements(FilesList(model: model), size: CGSize(width: 320, height: 900))
@@ -121,6 +134,24 @@ import WebKit
         #expect(found.contains { $0.name == "Heading level 3, Two" })
     }
 
+    /// The Problems panel says each finding's level and line in words, and
+    /// names its icon buttons.
+    @Test func theProblemsPanelSaysEachFindingInWords() async throws {
+        let cli = try FakeCLI()
+        store.checks.opened(root)
+        store.checks.locate = { cli.path }
+        store.checks.refresh()
+        for _ in 0..<100 where store.checks.problems.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        let found = try await elements(ProblemsPanel(model: WindowModel()), size: CGSize(width: 900, height: 300))
+        expectNamedButtons(found)
+        let names = found.map(\.name)
+        #expect(names.contains("Error, line 2: the body is joined to the title. callout-body"))
+        #expect(names.contains("Warning, line 1: bare URL. MD034"))
+        #expect(names.contains("Fix MD034 in Home"))
+        #expect(names.contains("Hide Problems"))
+        #expect(names.contains("Check Again"))
+    }
+
     @Test func aSplitPaneHasANamedCloseButton() async throws {
         let model = WindowModel()
         model.open("Notes.md", store: store)
@@ -129,6 +160,24 @@ import WebKit
         expectNamedButtons(found)
         #expect(found.contains { $0.name == "Close Pane" })
         #expect(found.contains { $0.name == "Folder Work" })
+    }
+
+    @Test func reviewCardsSaysTheQuestionAndHidesTheAnswer() async throws {
+        let deck = root.appending(path: Drill.folder)
+        try FileManager.default.createDirectory(at: deck, withIntermediateDirectories: true)
+        try "## Part 1\n\n### Q1. What is a goroutine?\n\nA function run on its own.\n".write(to: deck.appending(path: "Go.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        store.drill.follow(store)
+        for _ in 0..<100 where !store.drill.ready { try await Task.sleep(for: .milliseconds(20)) }
+        let model = WindowModel()
+        model.showsDrill = true
+        let found = try await elements(DrillView(model: model))
+        expectNamedButtons(found)
+        #expect(found.contains { $0.name.hasPrefix("Question: Q1. What is a goroutine?. From Go › Part 1") })
+        #expect(found.contains { $0.name == "Review Cards, Card 1 of 1" })
+        #expect(found.contains { $0.name == "Show Answer" })
+        // The answer is not read out before it is shown.
+        #expect(!found.contains { $0.value.contains("A function run on its own") || $0.name.contains("A function run on its own") })
     }
 
     @Test func theHomePageNamesItsControlsAndHidesThePicture() async throws {

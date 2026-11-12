@@ -161,6 +161,21 @@ import Testing
         #expect(!FileWatcher.lostEvents(FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagItemIsFile)))
     }
 
+    /// A vault in `/tmp` is `/private/tmp` to FSEvents: its events are
+    /// still the vault's.
+    @Test func theWatcherHearsAVaultBehindALink() async throws {
+        let folder = URL(filePath: "/tmp/daftar-watch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        #expect(FileWatcher.realPath(folder).hasPrefix("/private/tmp/"))
+        let heard = Heard()
+        let watcher = FileWatcher(root: folder) { heard.add($0) }
+        try await Task.sleep(for: .milliseconds(300))
+        try "# Seen\n".write(to: folder.appending(path: "Seen.md"), atomically: true, encoding: .utf8)
+        #expect(await eventually { heard.paths.contains("Seen.md") })
+        withExtendedLifetime(watcher) {}
+    }
+
     /// Events lost: nothing says which files changed, so all are read again.
     @Test func aRescanFindsWhatNoEventNamed() async throws {
         try "# New\n- [ ] Found\n".write(to: root.appending(path: "Notes/New.md"), atomically: true, encoding: .utf8)
@@ -485,4 +500,35 @@ import Testing
         #expect(!store.moveTask(task, to: .status("x")))
         #expect(try text("Notes/Plan.md") == "# Plan\n- [ ] First 📅 2026-10-30\n- [/] Second\n")
     }
+
+    /// A card dropped on the job board writes its note's `job_stage` line
+    /// and nothing else, after the editors save, and only while the note's
+    /// stage is the one the card showed.
+    @Test func aJobCardMovesByItsStageAlone() async throws {
+        try FileManager.default.createDirectory(at: root.appending(path: "Companies/Acme"), withIntermediateDirectories: true)
+        let note = "---\njob_stage: \"applied\"\njob_channel: \"Ashby (acme)\"\n---\n# Acme\n"
+        try note.write(to: root.appending(path: "Companies/Acme/Acme.md"), atomically: true, encoding: .utf8)
+        store.openSynchronously(root)
+        let search = await store.jobSearch(quiet: true)
+        let acme = try #require(search.applications.first)
+        #expect(acme.stage == "applied" && acme.channel == "Ashby")
+        let editor = typing("Companies/Acme/Acme.md", note + "Typed.\n")
+        #expect(store.setJobStage(acme, to: "screening"))
+        #expect(await eventually { (try? text("Companies/Acme/Acme.md"))?.contains("screening") == true })
+        #expect(editor.saves == 1)
+        #expect(try text("Companies/Acme/Acme.md") == note.replacingOccurrences(of: "\"applied\"", with: "\"screening\"") + "Typed.\n")
+        // The card still says applied: the note moved on, and nothing is written.
+        store.flushers[ObjectIdentifier(editor)] = nil
+        store.openSynchronously(root)
+        #expect(!store.setJobStage(acme, to: "rejected"))
+        #expect(store.notice?.contains("changed in its note") == true)
+        #expect(try text("Companies/Acme/Acme.md").contains("\"screening\""))
+    }
+}
+
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var all = Set<String>()
+    func add(_ paths: Set<String>) { lock.withLock { all.formUnion(paths) } }
+    var paths: Set<String> { lock.withLock { all } }
 }

@@ -17,6 +17,8 @@ struct PropertiesView: View {
     /// The type picked for a property added without a value, until it has one.
     @ViewState private var chosen: [String: PropertyType] = [:]
     @ViewState private var adding = false
+    /// What the form was read from: the note, its front matter and whether it has `\r\n` line ends.
+    @ViewState private var readKey: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,8 +39,30 @@ struct PropertiesView: View {
     }
 
     private func reload() {
-        form = PropertySheet.read(store.text(of: path) ?? "")
+        let text = store.text(of: path) ?? ""
+        // Each save of the note comes here: the form is read again only when
+        // the front matter, or the line ends a new one would take, changed.
+        let key = Self.formKey(path, text)
+        if key != readKey {
+            form = PropertySheet.read(text)
+            readKey = key
+        }
         types = store.root.map { BaseEngine.types(in: $0) } ?? [:]
+    }
+
+    /// All `PropertySheet.read` depends on, without reading the form: the front
+    /// matter as written, and for a note without one, whether a line ends in `\r\n`.
+    static func formKey(_ path: String, _ text: String) -> String {
+        let front = (text as NSString).substring(to: min(PropertySheet.length(of: text), (text as NSString).length))
+        var crlf = false, previous: UInt8 = 0
+        for byte in text.utf8 {
+            if previous == 13, byte == 10 {
+                crlf = true
+                break
+            }
+            previous = byte
+        }
+        return path + "\u{0}" + front + "\u{0}" + (crlf ? "crlf" : "lf")
     }
 
     private func type(of property: PropertySheet.Property) -> PropertyType {
@@ -130,6 +154,7 @@ struct PropertiesView: View {
         guard let shown = form?.sheet else { return }
         let path = path
         Task {
+            readKey = nil
             if let now = await store.editProperties(path, shown: shown, change) { form = now } else { reload() }
         }
     }

@@ -254,6 +254,8 @@ extension NoteTextView {
 
     @objc func sortTasks(_ sender: Any?) { controller?.sortTasks() }
 
+    @objc func formatNote(_ sender: Any?) { controller?.formatNote() }
+
     // MARK: Pairs
 
     /// What a mark wraps a selection in, as Obsidian does: `*`, `_`, `` ` ``,

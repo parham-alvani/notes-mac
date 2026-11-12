@@ -31,6 +31,14 @@ struct TodayView: View {
                         Chip(text: "\(groups.today.count) due", symbol: "sun.max.fill", color: Palette.accent)
                         if !groups.overdue.isEmpty { Chip(text: "\(groups.overdue.count) overdue", symbol: "exclamationmark.circle.fill", color: Palette.red) }
                         if !groups.inProgress.isEmpty { Chip(text: "\(groups.inProgress.count) in progress", symbol: "circle.lefthalf.filled", color: Palette.purple) }
+                        if store.drill.counts.due > 0 {
+                            Button { model.showsDrill = true } label: {
+                                Chip(text: Spoken.count(store.drill.counts.due, "card") + " due", symbol: "rectangle.on.rectangle.angled", color: Palette.green)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Review the cards due (⇧⌘R)")
+                            .accessibilityHint("Opens Review Cards")
+                        }
                         ForEach(coming.filter { $0.day == today }) { happening in
                             eventChip(happening.event)
                         }
@@ -53,6 +61,9 @@ struct TodayView: View {
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
+
+                NextJobEventCard(model: model)
+                ReviewCard(model: model)
 
                 if !coming.isEmpty {
                     Card(title: "Holidays and feasts", symbol: "star.fill", color: Palette.red) {

@@ -322,6 +322,33 @@ import Testing
         #expect(reported.last == 2)
     }
 
+    /// ⌘E from a line deep in the reader: the editor is made, and told its
+    /// line, before its window gives it a height. The line is in the middle
+    /// once it has one, not the top of the note.
+    @Test func theEditorOpenedAtADeepLineShowsItOnceLaidOut() throws {
+        let lines = (0..<400).map { "Line \($0) of a long note." }.joined(separator: "\n\n") + "\n"
+        try lines.write(to: root.appending(path: "Notes/Long.md"), atomically: true, encoding: .utf8)
+        let controller = EditorController(store: store)
+        let scroll = NoteTextView.scrollableNoteView()
+        let view = try #require(scroll.documentView as? NoteTextView)
+        view.controller = controller
+        controller.view = view
+        let container = EditorContainer(scroll: scroll)
+        controller.container = container
+        controller.load("Notes/Long.md")
+        controller.go(toLine: 600)
+        let clip = scroll.contentView
+        #expect(clip.bounds.origin.y == 0)
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil }
+        container.layoutSubtreeIfNeeded()
+        let line = try #require(view.lineRect(at: view.selectedRange().location))
+        #expect(clip.bounds.origin.y > 0)
+        #expect(clip.bounds.minY <= line.minY && line.maxY <= clip.bounds.maxY)
+        #expect(view.extras.pendingCenter == nil)
+    }
+
     func put(_ text: String, cursor: Int) {
         view.textStorage?.setAttributedString(NSAttributedString(string: text))
         view.setSelectedRange(NSRange(location: cursor, length: 0))

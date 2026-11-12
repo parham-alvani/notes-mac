@@ -33,6 +33,8 @@ final class VaultStore {
     private(set) var templates = Templates()
     /// The Beautitab plugin's settings, for the home page.
     private(set) var beautitab = Beautitab()
+    /// The drill cards and their reviews, read off the main thread (`DrillDeck`).
+    let drill = DrillDeck()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0
@@ -80,9 +82,14 @@ final class VaultStore {
     @ObservationIgnored var followers: [ObjectIdentifier: (VaultChange) -> Void] = [:]
     /// Where each note was being read, for every window.
     @ObservationIgnored let places = PlaceBook()
+    /// The audit's findings, its fixes, and format on save (`daftar-cli`).
+    let checks = VaultChecks()
+    /// What the sidebar's list shows, set only when it changes.
+    @ObservationIgnored private(set) lazy var sidebar = SidebarFacts(store: self)
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
+        checks.store = self
         if openVault, let path = settings.vaultPath { open(URL(filePath: path)) }
     }
 
@@ -126,6 +133,7 @@ final class VaultStore {
                 self.loading = false
                 self.revision += 1
                 self.lastChanged = []
+                self.checks.opened(url)
             }
         }
         Task {
@@ -168,6 +176,19 @@ final class VaultStore {
 
     @ObservationIgnored private var treed: (files: Set<String>, empty: Set<String>, revision: Int, tree: [TreeNode])?
     @ObservationIgnored private var hiddenRevision = 0
+
+    /// The logo of the folder at [path] (`Vault.logo`), kept until the files
+    /// change: each look reads every file's name, and the breadcrumb asks
+    /// for each of its folders at every drawing.
+    func logo(of folder: String) -> String? {
+        if logos.files != index.files { logos = (index.files, [:]) }
+        if let known = logos.found[folder] { return known }
+        let found = Vault.logo(of: folder, in: index.files)
+        logos.found[folder] = .some(found)
+        return found
+    }
+
+    @ObservationIgnored private var logos: (files: Set<String>, found: [String: String?]) = ([], [:])
 
     /// The folder at [path] in the shown tree; "" is the vault itself.
     func folder(_ path: String) -> [TreeNode]? { Vault.folder(path, in: tree) }
@@ -233,6 +254,7 @@ final class VaultStore {
             // Every editor and reader looks at its file again.
             lastChanged = index.files
             revision += 1
+            checks.changed()
             await refreshStatus()
             if rescanAgain {
                 rescanAgain = false
@@ -277,6 +299,7 @@ final class VaultStore {
             index = updated
             lastChanged = changed
             revision += 1
+            checks.changed()
             await refreshStatus()
         }
     }
@@ -430,12 +453,14 @@ final class VaultStore {
         guard let root, let note = index.notes[path] else { return [] }
         let names = [Vault.title(of: path)] + note.parsed.aliases
         let linking = Set((index.backlinks[path] ?? []).map(\.source))
-        var sources = Set<String>()
-        for name in names where name.count >= UnlinkedMentions.shortest {
-            for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
-        }
-        let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
+        let search = search, excluded = excluded
         return await Task.detached(priority: .userInitiated) {
+            // The full-text searches too: each runs SQLite, after every save of the note.
+            var sources = Set<String>()
+            for name in names where name.count >= UnlinkedMentions.shortest {
+                for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
+            }
+            let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
             var out: [MentionHit] = []
             for source in candidates {
                 guard let text = try? String(contentsOf: root.appending(path: source), encoding: .utf8) else { continue }
@@ -703,6 +728,31 @@ final class VaultStore {
             changed([task.path])
             return false
         }
+    }
+
+    /// Sets the `job_stage` of [application]'s note to [stage], a card
+    /// dropped on the job board: only that property's line is written, with
+    /// the properties form's writer. False when the note's stage is no
+    /// longer the one the card showed.
+    @discardableResult
+    func setJobStage(_ application: JobApplication, to stage: String) -> Bool {
+        afterEditors { self.setJobStageNow(application, to: stage) }
+    }
+
+    private func setJobStageNow(_ application: JobApplication, to stage: String) -> Bool {
+        guard let root, url(of: application.path) != nil, index.files.contains(application.path) else { return false }
+        do {
+            try ownEdit(application.path, in: root) { try JobSearch.settingStage(in: $0, from: application.stage, to: stage) }
+            changed([application.path])
+            requestSync()
+            return true
+        } catch JobSearch.StageFailure.unwritable(let reason) {
+            notice = "\(application.company)'s properties are YAML the form cannot write back the same, so the stage was not changed. \(reason)"
+        } catch {
+            notice = "\(application.company)'s stage changed in its note before the drop. Nothing was written."
+            changed([application.path])
+        }
+        return false
     }
 
     /// Sets [task]'s status to [status] from a status menu, with [reason]
