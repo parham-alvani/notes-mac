@@ -159,6 +159,44 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// A far jump puts the cursor's line where Neovim says, in the middle
+    /// of the view, in a long note of code blocks and headings: TextKit
+    /// guesses where lines it has not laid out are, and the guess was
+    /// hundreds of points off, so `G`, `n` and a search left the cursor
+    /// off the screen. In a window on screen, which lays out its viewport.
+    @Test func farJumpsKeepTheCursorOnScreen() async throws {
+        let sections = (1...80).map {
+            "## Section \($0)\n\nParagraph \($0) is a long line of prose that wraps on the screen more than once, so the layout has work to do.\n\n```python\ndef f\($0)(x):\n    return x * 2\n```\n"
+        }
+        let text = sections.joined(separator: "\n") as NSString
+        try (text as String).write(to: root.appending(path: "Long.md"), atomically: true, encoding: .utf8)
+        window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        controller.load("Long.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        func jump(_ keys: [String], to target: Int, middle: Bool) async throws {
+            for key in keys { press(key) }
+            #expect(await eventually { view.selectedRange().location == target }, "\(keys)")
+            // The glide, and the layout under it.
+            try await Task.sleep(for: .milliseconds(400))
+            let line = try #require(view.lineRect(at: target))
+            #expect(line.minY >= clip.bounds.minY && line.maxY <= clip.bounds.maxY, "\(keys): line \(line.minY) not in \(clip.bounds.minY)...\(clip.bounds.maxY)")
+            if middle { #expect(abs(line.midY - clip.bounds.midY) < clip.bounds.height / 4, "\(keys): not in the middle") }
+        }
+        try await jump(["/", "d", "e", "f", " ", "f", "7", "\r"], to: text.range(of: "def f7(").location, middle: false)
+        try await jump(["n"], to: text.range(of: "def f70(").location, middle: true)
+        try await jump(["G"], to: text.range(of: "```", options: .backwards).location, middle: false)
+        try await jump(["g", "g"], to: 0, middle: false)
+        try await jump(["/", "f", "4", "0", "(", "\r"], to: text.range(of: "f40(").location, middle: true)
+        try await jump(["z", "t"], to: text.range(of: "f40(").location, middle: false)
+        let top = try #require(view.lineRect(at: text.range(of: "f40(").location))
+        #expect(top.minY - clip.bounds.minY < clip.bounds.height / 4)
+        await session.stop()
+    }
+
     /// Neovim's completion menu shows under the word, follows `<C-n>`, and
     /// goes with Esc; Neovim puts the word in.
     @Test func neovimsCompletionMenuShowsUnderTheWord() async throws {

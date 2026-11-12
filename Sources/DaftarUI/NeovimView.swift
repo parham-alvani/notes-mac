@@ -186,6 +186,17 @@ extension NoteTextView {
         guard let scroll = enclosingScrollView else { return }
         let clip = scroll.contentView
         let height = clip.bounds.height
+        // A line far off the screen is where TextKit guesses, from what it
+        // guesses of the lines above: a code block or a heading is another
+        // height, and once laid out the line was hundreds of points away,
+        // the cursor off the screen after `/`, `n`, `G` or a mark. The text
+        // around it is laid out first, so the view goes where it will stay.
+        if let near = textLayoutManager?.textViewportLayoutController.viewportRange, let content = textLayoutManager?.textContentManager {
+            let start = content.offset(from: content.documentRange.location, to: near.location)
+            let end = content.offset(from: content.documentRange.location, to: near.endLocation)
+            let cursor = selectedRange().location
+            if cursor < start || cursor > end { layOutAround(cursor) }
+        }
         var y = clip.bounds.origin.y
         if let top = neovimTop, let line = lineRect(at: top) { y = line.minY - textContainerOrigin.y }
         neovimTop = nil
@@ -208,6 +219,8 @@ extension NoteTextView {
             if cursor.minY - margin < y { y = cursor.minY - margin } else if cursor.maxY + margin > y + height { y = cursor.maxY + margin - height }
         }
         y = max(0, min(y, max(0, frame.height - height)))
+        glide += 1
+        placed = lineRect(at: selectedRange().location).map { (selectedRange().location, $0.minY - y) }
         guard abs(y - clip.bounds.origin.y) > 0.5 else { return }
         let target = NSPoint(x: clip.bounds.origin.x, y: y)
         // The editor's own scroll is where an edit's layout keeps the view.
@@ -241,6 +254,7 @@ extension NoteTextView {
         // time and curve: on its own it went faster, and on screen it ran
         // down past its row and came back as the view caught up (<C-d>, zt, n).
         if !far { extras.neovimCursor?.glide(over: duration) }
+        let glide = self.glide
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CursorTrail.curve
@@ -248,14 +262,58 @@ extension NoteTextView {
         } completionHandler: { [weak self] in
             // AppKit ends an animation on the main thread.
             MainActor.assumeIsolated {
-                scroll.reflectScrolledClipView(clip)
-                // The clip copies what was drawn while it moves: the cursor's
-                // line, drawn in the same moment, is drawn again where it is.
-                self?.redrawCursorLine()
+                // The last glide ends where it was going, and the cursor's
+                // line where it was put: a glide AppKit did not run left the
+                // view a screen short, and lines laid out on the way moved it.
+                self?.settle(glide, at: target)
             }
+        }
+        // AppKit may end a glide only when the next one starts, or never
+        // (a window it does not animate): the view gets there all the same.
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in
+            MainActor.assumeIsolated { self?.settle(glide, at: target) }
         }
     }
 
+
+    /// The view at [target], or where it puts the cursor's line as the
+    /// scroll put it, when the lines under it were laid out again.
+    /// Only the last glide, once: a later scroll took its place.
+    private func settle(_ glide: Int, at target: NSPoint) {
+        guard glide == self.glide, let scroll = enclosingScrollView else { return }
+        self.glide += 1
+        let clip = scroll.contentView
+        var y = target.y
+        if let placed, placed.offset == selectedRange().location, let line = lineRect(at: placed.offset) { y = line.minY - placed.y }
+        y = max(0, min(y, max(0, frame.height - clip.bounds.height)))
+        if abs(clip.bounds.origin.y - y) > 0.5 {
+            // A glide still on its way stops here.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                clip.animator().setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
+            }
+            clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
+        }
+        scroll.reflectScrolledClipView(clip)
+        // The clip copies what was drawn while it moves: the cursor's
+        // line, drawn in the same moment, is drawn again where it is.
+        redrawCursorLine()
+    }
+
+    /// The text a few screens around [offset] laid out for real, so its
+    /// lines are where they will stay.
+    private func layOutAround(_ offset: Int) {
+        guard let layout = textLayoutManager, let content = layout.textContentManager else { return }
+        let text = string as NSString
+        let reach = 3000
+        let low = text.paragraphRange(for: NSRange(location: max(0, min(offset, text.length) - reach), length: 0)).location
+        let high = NSMaxRange(text.paragraphRange(for: NSRange(location: min(text.length, offset + reach), length: 0)))
+        guard let from = content.location(content.documentRange.location, offsetBy: low),
+            let to = content.location(content.documentRange.location, offsetBy: high),
+            let range = NSTextRange(location: from, end: to)
+        else { return }
+        layout.ensureLayout(for: range)
+    }
 
     override func keyDown(with event: NSEvent) {
         guard let vim, vimActive else {

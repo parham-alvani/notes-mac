@@ -24,6 +24,8 @@ struct EditorView: NSViewRepresentable {
     var onOpen: ((String) -> Void)?
     /// What the audit found in the note, by line, for the margin.
     var problems: [Int: [Problem]] = [:]
+    /// The pane's Neovim while it reads, for the editor's next open.
+    var keeper: NeovimKeeper?
 
     func makeCoordinator() -> EditorController { EditorController(store: store) }
 
@@ -36,6 +38,7 @@ struct EditorView: NSViewRepresentable {
         context.coordinator.container = container
         container.onLayout = { [weak controller = context.coordinator] in controller?.session?.resize() }
         context.coordinator.onCursor = onCursor
+        context.coordinator.keeper = keeper
         context.coordinator.load(path)
         if let line { context.coordinator.go(toLine: line) }
         context.coordinator.onExtract = onExtract
@@ -74,7 +77,7 @@ struct EditorView: NSViewRepresentable {
         coordinator.checkHeadings()
         let left = coordinator.leaving
         coordinator.saveNow()
-        coordinator.stopVim()
+        coordinator.parkVim()
         coordinator.formatOnLeave(left, at: .closed)
         coordinator.animator.stop()
         coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
@@ -110,6 +113,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private(set) var neovimRefused = false
     /// Where `nvim` is, from the setting; a test gives a machine without one.
     var locateNeovim: (String) -> URL? = { NeovimClient.locate($0) }
+    /// Keeps this editor's Neovim while its pane reads (`NeovimKeeper`).
+    var keeper: NeovimKeeper?
     /// What the file said when it was last read or written.
     private var saved = ""
     /// What the note said when this editor took it, or took a change on
@@ -261,8 +266,16 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         view.scrollToBeginningOfDocument(nil)
         view.undoManager?.removeAllActions()
         updateCounts()
-        stopVim()
         neovimRefused = false
+        // Another note in the same Neovim: the one left is written first,
+        // and format on save waits for that write.
+        if let session, store.settings.vimMode, let root = store.root, session.reusable(with: store.settings, root: root) {
+            stopping = session.written()
+            session.reopen(path, in: view, textSize: store.settings.textSize)
+            showStatus()
+            return
+        }
+        stopVim()
         if store.settings.vimMode { startVim() }
     }
 
@@ -280,12 +293,25 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     private func startVim() {
         guard let path, let root = store.root, let view else { return }
         saveNow()
+        // The pane's Neovim, kept while it read.
+        if let kept = keeper?.take(for: store.settings, root: root) {
+            kept.reopen(path, in: view, textSize: store.settings.textSize)
+            use(kept)
+            return
+        }
         guard let session = NeovimSession(path: path, root: root, view: view, settings: store.settings, locate: locateNeovim) else {
             // Said once for the note, not at every update of the view.
             neovimRefused = true
             store.notice = "Neovim mode is on, but there is no nvim. Install it with `brew install neovim`, or set `nvim` in the config file."
             return
         }
+        use(session)
+        Task { await session.start() }
+    }
+
+    /// [session] is the editor's: the view shows what it says and sends it the keys.
+    private func use(_ session: NeovimSession) {
+        guard let view else { return }
         self.session = session
         view.vim = session
         view.allowsUndo = false
@@ -305,7 +331,6 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             }
         }
         showStatus()
-        Task { await session.start() }
     }
 
     /// A file opened inside Neovim: a file of the vault opens in the pane,
@@ -321,16 +346,34 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     }
 
     func stopVim(writing: Bool = true) {
-        guard let session else { return }
+        guard let session = letGo() else { return }
+        // Before the next line of this turn puts another note in the view.
+        session.detach()
+        stopping = Task { await session.stop(writing: writing) }
+    }
+
+    /// The editor's view goes (⌘E, a closed pane): its Neovim writes the
+    /// note and the pane keeps it, for the next edit. With no keeper, or a
+    /// Neovim that does not run, it is ended as before.
+    func parkVim() {
+        guard let session, let keeper, store.settings.vimMode, case .running = session.state, !session.crashed else { return stopVim() }
+        letGo()
+        let saving = session.park()
+        stopping = saving
+        keeper.keep(session, store: store, saving: saving)
+    }
+
+    /// The view is a plain editor's again; the session, no longer the editor's.
+    @discardableResult
+    private func letGo() -> NeovimSession? {
+        guard let session else { return nil }
         self.session = nil
         view?.hideNeovimMenu()
         view?.vim = nil
         view?.allowsUndo = true
         view?.writingToolsBehavior = .complete
         container?.setStatus(nil, mode: nil)
-        // Before the next line of this turn puts another note in the view.
-        session.detach()
-        stopping = Task { await session.stop(writing: writing) }
+        return session
     }
 
     private func showStatus() {
@@ -452,6 +495,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let path else { return }
         switch change {
         case .moved(let moves, let touched):
+            session?.forget(moves.keys.filter { $0 != path })
             let now = moves[path] ?? path
             guard now != path || touched.contains(path) else { return }
             if let session {
@@ -464,7 +508,10 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             // next save writes the old ones back.
             if let view, view.string == saved, let disk = store.text(of: now), disk != saved { take(disk) }
         case .deleted(let gone):
-            guard path == gone || path.hasPrefix(gone + "/") else { return }
+            guard path == gone || path.hasPrefix(gone + "/") else {
+                session?.forget([gone])
+                return
+            }
             saveTask?.cancel()
             stopVim(writing: false)
             self.path = nil
