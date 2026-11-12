@@ -22,6 +22,10 @@ final class WindowModel {
         get { page == .drill }
         set { page = newValue ? .drill : (page == .drill ? nil : page) }
     }
+    var showsJobs: Bool {
+        get { page == .jobs }
+        set { page = newValue ? .jobs : (page == .jobs ? nil : page) }
+    }
     /// A page, not a note, is on screen.
     var showsPage: Bool { page != nil }
     /// The note panes: one, or two side by side after Split Right. The
@@ -460,6 +464,10 @@ final class WindowModel {
             page = path == "today" ? .today : path == "board" ? .board : .drill
             return
         }
+        if path == "jobs" {
+            page = .jobs
+            return
+        }
         open(path, store: store)
         editing = items.contains { $0.name == "mode" && $0.value == "edit" }
     }
@@ -711,4 +719,6 @@ enum Page: Hashable {
     case today, board
     /// Review Cards: the drill cards due (`DrillView`).
     case drill
+    /// The job search's board (`JobBoardView`).
+    case jobs
 }

@@ -35,6 +35,9 @@ enum PaletteCommands {
             PaletteCommand(id: "drill", title: "Review Cards", group: "Go", symbol: "rectangle.on.rectangle.angled", color: Palette.green, shortcut: "⇧⌘R") {
                 model.showsDrill = true
             },
+            PaletteCommand(id: "jobs", title: "Job Search", group: "Go", symbol: "briefcase.fill", color: Palette.green, shortcut: "⇧⌘J") {
+                model.showsJobs = true
+            },
             PaletteCommand(id: "periodic", title: store.periodic.period.current, group: "Go", symbol: "calendar", color: Palette.aqua, shortcut: "⌘3") {
                 model.openPeriodicNote(store: store)
             },

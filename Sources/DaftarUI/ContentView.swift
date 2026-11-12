@@ -127,6 +127,7 @@ struct ContentView: View {
         if model.showsToday { return "Today" }
         if model.showsBoard { return "Board" }
         if model.showsDrill { return "Review Cards" }
+        if model.showsJobs { return "Job Search" }
         return model.path.map(Vault.title(of:)) ?? store.name
     }
 
@@ -138,6 +139,8 @@ struct ContentView: View {
                 TodayView(model: model)
             } else if model.showsBoard {
                 BoardView(model: model)
+            } else if model.showsJobs {
+                JobBoardView(model: model)
             } else if model.showsDrill {
                 DrillView(model: model)
             } else {

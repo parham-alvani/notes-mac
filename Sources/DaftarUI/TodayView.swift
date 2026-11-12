@@ -62,6 +62,8 @@ struct TodayView: View {
                     }
                 }
 
+                NextJobEventCard(model: model)
+
                 if !coming.isEmpty {
                     Card(title: "Holidays and feasts", symbol: "star.fill", color: Palette.red) {
                         ForEach(coming) { happening in

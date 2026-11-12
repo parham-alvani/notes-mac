@@ -433,6 +433,24 @@ import Testing
         }
     }
 
+    @Test func jobStagesAndQuietNotesFromAnyText() {
+        let stages = ["applied", "screening", "rejected"]
+        for (index, text) in Self.samples(800, seed: 21, pieces: 25).enumerated() {
+            let stage = stages[index % 3]
+            let note = "---\njob_stage: \(stage)\njob_next: " + text.prefix(16).replacingOccurrences(of: "\n", with: " ") + "\n---\n" + text
+            _ = QuietRules.standard.quiet(note, today: Day(year: 2026, month: 11, day: 6))
+            _ = QuietRules.standard.quiet(text, today: Day(year: 2026, month: 11, day: 6))
+            _ = JobSearch.propertyLine(text, key: "job_next")
+            _ = LocalTime.read(text)
+            // A stage set keeps every line but its own.
+            guard let moved = try? JobSearch.settingStage(in: note, from: stage, to: "offer") else { continue }
+            let before = note.components(separatedBy: "\n"), after = moved.components(separatedBy: "\n")
+            #expect(before.count == after.count, "\(note.debugDescription)")
+            #expect(zip(before, after).filter { $0 != $1 }.count <= 1, "\(note.debugDescription)")
+            #expect(after[1] == "job_stage: offer", "\(note.debugDescription)")
+        }
+    }
+
     @Test func blockIdsGoInAnyNote() {
         for text in Self.samples(800, seed: 13, pieces: 25) {
             let lines = text.components(separatedBy: "\n").count
