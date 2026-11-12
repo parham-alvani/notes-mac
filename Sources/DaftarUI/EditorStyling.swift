@@ -460,9 +460,20 @@ extension EditorController {
         guard now != revealed else { return }
         let old = revealed
         revealed = now
+        // The lines the old range names in the text as it is now: the same
+        // lines as the cursor's, grown or shrunk by a letter typed, were
+        // styled by the edit with their marks shown. Styling them again,
+        // twice, took 6 ms a key at the end of a long paragraph.
+        let start = min(old.location, text.length)
+        let before = text.lineRange(for: NSRange(location: start, length: min(old.length, text.length - start)))
+        guard before != now else { return }
         storage.beginEditing()
-        for range in [old, now] where NSMaxRange(range) <= storage.length {
-            style(storage, range: text.lineRange(for: range))
+        if NSIntersectionRange(before, now).length > 0 {
+            style(storage, range: NSUnionRange(before, now))
+        } else {
+            for range in [old, now] where NSMaxRange(range) <= storage.length {
+                style(storage, range: text.lineRange(for: range))
+            }
         }
         storage.endEditing()
     }
