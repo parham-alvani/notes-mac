@@ -51,7 +51,7 @@ final class CaretOverlay: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let textView else { return }
         NSPalette.cursor.setFill()
-        for rect in textView.extraCaretRects() where rect.intersects(dirtyRect) { rect.fill() }
+        for rect in textView.extraCaretRects(onScreen: true) where rect.intersects(dirtyRect) { rect.fill() }
     }
 }
 
@@ -108,11 +108,17 @@ extension NoteTextView {
         overlay.needsDisplay = true
     }
 
-    /// Where the carets that the view does not draw are, in its coordinates.
-    func extraCaretRects() -> [NSRect] {
+    /// Where the carets that the view does not draw are, in its coordinates;
+    /// with [onScreen], only those in the text laid out on screen: a caret
+    /// far down a long note laid out every line above it, 50 ms a key with
+    /// 60 cursors.
+    func extraCaretRects(onScreen: Bool = false) -> [NSRect] {
         guard hasManyCursors else { return [] }
         let own = selectedRanges.map(\.rangeValue)
-        return extras.cursors.filter { $0.length == 0 && !own.contains($0) }.compactMap { letterCaret(at: $0.location) }
+        let shown = onScreen ? viewportOffsets() : nil
+        return extras.cursors.filter { cursor in
+            cursor.length == 0 && !own.contains(cursor) && shown.map { NSLocationInRange(cursor.location, $0) || cursor.location == NSMaxRange($0) } != false
+        }.compactMap { letterCaret(at: $0.location) }
     }
 
     func caretRect(at offset: Int) -> NSRect? {
@@ -139,6 +145,15 @@ extension NoteTextView {
         undoManager?.beginUndoGrouping()
         defer { undoManager?.endUndoGrouping() }
         guard shouldChangeText(inRanges: change.edits.map { NSValue(range: $0.range) }, replacementStrings: change.edits.map(\.text)) else { return }
+        // Where each edit's text is once all are made: the styling restyles
+        // their lines, not every line between the first and the last.
+        var shift = 0
+        controller?.editPieces = change.edits.map { edit in
+            let length = (edit.text as NSString).length
+            defer { shift += length - edit.range.length }
+            return NSRange(location: edit.range.location + shift, length: length)
+        }
+        defer { controller?.editPieces = nil }
         storage.beginEditing()
         // From the end, so each range is still where it was.
         for edit in change.edits.reversed() { storage.replaceCharacters(in: edit.range, with: edit.text) }

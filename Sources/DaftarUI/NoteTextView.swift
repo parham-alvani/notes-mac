@@ -119,6 +119,16 @@ final class NoteTextView: NSTextView {
     /// A callout's lines, with the name of its panel's colour.
     static let calloutPanel = NSAttributedString.Key("DaftarCalloutPanel")
 
+    /// The text laid out on screen, in UTF-16 offsets; nil before the first layout.
+    func viewportOffsets() -> NSRange? {
+        guard let storage = textStorage, let layout = textLayoutManager, let content = layout.textContentManager,
+            let viewport = layout.textViewportLayoutController.viewportRange
+        else { return nil }
+        let start = max(0, content.offset(from: content.documentRange.location, to: viewport.location))
+        let end = min(storage.length, content.offset(from: content.documentRange.location, to: viewport.endLocation))
+        return NSRange(location: min(start, storage.length), length: max(0, end - min(start, storage.length)))
+    }
+
     /// The panels of the code blocks in [rect].
     private func drawCodePanels(in rect: NSRect) {
         guard let storage = textStorage, storage.length > 0, let layout = textLayoutManager, let content = layout.textContentManager,

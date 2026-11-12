@@ -25,6 +25,21 @@ extension EditorController {
             let rest = now != structure
             structure = now
             if rest { hiddenFront = frontMatterToHide() }
+            if !rest, let pieces = editPieces, pieces.allSatisfy({ NSMaxRange($0) <= text.length }) {
+                // Many cursors: the lines of each edit, not all between them.
+                var last = NSRange(location: NSNotFound, length: 0)
+                for piece in pieces {
+                    let line = text.lineRange(for: piece)
+                    if last.location != NSNotFound, NSMaxRange(last) >= line.location {
+                        last = NSUnionRange(last, line)
+                        continue
+                    }
+                    if last.location != NSNotFound { style(textStorage, range: last) }
+                    last = line
+                }
+                if last.location != NSNotFound { style(textStorage, range: last) }
+                return
+            }
             style(textStorage, range: rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines)
         }
     }

@@ -131,6 +131,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var structure: [String] = []
     /// The text is being replaced whole, and styled after.
     var replacing = false
+    /// The edits of many cursors being made, where their text is after
+    /// them all: only their lines are restyled (`EditorCursors.swift`).
+    var editPieces: [NSRange]?
     var styling: Task<Void, Never>?
     /// The part of the note styled so far while the rest is styled a part
     /// at a time (`restyleProgressively`); nil when all of it is.
