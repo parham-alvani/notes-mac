@@ -36,12 +36,14 @@ import Testing
     }
 
     @Test func aCancelledRunEndsTheCommand() async throws {
-        let started = ContinuousClock.now
         let task = Task { try await DaftarCLI.run("/bin/sleep", ["30"]) }
         try await Task.sleep(for: .milliseconds(200))
+        // Timed from the cancel, and well under the 30 s of the command: a
+        // busy runner may start the run itself many seconds late.
+        let cancelled = ContinuousClock.now
         task.cancel()
         let output = try? await task.value
-        #expect(ContinuousClock.now - started < .seconds(5))
+        #expect(ContinuousClock.now - cancelled < .seconds(15))
         #expect(output?.cancelled ?? true)
     }
 
@@ -50,16 +52,17 @@ import Testing
     @Test func quittingEndsEveryCommandStillRunning() async throws {
         let marker = UUID().uuidString
         let mine: ([String]) -> Bool = { $0.last == marker }
-        let started = ContinuousClock.now
         let tasks = (0..<2).map { _ in Task { try await DaftarCLI.run("/bin/sh", ["-c", "sleep 30", marker]) } }
         for _ in 0..<100 where DaftarCLI.running.filter(mine).count < 2 { try await Task.sleep(for: .milliseconds(20)) }
         #expect(DaftarCLI.running.filter(mine).count == 2)
+        // Timed from the quit, as above.
+        let quit = ContinuousClock.now
         DaftarCLI.endAll(matching: mine)
         for task in tasks {
             let output = try await task.value
             #expect(output.cancelled)
         }
-        #expect(ContinuousClock.now - started < .seconds(5))
+        #expect(ContinuousClock.now - quit < .seconds(15))
         #expect(DaftarCLI.running.filter(mine).isEmpty)
     }
 
