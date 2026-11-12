@@ -12,8 +12,9 @@ struct ReaderRequest: Equatable {
     /// Grows when the same note should be shown again.
     var generation = 0
     /// Markdown to show in place of the note's text, with the note's links
-    /// and pictures: a drill card's answer. Its lines are not the file's, so
-    /// the page ticks no task of the note, keeps no folds and takes no keys.
+    /// and pictures: a drill card's answer, or a preview of a note not
+    /// written yet (the weekly review). Its lines are not the file's, so the
+    /// page ticks no task of the note, keeps no folds and takes no keys.
     var text: String?
 }
 
@@ -192,8 +193,8 @@ struct ReaderView: NSViewRepresentable {
             let sizeChanged = ReaderView.shownKey(store.settings) != shownSize
             // Back from the editor at the same place: what was saved there
             // since is drawn, though it is no longer the last change.
-            let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path) && request.text == nil
-                && store.text(of: request.path) != shownText
+            let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path)
+                && (request.text ?? store.text(of: request.path)) != shownText
             if request != shown {
                 show(request, keepScroll: false)
             } else if changedOnDisk || changedWhileAway || sizeChanged || (shownRevision == -1) {

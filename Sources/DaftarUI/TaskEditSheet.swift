@@ -13,6 +13,8 @@ struct TaskRef: Identifiable, Equatable {
 struct NewTask: Identifiable, Equatable {
     var path: String
     var headingLine: Int?
+    /// The text the form starts with: a selection sent from another app.
+    var text = ""
     let id = UUID()
 }
 
@@ -271,6 +273,7 @@ struct TaskEditSheet: View {
             var empty = TaskFields()
             empty.created = Day.today().description
             before = empty
+            empty.text = new.text
             fields = empty
             focused = true
             return

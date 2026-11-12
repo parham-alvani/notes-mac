@@ -23,6 +23,7 @@ public struct DaftarApp: App {
                     delegate.store = store
                     QuickCaptureController.shared.store = store
                     VaultFollower.shared.follow(store)
+                    MeaningService.shared.follow(store)
                 }
                 // The settings file can change under the app: follow it.
                 .onChange(of: store.settings.syncInterval) { store.scheduleAutoSync() }
@@ -139,6 +140,9 @@ public struct DaftarApp: App {
                 Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
                     .keyboardShortcut("3")
                     .disabled(window == nil || store.root == nil)
+                Button("Weekly Review") { window?.openWeeklyReview(store: store) }
+                    .keyboardShortcut("4")
+                    .disabled(window == nil || store.root == nil)
                 Button("Previous \(store.periodic.period.noun)") {
                     if let window, let path = window.periodicNeighbour(-1, store: store) { window.open(path, store: store) }
                 }
@@ -186,6 +190,7 @@ public struct DaftarApp: App {
             .onAppear {
                 QuickCaptureController.shared.store = store
                 VaultFollower.shared.follow(store)
+                MeaningService.shared.follow(store)
             }
         }
         .menuBarExtraStyle(.window)
@@ -269,6 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FullScreenEscape.install()
             Notifier.shared.start()
             QuickCaptureController.shared.start()
+            DaftarServices.shared.start()
         }
     }
 
@@ -404,6 +410,14 @@ private struct GeneralSettings: View {
                 Toggle("Show hidden files", isOn: $settings.showHidden)
             } footer: {
                 Text("Files with these names, in any folder, and Obsidian's excluded files are not in the file tree, quick open, search or the graph. A link to one still opens it.")
+            }
+            Section {
+                Toggle("Search by meaning", isOn: $settings.meaningSearch)
+                Stepper(settings.meaningRefresh == 0 ? "Keep the index fresh: never" : "Keep the index fresh: \(settings.meaningRefresh) min after a change",
+                    value: $settings.meaningRefresh, in: 0...240, step: 5)
+                    .disabled(!settings.meaningSearch)
+            } footer: {
+                Text("“By meaning” under the search and “Related notes” in the inspector, with daftar-cli's model on this Mac. The model (531 MB) is downloaded once, when you ask.")
             }
             Section {
                 Toggle("Send reading and writing time to WakaTime", isOn: $settings.wakatime)

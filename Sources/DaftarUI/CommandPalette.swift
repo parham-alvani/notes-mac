@@ -41,6 +41,9 @@ enum PaletteCommands {
             PaletteCommand(id: "periodic", title: store.periodic.period.current, group: "Go", symbol: "calendar", color: Palette.aqua, shortcut: "⌘3") {
                 model.openPeriodicNote(store: store)
             },
+            PaletteCommand(id: "weekly-review", title: "Weekly Review", group: "Go", symbol: "calendar.badge.checkmark", color: Palette.aqua, shortcut: "⌘4") {
+                model.openWeeklyReview(store: store)
+            },
             PaletteCommand(id: "random", title: "Open Random Note", group: "Go", symbol: "dice.fill", color: Palette.purple) {
                 let notes = store.index.notes.keys.filter { !store.excluded.contains($0) }
                 if let path = notes.randomElement() { model.open(path, store: store) }
