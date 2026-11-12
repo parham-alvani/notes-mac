@@ -145,16 +145,28 @@ struct WeeklyReviewSheet: View {
 struct ReviewCard: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
+    @ViewState private var newest: String?
 
     var body: some View {
-        if let path = WeeklyReview.newest(in: store.index.files.filter { !store.excluded.contains($0) }) {
-            Card(title: "Weekly review", symbol: "calendar.badge.checkmark", color: Palette.aqua) {
-                Button { model.open(path, store: store) } label: {
-                    LinkRow(path: path, symbol: "arrow.up.right", color: Palette.aqua)
+        // A VStack, not a Group: a `.task` on an empty Group never runs.
+        VStack(alignment: .leading, spacing: 0) {
+            if let path = newest {
+                Card(title: "Weekly review", symbol: "calendar.badge.checkmark", color: Palette.aqua) {
+                    Button { model.open(path, store: store) } label: {
+                        LinkRow(path: path, symbol: "arrow.up.right", color: Palette.aqua)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the newest weekly review")
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens the newest weekly review")
             }
+        }
+        // Every file of the vault is looked at: once a change, off the main
+        // thread, not at each drawing of the page.
+        .task(id: store.revision) {
+            let files = store.index.files, excluded = store.excluded
+            newest = await Task.detached(priority: .utility) {
+                WeeklyReview.newest(in: files.lazy.filter { !excluded.contains($0) })
+            }.value
         }
     }
 }
