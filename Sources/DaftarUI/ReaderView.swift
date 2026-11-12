@@ -11,6 +11,9 @@ struct ReaderRequest: Equatable {
     var line: Int?
     /// Grows when the same note should be shown again.
     var generation = 0
+    /// Text to draw in place of the file's, as the note at [path] would read:
+    /// a preview of a note not written yet (the weekly review).
+    var text: String?
 }
 
 /// The reading view: the note rendered by `web/src` in a web view, the same
@@ -189,7 +192,7 @@ struct ReaderView: NSViewRepresentable {
             // Back from the editor at the same place: what was saved there
             // since is drawn, though it is no longer the last change.
             let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path)
-                && store.text(of: request.path) != shownText
+                && (request.text ?? store.text(of: request.path)) != shownText
             if request != shown {
                 show(request, keepScroll: false)
             } else if changedOnDisk || changedWhileAway || sizeChanged || (shownRevision == -1) {
@@ -232,7 +235,7 @@ struct ReaderView: NSViewRepresentable {
                 showImage(request, keepScroll: keepScroll)
                 return
             }
-            guard let text = store.text(of: request.path) else { return }
+            guard let text = request.text ?? store.text(of: request.path) else { return }
             shownText = text
             if Base.isBase(request.path) {
                 showBase(request, source: text, keepScroll: keepScroll)

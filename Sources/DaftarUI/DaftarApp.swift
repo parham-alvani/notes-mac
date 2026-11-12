@@ -135,6 +135,9 @@ public struct DaftarApp: App {
                 Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
                     .keyboardShortcut("3")
                     .disabled(window == nil || store.root == nil)
+                Button("Weekly Review") { window?.openWeeklyReview(store: store) }
+                    .keyboardShortcut("4")
+                    .disabled(window == nil || store.root == nil)
                 Button("Previous \(store.periodic.period.noun)") {
                     if let window, let path = window.periodicNeighbour(-1, store: store) { window.open(path, store: store) }
                 }

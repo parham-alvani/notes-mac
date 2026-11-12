@@ -201,6 +201,8 @@ final class WindowModel {
     var taskCancel: TaskCancel?
     /// Where New Task puts the task, while its form is open.
     var taskNew: NewTask?
+    /// This week's review, shown before it is written (`WeeklyReviewSheet`).
+    var weeklyReview: ReviewPreview?
     /// After an extract: puts the new note's link where the selection was.
     @ObservationIgnored var extractReplace: ((String) -> Void)?
     var inspector = true

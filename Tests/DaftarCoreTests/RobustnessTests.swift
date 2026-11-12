@@ -520,20 +520,22 @@ import Testing
         }
     }
 
-    /// What `daftar-cli` prints for search by meaning is read without a
-    /// crash, whatever it is: a hit is in the vault, a step of a build is
-    /// between 0 and 1, a failure says something.
-    @Test func meaningOutputReadsWhateverItIs() {
+    /// What `daftar-cli` prints for search by meaning and the weekly review
+    /// is read without a crash, whatever it is: a hit is in the vault, a
+    /// step of a build is between 0 and 1, a failure says something.
+    @Test func meaningAndReviewOutputReadsWhateverItIs() {
         for text in Self.samples(600, seed: 15) {
             if let hits = try? Meaning.hits(Data(text.utf8)) {
                 #expect(hits.allSatisfy { !$0.path.isEmpty && !$0.path.hasPrefix("/") && $0.zeroBasedLine >= 0 })
             }
             for line in text.components(separatedBy: "\n") {
                 if let step = Meaning.progress(line) { #expect((0...1).contains(step.fraction)) }
+                if let span = WeeklyReview.span(ofPath: line) { #expect(span.from <= span.to) }
             }
             for status: Int32 in [1, 2, 3] {
                 if case .failed(let said) = Meaning.failure(status: status, errors: text) { #expect(!said.isEmpty) }
             }
+            _ = WeeklyReview.newest(in: text.components(separatedBy: "\n"))
         }
     }
 }

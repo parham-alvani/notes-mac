@@ -73,6 +73,7 @@ struct ContentView: View {
         }
         .sheet(item: $model.taskCancel) { CancelTaskSheet(request: $0) }
         .sheet(item: $model.taskNew) { TaskEditSheet(new: $0) }
+        .sheet(item: $model.weeklyReview) { WeeklyReviewSheet(preview: $0, model: model) }
         .sheet(item: $model.fileAction) { action in
             FileActionSheet(action: action, model: model)
         }
