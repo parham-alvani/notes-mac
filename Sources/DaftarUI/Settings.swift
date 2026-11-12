@@ -14,6 +14,8 @@ final class AppSettings {
     @ObservationIgnored let url: URL
     @ObservationIgnored private var file = ConfigFile(text: ConfigFile.template)
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
+    /// The file itself, for an edit saved in place, which the folder never sees.
+    @ObservationIgnored private var fileWatcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var loading = false
     /// The file is there and could not be read (its bytes are not UTF-8, or
     /// no permission). The app then runs on the defaults and never writes:
@@ -270,12 +272,18 @@ final class AppSettings {
             problem = "The settings file could not be read, so this change is not kept: \(Self.shown(url))."
             return
         }
-        var changed = file
+        // An edit saved in place (`>>`, some editors) reaches no folder watch:
+        // the change goes onto the file as it is now, never over that edit.
+        let disk = try? String(contentsOf: url, encoding: .utf8)
+        let edited = disk.map { $0 != file.text } ?? false
+        var changed = edited ? ConfigFile(text: disk ?? "") : file
         changed.set(path, value)
         do {
             try Data(changed.text.utf8).write(to: url, options: .atomic)
             file = changed
             problem = nil
+            // The rest of that edit takes effect too.
+            if edited { DispatchQueue.main.async { [weak self] in self?.load() } }
         } catch {
             // Not kept in `file` either: what the app holds stays what the file says.
             problem = "The setting was not saved to \(Self.shown(url)): \(error.localizedDescription)"
@@ -296,7 +304,10 @@ final class AppSettings {
 
     /// The file is written atomically -- by this app and by most editors -- so
     /// the watch is on the folder, and any change there reads the file again.
+    /// An edit saved in place (`>>`, nano, some editors) changes no folder:
+    /// the file is watched too, and watched again once it is replaced.
     private func watch() {
+        watchFile()
         let folder = open(url.deletingLastPathComponent().path, O_EVTONLY)
         guard folder >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: folder, eventMask: .write, queue: .main)
@@ -304,14 +315,38 @@ final class AppSettings {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 // A file that could not be read is tried again at each change of the folder.
-                let text = try? String(contentsOf: self.url, encoding: .utf8)
-                guard self.unreadable || (text != nil && text != self.file.text) else { return }
-                self.load()
+                self.watchFile()
+                self.reloadIfChanged()
             }
         }
         source.setCancelHandler { close(folder) }
         source.resume()
         watcher = source
+    }
+
+    private func reloadIfChanged() {
+        let text = try? String(contentsOf: url, encoding: .utf8)
+        guard unreadable || (text != nil && text != file.text) else { return }
+        load()
+    }
+
+    /// A watch on the file as it is now; a replaced file gets a new one.
+    private func watchFile() {
+        fileWatcher?.cancel()
+        fileWatcher = nil
+        let handle = open(url.path, O_EVTONLY)
+        guard handle >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: handle, eventMask: [.write, .extend, .delete, .rename], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if !source.data.isDisjoint(with: [.delete, .rename]) { self.watchFile() }
+                self.reloadIfChanged()
+            }
+        }
+        source.setCancelHandler { close(handle) }
+        source.resume()
+        fileWatcher = source
     }
 
     func applyAppearance() {
