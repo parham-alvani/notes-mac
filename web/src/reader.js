@@ -51,7 +51,8 @@ function loadMermaid() {
 }
 
 async function drawDiagrams(root) {
-  const nodes = [...root.querySelectorAll("pre.mermaid")];
+  // A diagram kept from the last drawing is drawn already.
+  const nodes = [...root.querySelectorAll("pre.mermaid:not([data-processed])")];
   if (nodes.length === 0) return;
   const mermaid = await loadMermaid();
   // The diagram takes the reader's palette, naz or Daylight.
@@ -740,6 +741,8 @@ function decorate(root) {
     });
     pre.replaceWith(block);
     block.append(head, pre);
+    // The block stands where the code was: it is what a later drawing compares.
+    if (pre.source !== undefined) Object.assign(block, { source: pre.source, line: pre.line });
   });
 }
 
@@ -937,6 +940,67 @@ function escape(text) {
   return escapeHtml(String(text));
 }
 
+/**
+ * What the note on screen was drawn from: each top-level block keeps the
+ * HTML it was made from (`block.source`, its file lines left out) and its
+ * first file line (`block.line`), so a drawing of a changed note can tell
+ * which blocks stayed the same.
+ */
+const drawn = { path: "" };
+const LINES = / data-line="\d+"/g;
+
+function firstLine(el) {
+  const at = el.matches("[data-line]") ? el : el.querySelector("[data-line]");
+  return at ? Number(at.dataset.line) : null;
+}
+
+function remember(main) {
+  for (const el of main.children) {
+    el.source = el.outerHTML.replace(LINES, "");
+    el.line = firstLine(el);
+  }
+}
+
+/**
+ * Draws [html] over the note in [main] block by block: the blocks the same
+ * at the start and the end are kept, their file lines moved by what was
+ * added above them, and only those between are replaced. False when the
+ * page holds no note drawn by `remember`.
+ */
+function patch(main, html) {
+  const old = [...main.children];
+  if (old.length === 0 || old.some((el) => el.source === undefined)) return false;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const fresh = [...template.content.children];
+  const keys = fresh.map((el) => el.outerHTML.replace(LINES, ""));
+  let start = 0;
+  while (start < old.length && start < fresh.length && old[start].source === keys[start]) start++;
+  let end = 0;
+  while (end < old.length - start && end < fresh.length - start && old[old.length - 1 - end].source === keys[fresh.length - 1 - end]) end++;
+  // The blocks kept below the change: their lines move with it.
+  for (let i = 0; i < end; i++) {
+    const el = old[old.length - 1 - i];
+    const line = firstLine(fresh[fresh.length - 1 - i]);
+    const shift = line != null && el.line != null ? line - el.line : 0;
+    if (shift === 0) continue;
+    el.line = line;
+    for (const at of [el, ...el.querySelectorAll("[data-line]")]) {
+      if (at.dataset.line === undefined || at.closest(".embed-body")) continue;
+      at.dataset.line = String(Number(at.dataset.line) + shift);
+    }
+  }
+  const after = old[old.length - end] ?? null;
+  for (const el of old.slice(start, old.length - end)) el.remove();
+  for (let i = start; i < fresh.length - end; i++) {
+    const el = fresh[i];
+    el.source = keys[i];
+    el.line = firstLine(el);
+    main.insertBefore(el, after);
+  }
+  return true;
+}
+
 window.daftar = {
   /**
    * Shows a note: `{ path, title, text, links, properties }`, then scrolls
@@ -964,6 +1028,8 @@ window.daftar = {
     const main = document.getElementById("note");
     main.classList.toggle("is-canvas", Boolean(note.canvas));
     main.classList.toggle("is-image", Boolean(note.image));
+    // A board or a picture is no note drawn block by block.
+    if (note.canvas || note.image) drawn.path = "";
     if (note.canvas) {
       await showCanvas(main, note);
       return;
@@ -983,7 +1049,15 @@ window.daftar = {
       renderProperties(note.properties, note) +
       render(note.text, { path: note.path, links: note.links });
     timing.mark("rendered");
-    main.innerHTML = html;
+    // The same note again after a change on disk: only the blocks that
+    // changed are drawn again; the rest keep their diagrams, pictures and
+    // decorations.
+    const patched = keep !== null && !note.base && drawn.path === note.path && patch(main, html);
+    if (!patched) {
+      main.innerHTML = html;
+      remember(main);
+    }
+    drawn.path = note.base ? "" : note.path;
     timing.mark("inserted");
     // A base is a wide table: it gets the whole window.
     main.classList.toggle("is-base", Boolean(note.base));
