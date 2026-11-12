@@ -217,6 +217,8 @@ final class VaultStore {
         if read != beautitab { beautitab = read }
     }
 
+    func setIndexForProbe(_ updated: VaultIndex) { index = updated; revision += 1 }
+
     /// For tests: what the file watcher reports, without waiting for it.
     func noteChanged(_ path: String) {
         lastChanged = [path]
@@ -409,8 +411,9 @@ final class VaultStore {
     /// The notes read before that changed on disk since, by a pull or
     /// another app: newest first.
     var updatedSinceRead: [String] {
-        index.notes.values
-            .filter { note in places.lastRead(note.path).map { note.modified.timeIntervalSince($0) > 2 } ?? false }
+        // The notes ever read (no more than a thousand), not every note of the vault.
+        places.readTimes()
+            .compactMap { read in index.notes[read.path].flatMap { $0.modified.timeIntervalSince(read.read) > 2 ? $0 : nil } }
             .filter { !excluded.contains($0.path) }
             .sorted { $0.modified > $1.modified }
             .map(\.path)

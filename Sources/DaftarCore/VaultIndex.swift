@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// One note in the index.
 public struct NoteEntry: Sendable, Equatable {
@@ -66,7 +67,14 @@ public struct VaultIndex: Sendable {
     /// Each note's links as [backlinks] holds them, each target once with
     /// the line of its first link, and its tags: what a note gave before
     /// it changed, for [derive(changed:)] to take back.
-    private var given: [String: (links: [(target: String, line: Int)], tags: [String])] = [:]
+    private var given: [String: (links: [(target: String, line: Int)], tags: [String], tasks: [ParsedTask])] = [:]
+    /// Grows each time a task may have changed: every [derive], and each
+    /// [derive(changed:)] that read a note whose tasks are not what they were.
+    /// What counts tasks is made again only when it changes. Taken from
+    /// one counter for every index, so a vault read again never has the
+    /// number of the index it replaces.
+    public private(set) var tasksRevision = 0
+    private static let revisions = Atomic<Int>(0)
 
     public init() {}
 
@@ -120,18 +128,19 @@ public struct VaultIndex: Sendable {
 
         var back: [String: [Backlink]] = [:]
         var tagCounts: [String: Int] = [:]
-        var given: [String: (links: [(target: String, line: Int)], tags: [String])] = [:]
+        var given: [String: (links: [(target: String, line: Int)], tags: [String], tasks: [ParsedTask])] = [:]
         given.reserveCapacity(notes.count)
         for note in notes.values {
             let links = outgoing(note)
             for link in links { back[link.target, default: []].append(Backlink(source: note.path, line: link.line)) }
             for tag in note.parsed.tags { tagCounts[tag, default: 0] += 1 }
-            given[note.path] = (links, note.parsed.tags)
+            given[note.path] = (links, note.parsed.tags, note.parsed.tasks)
         }
         for key in back.keys { back[key]!.sort { $0.source < $1.source } }
         backlinks = back
         tags = tagCounts
         self.given = given
+        tasksRevision = Self.revisions.add(1, ordering: .relaxed).newValue
         tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags))
         if treed?.files != files || treed?.empty != emptyFolders {
             tree = Vault.tree(of: files, emptyFolders: emptyFolders)
@@ -148,9 +157,9 @@ public struct VaultIndex: Sendable {
     public mutating func derive(changed: Set<String>) {
         guard let resolved, resolved.files == files else { return derive() }
         for path in changed where (notes[path]?.parsed.aliases ?? []) != (resolved.aliases[path] ?? []) { return derive() }
-        var tagsChanged = false
+        var tagsChanged = false, tasksChanged = false
         for path in changed {
-            let old: (links: [(target: String, line: Int)], tags: [String]) = given[path] ?? ([], [])
+            let old: (links: [(target: String, line: Int)], tags: [String], tasks: [ParsedTask]) = given[path] ?? ([], [], [])
             let note = notes[path]
             let links = note.map(outgoing) ?? []
             let tags = note?.parsed.tags ?? []
@@ -172,9 +181,11 @@ public struct VaultIndex: Sendable {
                 }
                 for tag in tags { self.tags[tag, default: 0] += 1 }
             }
-            if note == nil { given[path] = nil } else { given[path] = (links, tags) }
+            if old.tasks != (note?.parsed.tasks ?? []) { tasksChanged = true }
+            if let note { given[path] = (links, tags, note.parsed.tasks) } else { given[path] = nil }
         }
         if tagsChanged { tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags)) }
+        if tasksChanged { tasksRevision = Self.revisions.add(1, ordering: .relaxed).newValue }
         if treed?.files != files || treed?.empty != emptyFolders {
             tree = Vault.tree(of: files, emptyFolders: emptyFolders)
             treed = (files, emptyFolders)

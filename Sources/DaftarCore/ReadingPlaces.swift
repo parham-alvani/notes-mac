@@ -34,6 +34,11 @@ public struct ReadingPlaces: Sendable, Equatable {
 
     public func lastRead(_ path: String) -> Date? { entries[path]?.read }
 
+    /// Every note with a read time, and the time: no more than [limit] of them.
+    public var readTimes: [(path: String, read: Date)] {
+        entries.compactMap { path, entry in entry.read.map { (path, $0) } }
+    }
+
     /// The notes read last, newest first, up to [limit].
     public func recentlyRead(_ limit: Int) -> [String] {
         let read = order.enumerated().compactMap { offset, path in entries[path]?.read.map { (path: path, date: $0, offset: offset) } }

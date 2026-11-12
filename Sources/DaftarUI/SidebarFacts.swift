@@ -52,7 +52,7 @@ final class SidebarFacts {
         refresh()
     }
 
-    private func refresh() {
+    func refresh() {
         guard let store else { return }
         let index = store.index
         let tree = store.tree
@@ -69,30 +69,21 @@ final class SidebarFacts {
         // the hidden files, the statuses or the day may have changed.
         let excluded = store.excluded
         let basis = Basis(
-            notes: index.notes, statuses: index.statuses, day: .today(),
+            tasks: index.tasksRevision, statuses: index.statuses, day: .today(),
             excluded: [excluded.prefixes, excluded.patterns.map(\.pattern), excluded.names.sorted()])
-        guard self.basis.map({ !$0.sameTasks(as: basis) }) ?? true else { return }
+        guard self.basis != basis else { return }
         self.basis = basis
         let counts = Self.counts(store, day: basis.day)
         if counts != self.counts { self.counts = counts }
     }
 
-    /// What the counts were made from.
-    private struct Basis {
-        var notes: [String: NoteEntry]
+    /// What the counts were made from: the index's [VaultIndex.tasksRevision]
+    /// says whether a task changed, without comparing every note's.
+    private struct Basis: Equatable {
+        var tasks: Int
         var statuses: TaskStatuses
         var day: Day
         var excluded: [[String]]
-
-        /// The same tasks in the same notes: a note whose date did not change is not read.
-        func sameTasks(as other: Basis) -> Bool {
-            guard statuses == other.statuses, day == other.day, excluded == other.excluded, notes.count == other.notes.count else { return false }
-            for (path, note) in other.notes {
-                guard let old = notes[path] else { return false }
-                if old.modified != note.modified, old.parsed.tasks != note.parsed.tasks { return false }
-            }
-            return true
-        }
     }
 
     @ObservationIgnored private var basis: Basis?
