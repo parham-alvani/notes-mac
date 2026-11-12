@@ -192,6 +192,28 @@ import Testing
         }
     }
 
+    /// `daftar-cli --json` output from any bytes: every finding has a path
+    /// and a line of at least 0, the grouping keeps each one once, and the
+    /// lines Neovim is given take the old text to the new.
+    @Test func problemsAndFormatChangesFromAnyText() {
+        var random = Seeded(state: 17)
+        let words = ["{", "}", ",", ":", "\"tool\"", "\"level\"", "\"path\"", "\"line\"", "\"column\"", "\"code\"", "\"message\"",
+            "\"fixable\"", "\"check\"", "\"lint\"", "\"fmt\"", "\"error\"", "\"warning\"", "\"a.md\"", "\"\"", "0", "-3", "12", "1e999",
+            "null", "true", "\n", " "]
+        for _ in 0..<2000 {
+            let text = (0..<Int.random(in: 0...40, using: &random)).map { _ in words.randomElement(using: &random)! }.joined()
+            let problems = Problems.parse(text)
+            #expect(problems.allSatisfy { !$0.path.isEmpty && $0.line >= 0 && ($0.column ?? 1) >= 1 })
+            #expect(Problems.grouped(problems).reduce(0) { $0 + $1.problems.count } == Set(problems.map(\.id)).count)
+        }
+        let notes = Self.samples(200, seed: 18)
+        for (old, new) in zip(notes, notes.dropFirst()) {
+            var lines = NoteFormat.lines(of: old)
+            if let change = NoteFormat.changedLines(from: old, to: new) { lines.replaceSubrange(change.start..<change.end, with: change.lines) }
+            #expect(lines == NoteFormat.lines(of: new))
+        }
+    }
+
     @Test func canvasesFromAnyJSON() throws {
         var random = Seeded(state: 11)
         let words = ["{", "}", "[", "]", ",", ":", "\"nodes\"", "\"edges\"", "\"id\"", "\"type\"", "\"text\"", "\"file\"", "\"link\"", "\"group\"",
