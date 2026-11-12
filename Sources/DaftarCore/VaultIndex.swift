@@ -63,6 +63,10 @@ public struct VaultIndex: Sendable {
     /// neither, and with 20,000 files they took most of a second to make.
     private var resolved: (files: Set<String>, aliases: [String: [String]])?
     private var treed: (files: Set<String>, empty: Set<String>)?
+    /// Each note's links as [backlinks] holds them, each target once with
+    /// the line of its first link, and its tags: what a note gave before
+    /// it changed, for [derive(changed:)] to take back.
+    private var given: [String: (links: [(target: String, line: Int)], tags: [String])] = [:]
 
     public init() {}
 
@@ -116,24 +120,86 @@ public struct VaultIndex: Sendable {
 
         var back: [String: [Backlink]] = [:]
         var tagCounts: [String: Int] = [:]
+        var given: [String: (links: [(target: String, line: Int)], tags: [String])] = [:]
+        given.reserveCapacity(notes.count)
         for note in notes.values {
-            var seen = Set<String>()
-            for link in note.parsed.links {
-                guard let target = resolver.resolve(link.target, from: note.path), target != note.path,
-                    seen.insert(target).inserted
-                else { continue }
-                back[target, default: []].append(Backlink(source: note.path, line: link.line))
-            }
+            let links = outgoing(note)
+            for link in links { back[link.target, default: []].append(Backlink(source: note.path, line: link.line)) }
             for tag in note.parsed.tags { tagCounts[tag, default: 0] += 1 }
+            given[note.path] = (links, note.parsed.tags)
         }
         for key in back.keys { back[key]!.sort { $0.source < $1.source } }
         backlinks = back
         tags = tagCounts
+        self.given = given
         tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags))
         if treed?.files != files || treed?.empty != emptyFolders {
             tree = Vault.tree(of: files, emptyFolders: emptyFolders)
             treed = (files, emptyFolders)
         }
+    }
+
+    /// [derive] after only the notes at [changed] were read again, added or
+    /// dropped: their old links and tags are taken back and their new ones
+    /// put in, the same as [derive] would make. A file that came or went,
+    /// or an alias that changed, can change where any link goes, so then
+    /// everything is derived again. A saved note took 130 ms in a vault of
+    /// 20,000 notes, nearly all of it resolving every link of every note.
+    public mutating func derive(changed: Set<String>) {
+        guard let resolved, resolved.files == files else { return derive() }
+        for path in changed where (notes[path]?.parsed.aliases ?? []) != (resolved.aliases[path] ?? []) { return derive() }
+        var tagsChanged = false
+        for path in changed {
+            let old: (links: [(target: String, line: Int)], tags: [String]) = given[path] ?? ([], [])
+            let note = notes[path]
+            let links = note.map(outgoing) ?? []
+            let tags = note?.parsed.tags ?? []
+            for link in old.links {
+                guard var list = backlinks[link.target] else { continue }
+                if let at = Self.position(of: path, in: list), at < list.count, list[at].source == path { list.remove(at: at) }
+                backlinks[link.target] = list.isEmpty ? nil : list
+            }
+            for link in links {
+                var list = backlinks[link.target] ?? []
+                list.insert(Backlink(source: path, line: link.line), at: Self.position(of: path, in: list) ?? list.count)
+                backlinks[link.target] = list
+            }
+            if old.tags != tags {
+                tagsChanged = true
+                for tag in old.tags {
+                    let count = (self.tags[tag] ?? 0) - 1
+                    self.tags[tag] = count > 0 ? count : nil
+                }
+                for tag in tags { self.tags[tag, default: 0] += 1 }
+            }
+            if note == nil { given[path] = nil } else { given[path] = (links, tags) }
+        }
+        if tagsChanged { tagTree = TagNode.tree(notes: notes.values.map(\.parsed.tags)) }
+        if treed?.files != files || treed?.empty != emptyFolders {
+            tree = Vault.tree(of: files, emptyFolders: emptyFolders)
+            treed = (files, emptyFolders)
+        }
+    }
+
+    /// Where [source] is or would go in [list], which is in order of source.
+    private static func position(of source: String, in list: [Backlink]) -> Int? {
+        var low = 0, high = list.count
+        while low < high {
+            let middle = (low + high) / 2
+            if list[middle].source < source { low = middle + 1 } else { high = middle }
+        }
+        return low
+    }
+
+    /// The notes [note] links to, each once with the line of its first link, itself left out.
+    private func outgoing(_ note: NoteEntry) -> [(target: String, line: Int)] {
+        var seen = Set<String>()
+        var out: [(target: String, line: Int)] = []
+        for link in note.parsed.links {
+            guard let target = resolver.resolve(link.target, from: note.path), target != note.path, seen.insert(target).inserted else { continue }
+            out.append((target, link.line))
+        }
+        return out
     }
 }
 
@@ -312,7 +378,7 @@ public enum Vault {
             search?.put(path: note.path, title: note.title, body: note.parsed.plain)
         }
         if folders { index.emptyFolders = emptyFolders(root, files: index.files) }
-        index.derive()
+        index.derive(changed: Set(changed.filter(counts)).union(reread))
         return index
     }
 
