@@ -84,6 +84,9 @@ final class VaultChecks {
     }
 
     @ObservationIgnored private(set) var scope = Scope.nothing
+    /// The priority of the audit after a save; a test, on a Mac busy with
+    /// other builds, raises it, since `.background` can wait for minutes then.
+    @ObservationIgnored var afterSave = QualityOfService.background
     /// Past this many notes, one run over the vault is cheaper than a list.
     nonisolated static let mostNotes = 500
 
@@ -207,7 +210,7 @@ final class VaultChecks {
         defer { if !finished { scope = scope.adding(.vault) } }
         // The panel waits for its audit, and the vault's is long; the one
         // after a save is background work, on the efficiency cores.
-        let quality: QualityOfService = asking || notes == nil ? .utility : .background
+        let quality: QualityOfService = asking || notes == nil ? .utility : afterSave
         asking = false
         if case .idle = state { state = .running }
         var found: [Problem] = []
