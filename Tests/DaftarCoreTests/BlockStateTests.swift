@@ -50,3 +50,41 @@ import Testing
         }
     }
 }
+
+/// `BlockStates` keeps the states of lines styled, goes on from the nearest
+/// one, and forgets those after an edit: what it says is what a search from
+/// the top says, through random edits.
+@Suite struct BlockStatesTests {
+    @Test func theCacheReadsAsTheSearchDoes() {
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<400 {
+            let count = Int.random(in: 1...20, using: &generator)
+            let text = NSMutableString(string: (0..<count).map { _ in BlockStateTests.pieces.randomElement(using: &generator)! }.joined(separator: "\n"))
+            var states = MarkdownHighlighter.BlockStates()
+            for _ in 0..<30 {
+                // Ask at a few line starts, as styling does.
+                for _ in 0..<3 {
+                    let at = text.length == 0 ? 0 : text.lineRange(for: NSRange(location: Int.random(in: 0..<text.length, using: &generator), length: 0)).location
+                    #expect(states.state(before: at, in: text) == MarkdownHighlighter.blockState(before: at, in: text), "\((text as String).debugDescription) at \(at)")
+                }
+                // An edit: a piece put in, or a stretch taken out.
+                let location = Int.random(in: 0...text.length, using: &generator)
+                let length = Int.random(in: 0...min(6, text.length - location), using: &generator)
+                let piece = Bool.random(using: &generator) ? "" : ["\n", "```", "%%", "$$", "x", "\n---\n", "~~~\n"].randomElement(using: &generator)!
+                text.replaceCharacters(in: NSRange(location: location, length: length), with: piece)
+                states.edited(at: location)
+            }
+        }
+    }
+
+    /// Going on from a known line gives what the search from the top gives.
+    @Test func theSearchGoesOnFromALineKnown() {
+        let text = "intro\n```swift\nlet a\n```\n%% hidden\nstill %%\nafter\n" as NSString
+        for line in ["let a", "```\n%%", "still", "after"] {
+            let at = text.range(of: line).location
+            let known = text.range(of: "```swift").location
+            let from = (known, MarkdownHighlighter.blockState(before: known, in: text))
+            #expect(MarkdownHighlighter.blockState(before: at, in: text, from: from) == MarkdownHighlighter.blockState(before: at, in: text))
+        }
+    }
+}

@@ -139,6 +139,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     // What the styling keeps (`EditorStyling.swift`).
     /// The lines the selection is on, where every mark shows.
     var revealed = NSRange(location: 0, length: 0)
+    /// The block states of the lines styled last (fence, comment, math).
+    var blockStates = MarkdownHighlighter.BlockStates()
     var images: [String: NSImage] = [:]
     /// Animated GIFs, WebPs and PNGs move (`EditorImages.swift`).
     let animator = ImageAnimator()

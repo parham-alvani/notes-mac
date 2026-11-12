@@ -15,6 +15,7 @@ extension EditorController {
         // The text view edits its storage on the main thread only.
         nonisolated(unsafe) let textStorage = textStorage
         MainActor.assumeIsolated {
+            blockStates.edited(at: editedRange.location)
             guard !replacing else { return }
             let text = textStorage.string as NSString
             let lines = text.lineRange(for: editedRange)
@@ -32,6 +33,7 @@ extension EditorController {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
         progressive = nil
+        blockStates = .init()
         structure = Self.structure(of: storage.string as NSString)
         hiddenFront = frontMatterToHide()
         storage.beginEditing()
@@ -49,6 +51,7 @@ extension EditorController {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
         progressive = nil
+        blockStates = .init()
         structure = Self.structure(of: storage.string as NSString)
         hiddenFront = frontMatterToHide()
         view?.typingAttributes = base
@@ -272,7 +275,8 @@ extension EditorController {
             default: 0
             }
         }
-        let spans = MarkdownHighlighter.spans(in: text, range: range).enumerated()
+        let first = blockStates.state(before: text.lineRange(for: range).location, in: text)
+        let spans = MarkdownHighlighter.spans(in: text, range: range, startingIn: first).enumerated()
             .sorted { (rank($0.element.kind), $0.offset) < (rank($1.element.kind), $1.offset) }.map(\.element)
         let highlights = spans.filter { $0.kind == .highlight }.map(\.range)
         // The language of the code block being styled, from its fence.

@@ -46,13 +46,22 @@ public enum MarkdownHighlighter {
     /// past the front matter, only a line with one of `needles` in it can
     /// start or end a block, and the search jumps from one such line to the
     /// next.
-    public static func blockState(before location: Int, in text: NSString) -> BlockState {
+    ///
+    /// [known] is the state some line before it starts in, which the
+    /// search goes on from: a line start and its state, from `BlockStates`.
+    public static func blockState(before location: Int, in text: NSString, from known: (location: Int, state: BlockState)? = nil) -> BlockState {
         let end = min(location, text.length)
         guard end > 0 else { return .normal }
         func line(_ range: NSRange) -> String { text.substring(with: range).trimmingCharacters(in: .newlines) }
-        let firstLine = text.lineRange(for: NSRange(location: 0, length: 0))
-        var state = next(after: line(firstLine), from: .normal, firstLine: true)
-        var start = NSMaxRange(firstLine)
+        var state: BlockState
+        var start: Int
+        if let known, known.location > 0, known.location <= end {
+            (start, state) = known
+        } else {
+            let firstLine = text.lineRange(for: NSRange(location: 0, length: 0))
+            state = next(after: line(firstLine), from: .normal, firstLine: true)
+            start = NSMaxRange(firstLine)
+        }
         // The front matter ends at a line of its own, with no needle in it.
         while state == .frontMatter, start < end {
             let range = text.lineRange(for: NSRange(location: start, length: 0))
@@ -76,6 +85,36 @@ public enum MarkdownHighlighter {
             start = NSMaxRange(range)
         }
         return state
+    }
+
+    /// The block states of the lines styled last, kept while the text before
+    /// them does not change: styling the line a key changed looked for its
+    /// state from the top of the note, four searches through the text above
+    /// it, 3 ms a key at the end of a 140,000-letter note. A state is taken
+    /// from the nearest line known above, and an edit drops those after it.
+    public struct BlockStates: Sendable {
+        /// Line starts and the states they start in, in order.
+        private(set) var known: [(location: Int, state: BlockState)] = []
+        static let most = 32
+
+        public init() {}
+
+        /// The state the line starting at [location] starts in.
+        public mutating func state(before location: Int, in text: NSString) -> BlockState {
+            if let exact = known.first(where: { $0.location == location }) { return exact.state }
+            let near = known.last { $0.location < location }
+            let state = MarkdownHighlighter.blockState(before: location, in: text, from: near)
+            guard location > 0, location <= text.length else { return state }
+            let index = known.firstIndex { $0.location > location } ?? known.count
+            known.insert((location, state), at: index)
+            if known.count > Self.most { known.remove(at: index == 0 ? known.count - 1 : 0) }
+            return state
+        }
+
+        /// The text changed from [location] on: what is known after it no longer holds.
+        public mutating func edited(at location: Int) {
+            known.removeAll { $0.location > location }
+        }
     }
 
     /// What a line must hold to start or end a fenced block, a math block
@@ -113,9 +152,11 @@ public enum MarkdownHighlighter {
     }
 
     /// The spans of every line that overlaps [range].
-    public static func spans(in text: NSString, range: NSRange) -> [Span] {
+    /// [startingIn] is the state the first line starts in, when the caller
+    /// knows it (`BlockStates`); it is looked for otherwise.
+    public static func spans(in text: NSString, range: NSRange, startingIn known: BlockState? = nil) -> [Span] {
         let lines = text.lineRange(for: range)
-        var state = blockState(before: lines.location, in: text)
+        var state = known ?? blockState(before: lines.location, in: text)
         var out: [Span] = []
         var start = lines.location
         while start < NSMaxRange(lines) {
