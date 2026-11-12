@@ -15,6 +15,25 @@ function post(message) {
 }
 
 let current = { path: "" };
+
+/**
+ * Where the time of a `daftar.show` goes: `performance` marks named
+ * `daftar:<stage>`, cleared at each show, which a benchmark reads with
+ * `performance.getEntriesByType("mark")`. `painted` is the frame after the
+ * first screen was drawn.
+ */
+const timing = {
+  start() {
+    performance.clearMarks();
+    performance.mark("daftar:start");
+  },
+  mark(name) {
+    performance.mark(`daftar:${name}`);
+  },
+  painted() {
+    requestAnimationFrame(() => setTimeout(() => this.mark("painted"), 0));
+  },
+};
 let mermaidLoading = null;
 
 function loadMermaid() {
@@ -893,6 +912,7 @@ window.daftar = {
    * `keepScroll` -- a note shown again after it changed on disk.
    */
   async show(note) {
+    timing.start();
     const keep = note.keepScroll ? window.scrollY : null;
     current = note;
     const root = document.documentElement.style;
@@ -924,10 +944,13 @@ window.daftar = {
     imagePage.viewer?.observer.disconnect();
     imagePage.viewer = null;
     // No title, no heading: a drill card's answer is a part of its note.
-    main.innerHTML =
+    const html =
       (note.title ? `<h1 class="inline-title" dir="${RTL_FIRST.test(note.title) ? "rtl" : "auto"}">${escape(note.title)}</h1>` : "") +
       renderProperties(note.properties, note) +
       render(note.text, { path: note.path, links: note.links });
+    timing.mark("rendered");
+    main.innerHTML = html;
+    timing.mark("inserted");
     // A base is a wide table: it gets the whole window.
     main.classList.toggle("is-base", Boolean(note.base));
     if (note.base) {
@@ -944,8 +967,11 @@ window.daftar = {
     // when the note is shown again, or at the top in a note just opened.
     folds.shut = new Set(note.folds ?? []);
     linkDetected(main, note.detected);
+    timing.mark("detected");
     decorate(main);
+    timing.mark("decorate");
     folds.apply();
+    timing.mark("folds");
     // A note shown again after it changed on disk (a format on leaving the
     // editor, a pull) stays where it was. The code blocks' heads and the
     // folds above it change the page's height, so the place is set after
@@ -955,7 +981,9 @@ window.daftar = {
     if (keep === null && note.heading) this.scrollTo(note.heading);
     reading.restore(note.line ?? (keep !== null ? reading.line : null));
     progress();
-    await Promise.all([drawDiagrams(main), fillEmbeds(main), fillQueries(main), fillBases(main)]);
+    timing.mark("decorated");
+    timing.painted();
+    await Promise.all([drawDiagrams(main).then(() => timing.mark("diagrams")), fillEmbeds(main), fillQueries(main), fillBases(main)]);
     decorate(main);
     // Embeds, queries and pictures made the page longer.
     progress();
@@ -963,6 +991,7 @@ window.daftar = {
     lastSection = undefined;
     reportSection();
     if (finder.bar?.classList.contains("is-open")) search(finder.input.value);
+    timing.mark("done");
   },
 
   /** Scrolls to a heading by its text, or to a `^block` id. */
