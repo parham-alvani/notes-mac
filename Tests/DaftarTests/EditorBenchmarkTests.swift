@@ -298,6 +298,17 @@ import Testing
             times.append(frame { view.keyDown(with: key(letter == "\n" ? "\r" : String(letter), code: letter == "\n" ? 36 : 0)) })
         }
         report("type a fence near the top, each key", stats(times))
+        // A line with an inline comment near the top: each key changes the
+        // line the structure keeps for its `%%`.
+        controller.load("Notes/Long.md")
+        settle(0.6)
+        view.setSelectedRange(NSRange(location: offset(after: "# Bench\n"), length: 0))
+        view.insertText("A %% comment %% here.\n", replacementRange: view.selectedRange())
+        view.setSelectedRange(NSRange(location: view.selectedRange().location - 7, length: 0))
+        settle(0.6)
+        times = []
+        for index in 0..<30 { times.append(frame { view.keyDown(with: key(String("abcdef".randomElement()!), code: UInt16(index % 6))) }) }
+        report("type on a line with %% near the top", stats(times))
     }
 
     @Test func manyCursors() throws {

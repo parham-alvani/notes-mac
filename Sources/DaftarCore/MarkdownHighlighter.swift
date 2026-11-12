@@ -111,6 +111,11 @@ public enum MarkdownHighlighter {
             return state
         }
 
+        /// The state the line starting at [location] starts in, when it is known.
+        public func known(at location: Int) -> BlockState? {
+            known.first { $0.location == location }?.state
+        }
+
         /// The text changed from [location] on: what is known after it no longer holds.
         public mutating func edited(at location: Int) {
             known.removeAll { $0.location > location }

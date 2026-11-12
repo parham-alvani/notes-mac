@@ -16,16 +16,33 @@ extension EditorController {
         nonisolated(unsafe) let textStorage = textStorage
         MainActor.assumeIsolated {
             textGeneration += 1
-            blockStates.edited(at: editedRange.location)
-            guard !replacing else { return }
             let text = textStorage.string as NSString
             let lines = text.lineRange(for: editedRange)
+            // The state the line after the edited ones started in before the
+            // edit, when it is known: its start before the edit is a line start.
+            let before = replacing ? nil : blockStates.known(at: NSMaxRange(lines) - delta)
+            blockStates.edited(at: editedRange.location)
+            guard !replacing else { return }
             // A fence, a comment or the front matter that came or went
             // changes the lines after it too; any other edit, only its own.
             let now = Self.structure(of: text)
-            let rest = now != structure
+            var rest = now != structure
             structure = now
             if rest { hiddenFront = frontMatterToHide() }
+            var range = lines
+            if rest, let before, NSMaxRange(lines) < text.length {
+                // The edited lines' marks changed, but the lines after them
+                // start as they did: a letter typed in a fence's language, or
+                // on a line with an inline `%%` comment or `$$`, restyled the
+                // whole note under it at each key. A fence's own lines take
+                // their colours from its language: they are restyled too.
+                let start = blockStates.state(before: lines.location, in: text)
+                let after = MarkdownHighlighter.blockState(before: NSMaxRange(lines), in: text, from: (lines.location, start))
+                if after == before {
+                    rest = false
+                    if case .fence = after, !Self.isFence(start) { range = NSUnionRange(lines, fenceBody(after: lines, state: after, in: text)) }
+                }
+            }
             if !rest, let pieces = editPieces, pieces.allSatisfy({ NSMaxRange($0) <= text.length }) {
                 // Many cursors: the lines of each edit, not all between them.
                 var last = NSRange(location: NSNotFound, length: 0)
@@ -41,7 +58,7 @@ extension EditorController {
                 if last.location != NSNotFound { style(textStorage, range: last) }
                 return
             }
-            let range = rest ? NSRange(location: lines.location, length: text.length - lines.location) : lines
+            if rest { range = NSRange(location: lines.location, length: text.length - lines.location) }
             // A long paste, an undo of a long cut, or a fence typed above a
             // long note: the screens at the edit now, the rest between frames.
             // Styling it all took 400 ms for a paste of 200,000 letters, and
@@ -51,11 +68,38 @@ extension EditorController {
                 return restyleProgressively(around: NSMaxRange(editedRange), from: range.location, inEdit: true)
             }
             style(textStorage, range: range)
+            // The state the next line starts in, for the next key's `before`.
+            if NSMaxRange(lines) < text.length { _ = blockStates.state(before: NSMaxRange(lines), in: text) }
         }
     }
 
     /// The most letters an edit styles at once; more are styled a part at a time.
     static let atOnce = 24_000
+
+    static func isFence(_ state: MarkdownHighlighter.BlockState) -> Bool {
+        if case .fence = state { return true }
+        return false
+    }
+
+    /// The lines of the code block that [lines] opens, to its closing
+    /// fence, in [state] after them; to the note's end when it is open.
+    func fenceBody(after lines: NSRange, state: MarkdownHighlighter.BlockState, in text: NSString) -> NSRange {
+        let from = NSMaxRange(lines)
+        // Only a line with three of the fence's mark can close it.
+        guard case .fence(let marker) = state, let mark = marker.first else { return NSRange(location: from, length: 0) }
+        let three = String(repeating: mark, count: 3)
+        var at = from
+        while at < text.length {
+            let found = text.range(of: three, options: .literal, range: NSRange(location: at, length: text.length - at))
+            guard found.location != NSNotFound else { break }
+            let line = text.lineRange(for: found)
+            if MarkdownHighlighter.blockState(before: NSMaxRange(line), in: text, from: (from, state)) != state {
+                return NSRange(location: from, length: NSMaxRange(line) - from)
+            }
+            at = NSMaxRange(line)
+        }
+        return NSRange(location: from, length: text.length - from)
+    }
 
     func restyle(all: Bool) {
         guard let storage = view?.textStorage else { return }

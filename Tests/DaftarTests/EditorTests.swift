@@ -517,4 +517,84 @@ import Testing
         #expect(size(at: 3) > body && size(at: 13) > body)
         #expect(size(at: 7) == body)
     }
+
+    /// Where the editor's styling differs from a whole restyle of the same
+    /// text by a second editor; nil when it does not.
+    func unlikeAWholeRestyle() throws -> String? {
+        try view.string.write(to: root.appending(path: "Notes/Ref.md"), atomically: true, encoding: .utf8)
+        let other = NoteTextView.scrollableNoteView().documentView as! NoteTextView
+        let reference = EditorController(store: store)
+        other.controller = reference
+        reference.view = other
+        reference.load("Notes/Ref.md")
+        reference.revealed = controller.revealed
+        reference.restyle(all: true)
+        let mine = try #require(view.textStorage), theirs = try #require(other.textStorage)
+        /// The same attributes, a colour made twice being the same colour.
+        func same(_ a: [NSAttributedString.Key: Any], _ b: [NSAttributedString.Key: Any]) -> Bool {
+            guard Set(a.keys) == Set(b.keys) else { return false }
+            return a.allSatisfy { key, value in
+                if let colour = value as? NSColor, let otherColour = b[key] as? NSColor {
+                    return colour.usingColorSpace(.sRGB) == otherColour.usingColorSpace(.sRGB)
+                }
+                return (value as AnyObject).isEqual(b[key])
+            }
+        }
+        var first = 0
+        while first < mine.length, same(mine.attributes(at: first, effectiveRange: nil), theirs.attributes(at: first, effectiveRange: nil)) { first += 1 }
+        guard first < mine.length else { return nil }
+        let line = (view.string as NSString).lineRange(for: NSRange(location: first, length: 0))
+        return "at \(first), on \((view.string as NSString).substring(with: line).debugDescription)"
+    }
+
+    /// Styling a key restyles only the lines it can change: whatever is
+    /// typed, the note looks as a whole restyle of the same text makes it.
+    /// No quotes and no pictures: a quote's lines take their callout from
+    /// the first one, which a key under it does not restyle.
+    @Test func eachKeyStylesTheNoteAsAWholeRestyleWould() throws {
+        let start = "# Top\n\nSome text with `code` and %% a comment %% here.\n\n```swift\nlet x = 1 // one\n```\n\n$$\nx^2\n$$\n\n- item **bold**\n- [ ] task\n\n| a | b |\n| - | - |\n\nEnd ==mark== line.\n\n```\nplain\n```\nlast %% open\nmore\n%% shut\ntail\n"
+        try start.write(to: root.appending(path: "Notes/Fuzz.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Fuzz.md")
+        var seed: UInt64 = 0x5EED
+        func next(_ bound: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 33) % UInt64(bound))
+        }
+        let keys = ["a", "b", " ", "\n", "`", "``", "```", "~", "$", "$$", "%", "%%", "-", "---", "#", "# ", "*", "**", "=", "==", "|", "x"]
+        for step in 0..<400 {
+            let length = (view.string as NSString).length
+            let at = next(length + 1)
+            view.setSelectedRange(NSRange(location: at, length: 0))
+            if next(4) == 0, at > 0 {
+                view.deleteBackward(nil)
+            } else {
+                view.insertText(keys[next(keys.count)], replacementRange: view.selectedRange())
+            }
+            if let unlike = try unlikeAWholeRestyle() {
+                Issue.record("step \(step): styled unlike a whole restyle \(unlike)")
+                return
+            }
+        }
+    }
+
+    /// A fence's language typed letter by letter colours its block, and
+    /// a `%%` line typed on styles as before, without the note under it.
+    @Test func aFencesLanguageColoursItsBlockAsItIsTyped() throws {
+        try "Top\n\n```text\nlet x = 1 // one\n```\n\nOn %% a %% line.\n\nEnd\n".write(to: root.appending(path: "Notes/Lang.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Lang.md")
+        view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: "text").location + 4, length: 0))
+        for _ in 0..<4 {
+            view.deleteBackward(nil)
+            #expect(try unlikeAWholeRestyle() == nil)
+        }
+        for letter in "swift" {
+            view.insertText(String(letter), replacementRange: view.selectedRange())
+            #expect(try unlikeAWholeRestyle() == nil)
+        }
+        view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: " line.").location, length: 0))
+        for letter in "abc" {
+            view.insertText(String(letter), replacementRange: view.selectedRange())
+            #expect(try unlikeAWholeRestyle() == nil)
+        }
+    }
 }
