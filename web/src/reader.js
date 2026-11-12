@@ -542,6 +542,7 @@ const folds = {
 
   /** Hides what each folded heading holds: everything after it up to a heading as big or bigger. */
   apply() {
+    sections.list = null;
     let shutLevel = Infinity;
     for (const child of document.getElementById("note").children) {
       const level = /^H[1-6]$/.test(child.tagName) && child.dataset.heading !== undefined ? Number(child.tagName[1]) : null;
@@ -734,20 +735,28 @@ function decorate(root) {
   });
 }
 
-/** The section at the top of the window, told to the app when it changes, for the outline. */
+/**
+ * The section at the top of the window, told to the app when it changes,
+ * for the outline. The headings are listed once a drawing (`sections.list`
+ * is cleared when the note or its folds change) and the one at the top is
+ * found by halves: a scroll reads a few boxes, not every heading's.
+ */
 let lastSection = null;
+const sections = { list: null };
 function reportSection() {
-  const headings = [...document.querySelectorAll("#note > [data-heading]")].filter((h) => !h.classList.contains("folded-away"));
-  let at = null;
-  for (const heading of headings) {
-    if (heading.getBoundingClientRect().top > 90) break;
-    at = Number(heading.dataset.line);
+  sections.list ??= [...document.querySelectorAll("#note > [data-heading]")].filter((h) => !h.classList.contains("folded-away"));
+  const headings = sections.list;
+  let low = 0, high = headings.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (headings[mid].getBoundingClientRect().top > 90) high = mid;
+    else low = mid + 1;
   }
+  const at = low > 0 ? Number(headings[low - 1].dataset.line) : null;
   if (at === lastSection) return;
   lastSection = at;
   post({ kind: "section", line: at ?? -1 });
 }
-window.addEventListener("scroll", reportSection, { passive: true });
 
 /** The thin bar at the top that fills as the note is read. */
 function progress() {
@@ -758,8 +767,23 @@ function progress() {
   bar.style.transform = `scaleX(${part})`;
   bar.setAttribute("aria-valuenow", String(Math.round(part * 100)));
 }
-window.addEventListener("scroll", progress, { passive: true });
-window.addEventListener("resize", progress);
+
+/**
+ * A scroll is handled once a frame, its reads before its writes: the
+ * section's boxes are read, then the bar is set, so no box is read after a
+ * style was changed in the same frame.
+ */
+let scrollFrame = 0;
+function onScroll() {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    reportSection();
+    progress();
+  });
+}
+window.addEventListener("scroll", onScroll, { passive: true });
+window.addEventListener("resize", onScroll);
 
 /**
  * Find in the note: a bar at the top, every match marked, the current one
@@ -913,6 +937,7 @@ window.daftar = {
    */
   async show(note) {
     timing.start();
+    sections.list = null;
     const keep = note.keepScroll ? window.scrollY : null;
     current = note;
     const root = document.documentElement.style;
