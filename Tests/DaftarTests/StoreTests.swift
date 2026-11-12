@@ -161,6 +161,21 @@ import Testing
         #expect(!FileWatcher.lostEvents(FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagItemIsFile)))
     }
 
+    /// A vault in `/tmp` is `/private/tmp` to FSEvents: its events are
+    /// still the vault's.
+    @Test func theWatcherHearsAVaultBehindALink() async throws {
+        let folder = URL(filePath: "/tmp/daftar-watch-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        #expect(FileWatcher.realPath(folder).hasPrefix("/private/tmp/"))
+        let heard = Heard()
+        let watcher = FileWatcher(root: folder) { heard.add($0) }
+        try await Task.sleep(for: .milliseconds(300))
+        try "# Seen\n".write(to: folder.appending(path: "Seen.md"), atomically: true, encoding: .utf8)
+        #expect(await eventually { heard.paths.contains("Seen.md") })
+        withExtendedLifetime(watcher) {}
+    }
+
     /// Events lost: nothing says which files changed, so all are read again.
     @Test func aRescanFindsWhatNoEventNamed() async throws {
         try "# New\n- [ ] Found\n".write(to: root.appending(path: "Notes/New.md"), atomically: true, encoding: .utf8)
@@ -509,4 +524,11 @@ import Testing
         #expect(store.notice?.contains("changed in its note") == true)
         #expect(try text("Companies/Acme/Acme.md").contains("\"screening\""))
     }
+}
+
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var all = Set<String>()
+    func add(_ paths: Set<String>) { lock.withLock { all.formUnion(paths) } }
+    var paths: Set<String> { lock.withLock { all } }
 }
