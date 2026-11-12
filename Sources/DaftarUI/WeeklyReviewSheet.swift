@@ -88,7 +88,8 @@ struct WeeklyReviewSheet: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 720, idealWidth: 860, minHeight: 520, idealHeight: 760)
+        // A sheet takes its smallest size: the page's measure, and most of a screen's height.
+        .frame(minWidth: 860, maxWidth: .infinity, minHeight: 680, maxHeight: .infinity)
         .task { await load() }
     }
 
