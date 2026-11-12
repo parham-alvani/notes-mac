@@ -93,9 +93,20 @@ extension NoteTextView {
     func showSelection(_ range: NSRange) {
         let length = (string as NSString).length
         let clamped = NSRange(location: min(range.location, length), length: min(range.length, length - min(range.location, length)))
-        setSelectedRange(clamped)
+        placing { setSelectedRange(clamped) }
         if vimActive { scrollSoon() } else { scrollRangeToVisible(clamped) }
         updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    /// A selection Neovim set: its lines are styled again on the way (live
+    /// preview shows the marks of the cursor's line), so the cursor is
+    /// placed once, after, where the restyled line has the letter. Placed
+    /// on the way too, it went to the letter's old place and then jumped
+    /// by up to a line, at every j.
+    private func placing(_ select: () -> Void) {
+        extras.placingSelection = true
+        defer { extras.placingSelection = false }
+        select()
     }
 
     /// [offset]'s line in the middle of the view, at once.
@@ -120,7 +131,8 @@ extension NoteTextView {
         let length = (string as NSString).length
         let clamped = ranges.map { NSRange(location: min($0.location, length), length: min($0.length, length - min($0.location, length))) }
         guard !clamped.isEmpty else { return }
-        setSelectedRanges(clamped.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: false)
+        placing { setSelectedRanges(clamped.map { NSValue(range: $0) }, affinity: .downstream, stillSelecting: false) }
+        moveNeovimCursor()
         scrollSoon()
     }
 

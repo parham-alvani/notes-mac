@@ -29,6 +29,8 @@ final class EditorExtras {
     var invertedLetter: (NSRange, Int)?
     /// The cursor's particles, while `cursor_effect` names one.
     var cursorEffects: CursorEffectsView?
+    /// Neovim's selection is being set, and the cursor waits for it.
+    var placingSelection = false
     /// The keys sent to Neovim: whether one is held down and repeating.
     var keys = KeyRepeat()
     /// The paragraph focus mode keeps bright, and the length of the text then.

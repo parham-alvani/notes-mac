@@ -646,6 +646,8 @@ extension NoteTextView {
     /// Where Neovim's cursor is: the block over the letter in normal mode,
     /// a bar at the letters' height while typing; none over a selection.
     func moveNeovimCursor() {
+        // A selection being set: placed once it is (`placing`).
+        guard !extras.placingSelection else { return }
         let visual = vim.map { $0.mode.first == "v" || $0.mode.first == "V" || $0.mode == "\u{16}" } ?? false
         guard vimActive, let vim, !visual, selectedRange().length == 0 else {
             invertLetter(nil)
