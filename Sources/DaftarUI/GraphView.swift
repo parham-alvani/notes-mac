@@ -18,6 +18,8 @@ struct GraphView: View {
     @ViewState private var settledZoom: CGFloat = 1
     @ViewState private var pan: CGSize = .zero
     @ViewState private var settledPan: CGSize = .zero
+    /// What [graph] shows: the whole vault, or a note and a depth.
+    @ViewState private var shown: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -230,20 +232,31 @@ struct GraphView: View {
 
     // MARK: Data
 
+    /// The graph and its layout, off the main thread. A change of the vault
+    /// keeps the graph on screen while it is made again, and lays it out
+    /// again only when its notes or links changed: a save while the whole
+    /// vault's graph was open laid out 20,000 notes again, 1.5 s behind a
+    /// "Laying out" screen, for a note whose links had not moved.
     private func build() async {
         let index = store.index
         let excluded = store.excluded
         let whole = wholeVault || model.path == nil
         let center = model.path
         let depth = self.depth
-        layout = nil
-        let (built, laidOut) = await Task.detached(priority: .userInitiated) { () -> (NoteGraph, GraphLayout) in
+        let mode = whole ? "vault" : "\(center ?? "")\u{0}\(depth)"
+        let same = mode == shown && layout != nil
+        if !same { layout = nil }
+        let current = same ? graph : nil
+        let (built, laidOut) = await Task.detached(priority: .userInitiated) { () -> (NoteGraph, GraphLayout?) in
             let graph = whole || center == nil ? NoteGraph.vault(index, excluded: excluded) : NoteGraph.local(index, center: center!, depth: depth, excluded: excluded)
+            if graph == current { return (graph, nil) }
             var layout = GraphLayout(graph, pin: whole ? nil : 0)
             layout.run(graph.nodes.count > 800 ? 160 : 300)
             return (graph, layout)
         }.value
         guard !Task.isCancelled else { return }
+        shown = mode
+        guard let laidOut else { return }
         graph = built
         layout = laidOut
         hovered = nil
