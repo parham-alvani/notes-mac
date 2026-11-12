@@ -168,14 +168,7 @@ struct ContentView: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if let path = model.path, !model.showsPage {
                 // A picture has no editor.
-                if !model.showsImage {
-                    Picker("Mode", selection: $model.editing) {
-                        Label("Read", systemImage: "book").tag(false)
-                        Label("Edit", systemImage: "square.and.pencil").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    .help("Read or edit the note (⌘E)")
-                }
+                if !model.showsImage { ModePicker(model: model) }
                 if let url = store.url(of: path) {
                     ShareLink(item: url)
                 }
@@ -227,6 +220,23 @@ struct ContentView: View {
         return parts.joined(separator: " › ")
     }
 
+}
+
+/// Read or Edit, in the toolbar. Its own view, so ⌘E updates this picker
+/// alone: read in the window's toolbar, `editing` made SwiftUI build the
+/// whole toolbar again at each switch, about 200 ms of layout before the
+/// editor or the reader could show.
+private struct ModePicker: View {
+    @Bindable var model: WindowModel
+
+    var body: some View {
+        Picker("Mode", selection: $model.editing) {
+            Label("Read", systemImage: "book").tag(false)
+            Label("Edit", systemImage: "square.and.pencil").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .help("Read or edit the note (⌘E)")
+    }
 }
 
 /// What a new tab opens: a note, or nothing. Each request is new, so the
