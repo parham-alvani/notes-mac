@@ -51,6 +51,8 @@ final class VaultChecks {
     @ObservationIgnored private var soon: Task<Void, Never>?
     @ObservationIgnored private var audit: Task<Void, Never>?
     @ObservationIgnored private var again = false
+    /// The panel asked for the audit that starts next.
+    @ObservationIgnored private var asking = false
     /// The panel asked for an audit: a `daftar-cli` missing or too old is
     /// said once, as a notice, not at every background run.
     @ObservationIgnored private var asked = false
@@ -60,6 +62,30 @@ final class VaultChecks {
     @ObservationIgnored private var oldFormatter: String?
     /// Format on save, by note: a second leave of the same note waits for the first.
     @ObservationIgnored private var formats: [String: Task<Void, Never>] = [:]
+
+    /// What the next audit has to read again. `lint` and `fmt` find what is
+    /// in a note alone, so after a save only the notes saved are linted and
+    /// checked for formatting, and their findings replace those they had;
+    /// `check` reads links between notes and always reads the whole vault.
+    /// A whole-vault `fmt --check` took 6.6 s of CPU on 2,800 notes, at
+    /// every pause in the typing; the note alone takes 10 ms.
+    enum Scope: Equatable {
+        case nothing
+        case notes(Set<String>)
+        case vault
+
+        func adding(_ other: Scope) -> Scope {
+            switch (self, other) {
+            case (.vault, _), (_, .vault): .vault
+            case (.nothing, let other), (let other, .nothing): other
+            case (.notes(let a), .notes(let b)): .notes(a.union(b))
+            }
+        }
+    }
+
+    @ObservationIgnored private(set) var scope = Scope.nothing
+    /// Past this many notes, one run over the vault is cheaper than a list.
+    nonisolated static let mostNotes = 500
 
     // MARK: The audit
 
@@ -78,12 +104,16 @@ final class VaultChecks {
         oldFormatter = nil
         show([])
         state = .idle
+        scope = .vault
         if Self.usesCLI(root) { schedule(after: .milliseconds(500)) }
     }
 
     /// Files changed, by a save, a fix or a pull: the audit runs again once
-    /// they settle, when it has run before and could.
-    func changed() {
+    /// they settle, when it has run before and could. [paths] are the files
+    /// that changed; nil when that is not known (a rescan), and the whole
+    /// vault is linted again.
+    func changed(_ paths: Set<String>? = nil) {
+        scope = scope.adding(paths.map(Scope.notes) ?? .vault)
         switch state {
         case .done, .failed, .running: schedule(after: settle)
         case .idle, .noCLI, .tooOld: break
@@ -94,6 +124,8 @@ final class VaultChecks {
     func refresh() {
         asked = true
         oldFormatter = nil
+        scope = .vault
+        asking = true
         soon?.cancel()
         start()
     }
@@ -133,14 +165,25 @@ final class VaultChecks {
         [".daftar.toml", ".markdownlint.jsonc", ".prettierrc"].contains { FileManager.default.fileExists(atPath: root.appending(path: $0).path) }
     }
 
-    /// The three commands of an audit, as `just check` and `just audit` run them.
-    nonisolated static func auditArguments(vault: URL, profile: Bool) -> [[String]] {
+    /// The three commands of an audit, as `just check` and `just audit` run
+    /// them; with [notes], `lint` and `fmt --check` of those notes only, and
+    /// neither when the list is empty.
+    nonisolated static func auditArguments(vault: URL, profile: Bool, notes: [String]? = nil) -> [[String]] {
         let base = ["--vault", vault.path]
-        return [
-            base + ["check", "--json"] + (profile ? ["--profile", "audit"] : []),
-            base + ["lint", "--json"],
-            base + ["fmt", "--check", "--json"],
-        ]
+        let check = base + ["check", "--json"] + (profile ? ["--profile", "audit"] : [])
+        guard let notes else { return [check, base + ["lint", "--json"], base + ["fmt", "--check", "--json"]] }
+        if notes.isEmpty { return [check] }
+        // After `--`, a note whose name starts with `-` is a note.
+        return [check, base + ["lint", "--json", "--"] + notes, base + ["fmt", "--check", "--json", "--"] + notes]
+    }
+
+    /// The notes of [paths] that `lint` and `fmt` read in a run over the
+    /// vault: notes, there, and not hidden. A path that is not there fails
+    /// the whole command, so a deleted note is left out (its findings go).
+    nonisolated static func lintable(_ paths: Set<String>, in root: URL, hidden: ExcludedFiles) -> [String] {
+        paths.filter { path in
+            Vault.isNote(path) && !hidden.contains(path) && FileManager.default.fileExists(atPath: root.appending(path: path).path)
+        }.sorted()
     }
 
     private func runAudit() async {
@@ -153,12 +196,26 @@ final class VaultChecks {
         }
         running = true
         defer { if self.root == root { running = false } }
+        // Only notes saved since an audit of the whole vault are read alone.
+        var taken = scope
+        scope = .nothing
+        if case .done = state {} else { taken = .vault }
+        var notes: Set<String>?
+        if case .notes(let paths) = taken, paths.count <= Self.mostNotes { notes = paths }
+        // A run that does not finish leaves the whole vault to read again.
+        var finished = false
+        defer { if !finished { scope = scope.adding(.vault) } }
+        // The panel waits for its audit, and the vault's is long; the one
+        // after a save is background work, on the efficiency cores.
+        let quality: QualityOfService = asking || notes == nil ? .utility : .background
+        asking = false
         if case .idle = state { state = .running }
         var found: [Problem] = []
-        for arguments in Self.auditArguments(vault: root, profile: Self.hasAuditProfile(root)) {
+        let lintable = notes.map { Self.lintable($0, in: root, hidden: store?.hidden ?? ExcludedFiles()) }
+        for arguments in Self.auditArguments(vault: root, profile: Self.hasAuditProfile(root), notes: lintable) {
             let output: DaftarCLI.Output
             do {
-                output = try await DaftarCLI.run(cli, arguments, in: root, quality: .utility)
+                output = try await DaftarCLI.run(cli, arguments, in: root, quality: quality)
             } catch is CancellationError {
                 return
             } catch {
@@ -182,6 +239,11 @@ final class VaultChecks {
                 return
             }
             found += parsed
+        }
+        finished = true
+        if let notes {
+            // The notes read again lose the findings they had; `check` is new in full.
+            found += problems.filter { $0.tool != .check && !notes.contains($0.path) }
         }
         show(found)
         state = .done(Date())

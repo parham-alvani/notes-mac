@@ -128,6 +128,38 @@ struct FakeCLI {
         #expect(cli.calls.allSatisfy { $0.hasPrefix("--vault \(root.path) ") })
     }
 
+    /// After a save only the saved notes are linted and checked for
+    /// formatting; the other notes keep their findings, and `check` reads
+    /// the whole vault. A note that is gone is not named (the command would
+    /// fail) and loses its findings.
+    @Test func aSaveLintsOnlyTheNotesSaved() async throws {
+        let cli = try FakeCLI()
+        store.checks.locate = { cli.path }
+        store.checks.settle = .milliseconds(10)
+        store.checks.refresh()
+        #expect(await eventually { if case .done = store.checks.state { cli.calls.count == 3 } else { false } })
+        store.checks.changed(["Home.md", "Gone.md", "picture.png"])
+        #expect(await eventually { cli.calls.count == 6 && !store.checks.running })
+        #expect(Array(cli.calls.suffix(3)) == [
+            "--vault \(root.path) check --json",
+            "--vault \(root.path) lint --json -- Home.md",
+            "--vault \(root.path) fmt --check --json -- Home.md",
+        ])
+        #expect(store.checks.counts == Problems.Counts(errors: 2, warnings: 1))
+        // Nothing to lint: `check` alone, and Home.md keeps what it had.
+        store.checks.changed(["Gone.md"])
+        #expect(await eventually { cli.calls.count == 7 && !store.checks.running })
+        #expect(cli.calls.last == "--vault \(root.path) check --json")
+        #expect(store.checks.counts == Problems.Counts(errors: 2, warnings: 1))
+        // Unknown changes (a rescan) read the whole vault.
+        store.checks.changed()
+        #expect(await eventually { cli.calls.count == 10 && !store.checks.running })
+        #expect(cli.calls.last == "--vault \(root.path) fmt --check --json")
+        #expect(VaultChecks.Scope.notes(["a"]).adding(.notes(["b"])) == .notes(["a", "b"]))
+        #expect(VaultChecks.Scope.notes(["a"]).adding(.vault) == .vault)
+        #expect(VaultChecks.Scope.nothing.adding(.notes(["a"])) == .notes(["a"]))
+    }
+
     @Test func anOldCommandLineSaysToUpgradeOnce() async throws {
         let cli = try FakeCLI(old: true)
         store.checks.locate = { cli.path }

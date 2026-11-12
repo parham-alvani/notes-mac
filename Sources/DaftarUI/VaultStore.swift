@@ -299,7 +299,7 @@ final class VaultStore {
             index = updated
             lastChanged = changed
             revision += 1
-            checks.changed()
+            checks.changed(changed)
             await refreshStatus()
         }
     }
