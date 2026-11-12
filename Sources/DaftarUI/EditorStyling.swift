@@ -31,6 +31,7 @@ extension EditorController {
     func restyle(all: Bool) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
+        progressive = nil
         structure = Self.structure(of: storage.string as NSString)
         hiddenFront = frontMatterToHide()
         storage.beginEditing()
@@ -39,34 +40,65 @@ extension EditorController {
         view?.typingAttributes = base
     }
 
-    /// The first screens at once, the rest a part at a time between frames:
-    /// a long note opens without a pause, and its end is styled a moment later.
-    func restyleProgressively() {
+    /// The first screens and the screens around [anchor] at once, the rest
+    /// a part at a time between frames, below and above in turn: a long
+    /// note opens without a pause at its top or at any line, and the rest
+    /// is styled a moment later. A part above the screen keeps the letter
+    /// at the top of the screen in its place, as its lines grow or shrink.
+    func restyleProgressively(around anchor: Int = 0) {
         guard let storage = view?.textStorage else { return }
         styling?.cancel()
+        progressive = nil
         structure = Self.structure(of: storage.string as NSString)
         hiddenFront = frontMatterToHide()
         view?.typingAttributes = base
         let part = 12_000
-        func next(after start: Int) -> NSRange? {
-            let length = storage.length
-            guard start < length else { return nil }
-            let text = storage.string as NSString
-            let end = NSMaxRange(text.paragraphRange(for: NSRange(location: min(start + part, length - 1), length: 0)))
-            return NSRange(location: start, length: end - start)
+        let length = storage.length
+        guard length > 0 else { return style(storage, range: NSRange(location: 0, length: 0)) }
+        let text = storage.string as NSString
+        let headEnd = NSMaxRange(text.paragraphRange(for: NSRange(location: min(part, length - 1), length: 0)))
+        style(storage, range: NSRange(location: 0, length: headEnd))
+        // The paragraphs around the anchor, when they are not the first screens.
+        let at = min(max(0, anchor), length - 1)
+        var first = NSRange(location: 0, length: headEnd)
+        if at + part / 2 > headEnd {
+            let low = max(headEnd, text.paragraphRange(for: NSRange(location: max(0, at - part / 2), length: 0)).location)
+            let high = NSMaxRange(text.paragraphRange(for: NSRange(location: min(at + part / 2, length - 1), length: 0)))
+            first = NSRange(location: low, length: high - low)
+            style(storage, range: first)
         }
-        guard let first = next(after: 0) else { return style(storage, range: NSRange(location: 0, length: 0)) }
-        style(storage, range: first)
-        var done = NSMaxRange(first)
-        guard done < storage.length else { return }
+        guard first.location > headEnd || NSMaxRange(first) < length else { return }
+        progressive = first
         styling = Task { [weak self] in
+            var down = true
             while let self, !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(1))
-                guard !Task.isCancelled, let storage = self.view?.textStorage, let range = next(after: done) else { return }
+                guard !Task.isCancelled, let view = self.view, let storage = view.textStorage, let done = self.progressive else { return }
+                let length = storage.length
+                let text = storage.string as NSString
+                let head = min(headEnd, length)
+                let below = min(NSMaxRange(done), length), above = max(head, min(done.location, length))
+                guard below < length || above > head else {
+                    self.progressive = nil
+                    return
+                }
+                // Below and above in turn, until one side is done; the first screens are.
+                if below >= length { down = false } else if above <= head { down = true }
+                let range: NSRange
+                if down {
+                    let end = NSMaxRange(text.paragraphRange(for: NSRange(location: min(below + part, length - 1), length: 0)))
+                    range = NSRange(location: below, length: end - below)
+                    self.progressive = NSRange(location: above, length: end - above)
+                } else {
+                    let start = max(head, text.paragraphRange(for: NSRange(location: max(0, above - part), length: 0)).location)
+                    range = NSRange(location: start, length: above - start)
+                    self.progressive = NSRange(location: start, length: below - start)
+                    view.holdScroll(editing: range, with: range.length)
+                }
+                down.toggle()
                 storage.beginEditing()
                 self.style(storage, range: range)
                 storage.endEditing()
-                done = NSMaxRange(range)
             }
         }
     }
@@ -77,30 +109,47 @@ extension EditorController {
     /// `>`), with one search each over the whole text.
     static func structure(of text: NSString) -> [String] {
         let length = text.length
+        // The letters copied out once and searched here: `range(of:)` took
+        // about half a millisecond for each of the five marks in a long note.
+        var units = [unichar](repeating: 0, count: length)
+        text.getCharacters(&units, range: NSRange(location: 0, length: length))
+        /// Where [count] of [mark] in a row are first, at or after [from]: a literal search.
+        func find(_ mark: unichar, count: Int, from: Int) -> Int? {
+            var at = from
+            while at + count <= length {
+                guard units[at] == mark else {
+                    at += 1
+                    continue
+                }
+                var same = 1
+                while same < count, units[at + same] == mark { same += 1 }
+                if same == count { return at }
+                at += same
+            }
+            return nil
+        }
         var marks: [(Int, String)] = []
-        for needle in ["$$", "%%"] {
+        for mark: unichar in [36, 37] {  // `$$`, `%%`
             var from = 0
             while from < length {
-                let found = text.range(of: needle, options: .literal, range: NSRange(location: from, length: length - from))
-                guard found.location != NSNotFound else { break }
-                let line = text.lineRange(for: found)
+                guard let found = find(mark, count: 2, from: from) else { break }
+                let line = text.lineRange(for: NSRange(location: found, length: 2))
                 marks.append((line.location, text.substring(with: line)))
                 from = NSMaxRange(line)
             }
         }
-        for needle in ["```", "~~~", "---"] {
+        for mark: unichar in [96, 126, 45] {  // ```` ``` ````, `~~~`, `---`
             var from = 0
             while from < length {
-                let found = text.range(of: needle, options: .literal, range: NSRange(location: from, length: length - from))
-                guard found.location != NSNotFound else { break }
+                guard let found = find(mark, count: 3, from: from) else { break }
                 var start = 0, end = 0, contents = 0
-                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found.location, length: 0))
+                text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: found, length: 0))
                 var at = start
-                while at < contents, [32, 9, 62].contains(text.character(at: at)) { at += 1 }
+                while at < contents, [32, 9, 62].contains(units[at]) { at += 1 }
                 // Only where the line's text begins.
-                if at == found.location {
+                if at == found {
                     let rest = text.substring(with: NSRange(location: at, length: contents - at))
-                    if needle != "---" {
+                    if mark != 45 {
                         marks.append((start, rest))
                     } else if rest.allSatisfy({ $0 == "-" || $0 == " " }) {
                         marks.append((start, "---"))

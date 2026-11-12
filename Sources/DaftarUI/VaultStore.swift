@@ -84,6 +84,8 @@ final class VaultStore {
     @ObservationIgnored let places = PlaceBook()
     /// The audit's findings, its fixes, and format on save (`daftar-cli`).
     let checks = VaultChecks()
+    /// What the sidebar's list shows, set only when it changes.
+    @ObservationIgnored private(set) lazy var sidebar = SidebarFacts(store: self)
 
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
@@ -174,6 +176,19 @@ final class VaultStore {
 
     @ObservationIgnored private var treed: (files: Set<String>, empty: Set<String>, revision: Int, tree: [TreeNode])?
     @ObservationIgnored private var hiddenRevision = 0
+
+    /// The logo of the folder at [path] (`Vault.logo`), kept until the files
+    /// change: each look reads every file's name, and the breadcrumb asks
+    /// for each of its folders at every drawing.
+    func logo(of folder: String) -> String? {
+        if logos.files != index.files { logos = (index.files, [:]) }
+        if let known = logos.found[folder] { return known }
+        let found = Vault.logo(of: folder, in: index.files)
+        logos.found[folder] = .some(found)
+        return found
+    }
+
+    @ObservationIgnored private var logos: (files: Set<String>, found: [String: String?]) = ([], [:])
 
     /// The folder at [path] in the shown tree; "" is the vault itself.
     func folder(_ path: String) -> [TreeNode]? { Vault.folder(path, in: tree) }
@@ -438,12 +453,14 @@ final class VaultStore {
         guard let root, let note = index.notes[path] else { return [] }
         let names = [Vault.title(of: path)] + note.parsed.aliases
         let linking = Set((index.backlinks[path] ?? []).map(\.source))
-        var sources = Set<String>()
-        for name in names where name.count >= UnlinkedMentions.shortest {
-            for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
-        }
-        let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
+        let search = search, excluded = excluded
         return await Task.detached(priority: .userInitiated) {
+            // The full-text searches too: each runs SQLite, after every save of the note.
+            var sources = Set<String>()
+            for name in names where name.count >= UnlinkedMentions.shortest {
+                for hit in search.search("\"\(name)\"", limit: 300) { sources.insert(hit.path) }
+            }
+            let candidates = sources.filter { $0 != path && !linking.contains($0) && Vault.isNote($0) && !excluded.contains($0) }.sorted()
             var out: [MentionHit] = []
             for source in candidates {
                 guard let text = try? String(contentsOf: root.appending(path: source), encoding: .utf8) else { continue }

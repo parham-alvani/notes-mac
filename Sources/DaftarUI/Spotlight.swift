@@ -14,7 +14,10 @@ final class Spotlight {
     private let index = CSSearchableIndex.default()
     /// Gives a batch of notes to the system's index; a test replaces it.
     var send: @MainActor ([NoteEntry], String) async throws -> Void = { notes, domain in
-        try await CSSearchableIndex.default().indexSearchableItems(notes.map { Spotlight.item($0, domain: domain) })
+        // The text of each note, up to 20,000 letters, is cut off the main thread;
+        // the items, which are not `Sendable`, are made here from plain values.
+        let fields = await Task.detached(priority: .utility) { notes.map(Fields.init) }.value
+        try await CSSearchableIndex.default().indexSearchableItems(fields.map { $0.item(domain: domain) })
     }
     /// The index refused a batch (an ad-hoc signed build gets
     /// `CSIndexErrorDomain -1000`): it will refuse the next too, so nothing
@@ -25,6 +28,8 @@ final class Spotlight {
     private var root: URL?
     private var indexed: [String: Date] = [:]
     private var running: Task<Void, Never>?
+    /// A vault just opened whose earlier items are not taken out yet.
+    private var unclear: URL?
     /// The vault whose notes were taken out, with the setting off.
     private var cleared: URL?
 
@@ -38,22 +43,34 @@ final class Spotlight {
         }
         guard !failed else { return }
         cleared = nil
-        let notes = store.index.notes.values.filter { !store.hidden.contains($0.path) }
+        let notes = store.index.notes, hidden = store.hidden
         let fresh = root != current
         if fresh {
             // The vault before is not finished: its notes are not this one's.
-            running?.cancel()
             root = current
             indexed = [:]
+            unclear = current
         }
+        // A newer look replaces one not finished: what it sent is kept in
+        // `indexed`, and the next one sends the rest.
+        running?.cancel()
         let previous = running
         running = Task {
             await previous?.value
-            // What an earlier run left may be gone by now: start again.
-            if fresh { try? await index.deleteSearchableItems(withDomainIdentifiers: [current.path]) }
-            let now = Dictionary(notes.map { ($0.path, $0.modified) }) { a, _ in a }
-            let gone = indexed.keys.filter { now[$0] == nil }
-            let changed = notes.filter { indexed[$0.path] != $0.modified }
+            // What an earlier run left may be gone by now: start again, even
+            // when the run that found the new vault was replaced.
+            if unclear == current {
+                try? await index.deleteSearchableItems(withDomainIdentifiers: [current.path])
+                if unclear == current { unclear = nil }
+            }
+            let known = indexed
+            // Every note is looked at, off the main thread.
+            let (gone, changed) = await Task.detached(priority: .utility) {
+                let shown = notes.values.filter { !hidden.contains($0.path) }
+                let now = Dictionary(shown.map { ($0.path, $0.modified) }) { a, _ in a }
+                return (known.keys.filter { now[$0] == nil }, shown.filter { known[$0.path] != $0.modified })
+            }.value
+            guard !Task.isCancelled else { return }
             if !gone.isEmpty { try? await index.deleteSearchableItems(withIdentifiers: gone) }
             for batch in stride(from: 0, to: changed.count, by: 400) {
                 guard !Task.isCancelled else { return }
@@ -80,19 +97,46 @@ final class Spotlight {
     }
 
     nonisolated static func item(_ note: NoteEntry, domain: String) -> CSSearchableItem {
-        let attributes = CSSearchableItemAttributeSet(contentType: UTType(filenameExtension: "md") ?? .plainText)
-        attributes.title = note.title
-        attributes.displayName = note.title
-        attributes.alternateNames = note.parsed.aliases
-        attributes.keywords = note.parsed.tags + note.parsed.aliases
-        let plain = note.parsed.plain
-        attributes.contentDescription = String(plain.prefix(300))
-        attributes.textContent = String(plain.prefix(20_000))
-        attributes.contentModificationDate = note.modified
-        attributes.containerTitle = note.path.split(separator: "/").dropLast().joined(separator: " › ")
-        let item = CSSearchableItem(uniqueIdentifier: note.path, domainIdentifier: domain, attributeSet: attributes)
-        // Spotlight keeps a note it has not been told about again for a while.
-        item.expirationDate = .distantFuture
-        return item
+        Fields(note).item(domain: domain)
+    }
+
+    /// What Spotlight is told of a note, as plain values: made off the main thread.
+    struct Fields: Sendable {
+        var path: String
+        var title: String
+        var aliases: [String]
+        var keywords: [String]
+        var description: String
+        var text: String
+        var modified: Date
+        var container: String
+
+        init(_ note: NoteEntry) {
+            path = note.path
+            title = note.title
+            aliases = note.parsed.aliases
+            keywords = note.parsed.tags + note.parsed.aliases
+            let plain = note.parsed.plain
+            description = String(plain.prefix(300))
+            text = String(plain.prefix(20_000))
+            modified = note.modified
+            container = note.path.split(separator: "/").dropLast().joined(separator: " › ")
+        }
+
+        func item(domain: String) -> CSSearchableItem {
+            let attributes = CSSearchableItemAttributeSet(contentType: UTType(filenameExtension: "md") ?? .plainText)
+            attributes.title = title
+            attributes.displayName = title
+            attributes.alternateNames = aliases
+            attributes.keywords = keywords
+            attributes.contentDescription = description
+            attributes.textContent = text
+            attributes.contentModificationDate = modified
+            attributes.containerTitle = container
+            let item = CSSearchableItem(uniqueIdentifier: path, domainIdentifier: domain, attributeSet: attributes)
+            // Spotlight keeps a note it has not been told about again for a while.
+            item.expirationDate = .distantFuture
+            return item
+        }
     }
 }

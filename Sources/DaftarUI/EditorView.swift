@@ -119,6 +119,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// A Neovim that was let go is still writing its file: format on save
     /// waits for it.
     var stopping: Task<Void, Never>?
+    /// The file's date and size just after this editor wrote it: while they
+    /// are the same, the file holds [saved] and is not read back.
+    private var savedStamp: (path: String, stamp: FileStamp)?
     private var saveTask: Task<Void, Never>?
     private var seenRevision = -1
     private var fontKey = ""
@@ -129,6 +132,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// The text is being replaced whole, and styled after.
     var replacing = false
     var styling: Task<Void, Never>?
+    /// The part of the note styled so far while the rest is styled a part
+    /// at a time (`restyleProgressively`); nil when all of it is.
+    var progressive: NSRange?
     private var shownMode = ""
     // What the styling keeps (`EditorStyling.swift`).
     /// The lines the selection is on, where every mark shows.
@@ -240,6 +246,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         revealed = (text as NSString).lineRange(for: NSRange(location: 0, length: 0))
         replacing = false
         restyleProgressively()
+        // Styled with the fonts of now: the view's first update does not style it all again.
+        fontKey = textSizeKey
         view.setSelectedRange(NSRange(location: 0, length: 0))
         view.scrollToBeginningOfDocument(nil)
         view.undoManager?.removeAllActions()
@@ -407,7 +415,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         case .plain:
             break
         }
-        guard store.lastChanged.contains(path), let disk = store.text(of: path), disk != saved else { return }
+        guard store.lastChanged.contains(path), !holdsOwnSave(path), let disk = store.text(of: path), disk != saved else { return }
         if view.string == saved {
             take(disk)
         } else {
@@ -419,8 +427,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// when nothing here is unsaved: the same note in the other pane may
     /// have saved since this view last looked.
     func catchUp() {
-        guard session == nil, let path, let view, view.string == saved, let disk = store.text(of: path), disk != saved else { return }
+        guard session == nil, let path, let view, view.string == saved, !holdsOwnSave(path), let disk = store.text(of: path), disk != saved else { return }
         take(disk)
+    }
+
+    /// The file is as this editor last wrote it: same date and size.
+    private func holdsOwnSave(_ path: String) -> Bool {
+        guard let savedStamp, savedStamp.path == path, let now = FileStamp(store.url(of: path)) else { return false }
+        return now == savedStamp.stamp
     }
 
     /// A move or a delete, made in this window or another. The editor was
@@ -513,9 +527,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         )
     }
 
-    func applyTextSize() {
+    /// What the styling's fonts depend on: a change styles the whole note again.
+    private var textSizeKey: String {
         let settings = store.settings
-        let key = "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
+        return "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
+    }
+
+    func applyTextSize() {
+        let key = textSizeKey
         view?.fitMargins()
         guard key != fontKey else { return }
         fontKey = key
@@ -593,6 +612,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             offset = NSMaxRange(text.lineRange(for: NSRange(location: offset, length: 0)))
         }
         offset = min(offset, text.length)
+        // A note still being styled a part at a time is styled from this
+        // line first, so the line is laid out as it will stay.
+        if let done = progressive, !NSLocationInRange(offset, done) { restyleProgressively(around: offset) }
         // The view shows the line at once, Neovim or not: while Neovim
         // starts, a view left at the top of the note showed the top first
         // and then jumped to the line.
@@ -639,6 +661,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         do {
             try store.write(text, to: path)
             saved = text
+            savedStamp = FileStamp(store.url(of: path)).map { (path, $0) }
         } catch {
             store.notice = "\(Vault.title(of: path)) could not be saved: \(error.localizedDescription)"
         }
@@ -713,5 +736,19 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             let folder = json["attachmentFolderPath"] as? String, !folder.isEmpty, folder != "/"
         else { return "" }
         return folder.hasPrefix("./") ? "" : folder
+    }
+}
+
+/// A file's modification date and size, to tell that it was not written since.
+struct FileStamp: Equatable {
+    var modified: Date
+    var size: Int
+
+    init?(_ url: URL?) {
+        guard let values = try? url?.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+            let modified = values.contentModificationDate, let size = values.fileSize
+        else { return nil }
+        self.modified = modified
+        self.size = size
     }
 }

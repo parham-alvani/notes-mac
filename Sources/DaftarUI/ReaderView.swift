@@ -124,6 +124,8 @@ struct ReaderView: NSViewRepresentable {
         /// The text of the note drawn last, to tell a change made while the
         /// editor was over the page.
         private var shownText: String?
+        /// The addresses and numbers found in the text drawn last.
+        private var lastDetected: (text: String, items: [Detected.Item])?
         private var shownSize = ""
         private var lastFind: String?
         private var lastFindCommand = 0
@@ -248,7 +250,15 @@ struct ReaderView: NSViewRepresentable {
                 return
             }
             let parsed = NoteParser.parse(text)
-            let detected = Detected.find(in: text)
+            // Coming back from the editor draws the same text again: its
+            // addresses are not looked for again (tens of ms in a long note).
+            let detected: [Detected.Item]
+            if let last = lastDetected, last.text == text {
+                detected = last.items
+            } else {
+                detected = Detected.find(in: text)
+                lastDetected = (text, detected)
+            }
             trust.detected = Set(detected.map { PageTrust.Found(kind: $0.kind.rawValue, value: $0.value) })
             var note: [String: Any] = [
                 "path": request.path,
