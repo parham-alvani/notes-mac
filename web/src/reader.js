@@ -50,22 +50,17 @@ function loadMermaid() {
   return mermaidLoading;
 }
 
-async function drawDiagrams(root) {
-  // A diagram kept from the last drawing is drawn already.
-  const nodes = [...root.querySelectorAll("pre.mermaid:not([data-processed])")];
-  if (nodes.length === 0) return;
-  const mermaid = await loadMermaid();
-  // The diagram takes the reader's palette, naz or Daylight.
+/** The palette as Mermaid takes it, from the page's colours, naz or Daylight. */
+function diagramTheme() {
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim();
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  mermaid.initialize({
+  return {
     startOnLoad: false,
     theme: "base",
     securityLevel: "strict",
     fontFamily: "-apple-system, sans-serif",
     themeVariables: {
-      darkMode: dark,
+      darkMode: matchMedia("(prefers-color-scheme: dark)").matches,
       background: color("--background"),
       primaryColor: color("--panel"),
       primaryTextColor: color("--text"),
@@ -77,21 +72,87 @@ async function drawDiagrams(root) {
       noteBkgColor: color("--panel"),
       noteTextColor: color("--text"),
     },
-  });
-  for (const node of nodes) {
-    // A note shown since: this one's diagrams are off the page.
-    if (!node.isConnected) continue;
-    // A picture shape asks its site while the diagram is laid out, before
-    // anything is in the page: with pictures from the web off, its address
-    // leaves the source. The page's policy refuses what this misses.
-    if (!remoteImagesShown() && !node.dataset.processed) node.textContent = withoutRemotePictures(node.textContent);
-    try {
-      await mermaid.run({ nodes: [node] });
-    } catch (error) {
-      node.classList.add("mermaid-error");
-    }
-    dropRemotePictures(node);
+  };
+}
+
+/** One diagram drawn, in place of its source. */
+async function drawDiagram(mermaid, node) {
+  // A note shown since: this diagram is off the page.
+  if (!node.isConnected || node.dataset.processed) return;
+  // A picture shape asks its site while the diagram is laid out, before
+  // anything is in the page: with pictures from the web off, its address
+  // leaves the source. The page's policy refuses what this misses.
+  if (!remoteImagesShown()) node.textContent = withoutRemotePictures(node.textContent);
+  try {
+    await mermaid.run({ nodes: [node] });
+  } catch (error) {
+    node.classList.add("mermaid-error");
   }
+  dropRemotePictures(node);
+}
+
+/**
+ * The note's diagrams are drawn as they come near the window, not all at
+ * once: a diagram takes tens of milliseconds, and a note can have a dozen.
+ * The ones within a screen and a half of the window are drawn before the
+ * note counts as shown; the rest when a scroll brings them that near, one
+ * at a time. A diagram drawn above the window changes the page's height
+ * above what is read, so the page scrolls by as much and the text stays put.
+ */
+const diagrams = { observer: null, queue: Promise.resolve() };
+
+function lazyDiagram(node) {
+  diagrams.queue = diagrams.queue.then(async () => {
+    if (!node.isConnected) return;
+    const mermaid = await loadMermaid();
+    const above = node.getBoundingClientRect().bottom <= 0;
+    const height = node.offsetHeight;
+    await drawDiagram(mermaid, node);
+    if (!node.isConnected) return;
+    if (above) window.scrollBy(0, node.offsetHeight - height);
+    decorate(node);
+    reading.redraw();
+    progress();
+  }).catch(() => {});
+  return diagrams.queue;
+}
+
+async function drawDiagrams(root) {
+  // A diagram kept from the last drawing is drawn already.
+  const nodes = [...root.querySelectorAll("pre.mermaid:not([data-processed])")];
+  if (root.id === "note") {
+    diagrams.observer?.disconnect();
+    diagrams.observer = null;
+  }
+  if (nodes.length === 0) return;
+  const mermaid = await loadMermaid();
+  mermaid.initialize(diagramTheme());
+  if (root.id !== "note") {
+    // An embed or a preview: drawn now, as it is small.
+    for (const node of nodes) await drawDiagram(mermaid, node);
+    return;
+  }
+  const near = (node) => {
+    const box = node.getBoundingClientRect();
+    return box.bottom > -1.5 * window.innerHeight && box.top < 2.5 * window.innerHeight;
+  };
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        observer.unobserve(entry.target);
+        lazyDiagram(entry.target);
+      }
+    },
+    { rootMargin: "150% 0px" },
+  );
+  diagrams.observer = observer;
+  const now = [];
+  for (const node of nodes) {
+    if (near(node)) now.push(node);
+    else observer.observe(node);
+  }
+  for (const node of now) await drawDiagram(mermaid, node);
 }
 
 /**
