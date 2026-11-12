@@ -6,6 +6,8 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case today
     case board
+    /// Review Cards, while cards are due.
+    case drill
     case file(String)
     /// A bookmark: the same file as its row in the tree, a row of its own.
     case bookmark(String)
@@ -108,6 +110,17 @@ struct FilesList: View {
                 .badge(groups.inProgress.count)
                 .accessibilityValue(Spoken.count(groups.inProgress.count, "task") + " in progress")
                 .tag(SidebarItem.board)
+                if store.drill.counts.due > 0 {
+                    Label {
+                        Text("Review Cards")
+                    } icon: {
+                        Image(systemName: "rectangle.on.rectangle.angled").resizable().scaledToFit().foregroundStyle(Palette.green)
+                            .frame(width: IconicImage.slot, height: IconicImage.slot)
+                    }
+                    .badge(store.drill.counts.due)
+                    .accessibilityValue(Spoken.count(store.drill.counts.due, "card") + " due")
+                    .tag(SidebarItem.drill)
+                }
             }
             let bookmarks = store.bookmarks.entries.filter { $0.folder || store.index.files.contains($0.path) }
             if !bookmarks.isEmpty {
@@ -252,11 +265,13 @@ struct FilesList: View {
         Binding {
             if model.showsToday { return .today }
             if model.showsBoard { return .board }
+            if model.showsDrill { return .drill }
             return model.path.map { .file($0) }
         } set: { item in
             switch item {
             case .today: model.showsToday = true
             case .board: model.showsBoard = true
+            case .drill: model.showsDrill = true
             case .tag(let tag): model.searchTag(tag)
             case .file(let path) where store.index.files.contains(path),
                 .bookmark(let path) where store.index.files.contains(path):

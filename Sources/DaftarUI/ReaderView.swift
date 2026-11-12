@@ -11,6 +11,10 @@ struct ReaderRequest: Equatable {
     var line: Int?
     /// Grows when the same note should be shown again.
     var generation = 0
+    /// Markdown to show in place of the note's text, with the note's links
+    /// and pictures: a drill card's answer. Its lines are not the file's, so
+    /// the page ticks no task of the note, keeps no folds and takes no keys.
+    var text: String?
 }
 
 /// The reading view: the note rendered by `web/src` in a web view, the same
@@ -188,7 +192,7 @@ struct ReaderView: NSViewRepresentable {
             let sizeChanged = ReaderView.shownKey(store.settings) != shownSize
             // Back from the editor at the same place: what was saved there
             // since is drawn, though it is no longer the last change.
-            let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path)
+            let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path) && request.text == nil
                 && store.text(of: request.path) != shownText
             if request != shown {
                 show(request, keepScroll: false)
@@ -232,7 +236,7 @@ struct ReaderView: NSViewRepresentable {
                 showImage(request, keepScroll: keepScroll)
                 return
             }
-            guard let text = store.text(of: request.path) else { return }
+            guard let text = request.text ?? store.text(of: request.path) else { return }
             shownText = text
             if Base.isBase(request.path) {
                 showBase(request, source: text, keepScroll: keepScroll)
@@ -247,16 +251,18 @@ struct ReaderView: NSViewRepresentable {
             trust.detected = Set(detected.map { PageTrust.Found(kind: $0.kind.rawValue, value: $0.value) })
             var note: [String: Any] = [
                 "path": request.path,
-                "title": Vault.title(of: request.path),
+                "title": request.text == nil ? Vault.title(of: request.path) : "",
                 "text": text,
                 "links": store.index.resolvedLinks(in: parsed, from: request.path),
                 "properties": parsed.properties.filter { !Vault.hiddenProperties.contains($0.key) }
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
-                "folds": store.places.folds(request.path),
+                "folds": request.text == nil ? store.places.folds(request.path) : [],
                 "detected": detected.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             note.merge(ReaderView.appearance(store.settings)) { $1 }
+            // Text that is not the file's has no reading place to mark.
+            if request.text != nil { note["readingLine"] = 0 }
             if !keepScroll {
                 if let heading = request.heading { note["heading"] = heading }
                 if let line = request.line { note["line"] = line }
@@ -271,7 +277,7 @@ struct ReaderView: NSViewRepresentable {
                     self.parent.onShown?()
                 }
             }
-            if !keepScroll { takeKeys() }
+            if !keepScroll, request.text == nil { takeKeys() }
         }
 
         /// A note just opened gets the keys, so `j` and `k` move the reading
@@ -409,7 +415,7 @@ struct ReaderView: NSViewRepresentable {
                 // The page is drawn from notes, so what it names is checked: the
                 // note on screen, or a task a query of this show answered with.
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
-                guard trust.mayName(task: path, line: line, shown: request.path) else { return }
+                guard trust.mayName(task: path, line: line, shown: request.path), request.text == nil || path != request.path else { return }
                 parent.store.toggleTask(path: path, line: line, status: status)
             case "open":
                 let path = body["path"] as? String ?? ""
@@ -454,7 +460,7 @@ struct ReaderView: NSViewRepresentable {
                 guard let path = shown?.path, Vault.isImage(path), let url = parent.store.url(of: path) else { return }
                 NSWorkspace.shared.open(url)
             case "folds":
-                if let path = shown?.path, let folds = body["folds"] as? [String] { parent.store.places.setFolds(path, folds) }
+                if let shown, shown.text == nil, let folds = body["folds"] as? [String] { parent.store.places.setFolds(shown.path, folds) }
             case "cursor":
                 if let line = body["line"] as? Int { parent.onCursor?(line) }
                 if let path = shown?.path { WakaTime.shared.heartbeat(path, store: parent.store) }
@@ -463,7 +469,7 @@ struct ReaderView: NSViewRepresentable {
             case "editTask":
                 guard let request = shown, let line = body["line"] as? Int else { return }
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
-                guard trust.mayName(task: path, line: line, shown: request.path) else { return }
+                guard trust.mayName(task: path, line: line, shown: request.path), request.text == nil || path != request.path else { return }
                 parent.onEditTask(path, line)
             case "copy":
                 if let text = body["text"] as? String {

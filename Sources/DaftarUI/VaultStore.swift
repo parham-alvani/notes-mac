@@ -33,6 +33,8 @@ final class VaultStore {
     private(set) var templates = Templates()
     /// The Beautitab plugin's settings, for the home page.
     private(set) var beautitab = Beautitab()
+    /// The drill cards and their reviews, read off the main thread (`DrillDeck`).
+    let drill = DrillDeck()
     private(set) var loading = false
     /// Grows each time the index changes, so a view can follow it cheaply.
     private(set) var revision = 0

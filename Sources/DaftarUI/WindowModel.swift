@@ -18,6 +18,10 @@ final class WindowModel {
         get { page == .board }
         set { page = newValue ? .board : (page == .board ? nil : page) }
     }
+    var showsDrill: Bool {
+        get { page == .drill }
+        set { page = newValue ? .drill : (page == .drill ? nil : page) }
+    }
     /// A page, not a note, is on screen.
     var showsPage: Bool { page != nil }
     /// The note panes: one, or two side by side after Split Right. The
@@ -443,7 +447,7 @@ final class WindowModel {
     }
 
     /// `daftar://open?path=Folder/Note.md[&mode=edit]`, which the
-    /// notifications use, `daftar://open?path=today`, and `daftar://terminal`.
+    /// notifications use, `daftar://open?path=today` (or `board`, `drill`), and `daftar://terminal`.
     func handle(_ url: URL, store: VaultStore) {
         guard url.scheme == "daftar" else { return }
         if url.host == "terminal" {
@@ -452,8 +456,8 @@ final class WindowModel {
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         guard url.host == "open", let path = items.first(where: { $0.name == "path" })?.value else { return }
-        if path == "today" || path == "board" {
-            page = path == "today" ? .today : .board
+        if path == "today" || path == "board" || path == "drill" {
+            page = path == "today" ? .today : path == "board" ? .board : .drill
             return
         }
         open(path, store: store)
@@ -705,4 +709,6 @@ enum NSPalette {
 /// A page the detail column shows in place of a note.
 enum Page: Hashable {
     case today, board
+    /// Review Cards: the drill cards due (`DrillView`).
+    case drill
 }
