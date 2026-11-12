@@ -135,47 +135,42 @@ final class NeovimSession {
                 await self?.answer(method, params) ?? .nil
             }
             try client.start()
-            listen = Task { [weak self, client] in
-                for await note in client.notifications {
-                    await MainActor.run { self?.handle(note) }
-                }
-                await MainActor.run { self?.ended() }
-            }
+            listen = Self.listen(to: client, for: self)
             let (rows, cols) = size()
-            try await client.request("nvim_ui_attach", [.int(Int64(cols)), .int(Int64(rows)), [
-                "ext_linegrid": true, "ext_cmdline": true, "ext_messages": true, "ext_popupmenu": true, "rgb": true,
-            ]])
-            let channel = try await client.request("nvim_get_api_info").arrayValue?.first?.intValue ?? 0
-            try await client.request("nvim_exec_lua", ["vim.cmd.edit(vim.fn.fnameescape(...))", [.string(path)]])
-            // The note's buffer, by its number: Neovim may show another one later.
-            buffer = try await client.request("nvim_get_current_buf").intValue ?? 0
-            try await takeBuffer()
             // The cursor goes to the line the reader was on before Neovim
             // reports where it is: a first report from line 1 drew the
             // cursor at the top of the note and slid it down the screen.
-            if let offset = startOffset {
-                startOffset = nil
-                let position = mirror.position(of: offset)
-                _ = try await client.request("nvim_win_set_cursor", [0, [.int(Int64(position.row)), .int(Int64(position.byteColumn))]])
-                _ = try await client.request("nvim_command", ["normal! zz"])
-            }
-            try await client.request("nvim_exec_lua", [.string(Self.setup), [.int(Int64(channel)), .int(Int64(buffer))]])
-            try await client.request("nvim_exec_lua", [.string(Self.lists), []])
-            try await client.request("nvim_exec_lua", [.string(Self.links), [.int(Int64(channel))]])
+            let place = placement()
+            // Neovim reads the person's config once a UI attached, and runs
+            // what came with the attach before it: the rest waits for the answer.
+            try await client.request("nvim_ui_attach", [.int(Int64(cols)), .int(Int64(rows)), [
+                "ext_linegrid": true, "ext_cmdline": true, "ext_messages": true, "ext_popupmenu": true, "rgb": true,
+            ]])
+            // The rest sent at once and answered in order: one round trip,
+            // not a dozen, each of which waited for the main thread while
+            // it styled the note (85 ms to start in a long note).
+            awaitingSnapshot = true
+            buffer = 0
+            var calls = [
+                client.call("nvim_exec_lua", [.string(Self.setup), [.string(path)]]),
+                client.call("nvim_exec_lua", [.string(Self.lists), []]),
+                client.call("nvim_exec_lua", [.string(Self.links), []]),
+            ]
             // Normal mode's keys on the Persian layout too, unless the person's config sets a langmap.
-            let langmap = Self.keyboardLangmap()
-            if !langmap.isEmpty {
-                _ = try? await client.request("nvim_exec_lua", ["if vim.o.langmap == '' then vim.o.langmap = ... end", [.string(langmap)]])
-            }
-            state = .running
-            if let offset = startOffset {
-                startOffset = nil
-                go(to: offset)
-            }
-            for (method, params) in waiting { client.notify(method, params) }
-            waiting = []
-            // The cursor shows once Neovim runs, where its first report put it.
-            view?.moveNeovimCursor()
+            let langmap = Self.cachedLangmap()
+            let mapped = langmap.isEmpty ? nil : client.call("nvim_exec_lua", ["if vim.o.langmap == '' then vim.o.langmap = ... end", [.string(langmap)]])
+            calls.append(client.call("nvim_exec_lua", [.string(Self.place), [.int(Int64(place.row)), .int(Int64(place.byteColumn))]]))
+            // The buffer's lines come as the first event after the attach,
+            // with the `eol` the setup sent before them.
+            calls.append(client.call("nvim_buf_attach", [0, true, [:]]))
+            // The first cursor report, after the lines it is counted in.
+            calls.append(client.call("nvim_exec_lua", ["_G.daftar_state.note()", []]))
+            // Answered in order: once the last is, every one is.
+            _ = try? await calls[calls.count - 1].value
+            for call in calls { _ = try await call.value }
+            _ = try? await mapped?.value
+            try await snapshot()
+            running()
           }
         } catch {
             let reason = unanswered ? "It did not answer in \(Self.startLimit.components.seconds) seconds." : String(describing: error)
@@ -183,6 +178,76 @@ final class NeovimSession {
             status = "Neovim did not start: \(reason)"
         }
         onChange?()
+    }
+
+    /// Neovim runs: what was typed while it started goes to it, and the
+    /// cursor shows where its first report put it.
+    private func running() {
+        state = .running
+        if let offset = startOffset {
+            startOffset = nil
+            go(to: offset)
+        }
+        for (method, params) in waiting { client.notify(method, params) }
+        waiting = []
+        view?.moveNeovimCursor()
+    }
+
+    /// Where the cursor starts, as Neovim counts: the line the editor
+    /// opened at ([startOffset], counted in the view's text, which is the
+    /// file's), or the first.
+    private func placement() -> (row: Int, byteColumn: Int) {
+        defer { startOffset = nil }
+        guard let offset = startOffset, let view else { return (1, 0) }
+        return BufferMirror.position(of: offset, in: view.string as NSString)
+    }
+
+    /// Notifications are read off the main thread, and a read's worth --
+    /// a buffer's edit, the cursor, the screen's messages -- is handled in
+    /// one turn of it. The grid's own events, most of what Neovim sends at
+    /// each key, never reach it: the text view is the screen.
+    private static func listen(to client: NeovimClient, for session: NeovimSession) -> Task<Void, Never> {
+        Task.detached { [weak session] in
+            for await batch in client.batches {
+                let notes = batch.compactMap(Self.wanted)
+                guard !notes.isEmpty else { continue }
+                await session?.handle(notes)
+            }
+            await session?.ended()
+        }
+    }
+
+    /// The redraw events the session reads; the rest are the grid's.
+    nonisolated private static let redrawEvents: Set<String> = [
+        "cmdline_show", "cmdline_pos", "cmdline_hide", "msg_show", "msg_clear", "popupmenu_show", "popupmenu_select", "popupmenu_hide",
+    ]
+
+    /// [note] with only the redraw events the session reads, or nil when it has none.
+    nonisolated private static func wanted(_ note: NeovimClient.Notification) -> NeovimClient.Notification? {
+        guard note.method == "redraw" else { return note }
+        let batches = note.params.filter { $0.arrayValue?.first?.stringValue.map(redrawEvents.contains) ?? false }
+        return batches.isEmpty ? nil : NeovimClient.Notification(method: note.method, params: batches)
+    }
+
+    private func handle(_ notes: [NeovimClient.Notification]) {
+        for note in notes { handle(note) }
+    }
+
+    /// The keyboard's langmap is the same until a layout is added or
+    /// removed: worked out once (6 ms of the main thread at each start).
+    private static var langmapCache: String?
+    private static var layoutsObserver: NSObjectProtocol?
+
+    static func cachedLangmap() -> String {
+        if let langmapCache { return langmapCache }
+        let langmap = keyboardLangmap()
+        langmapCache = langmap
+        if layoutsObserver == nil {
+            layoutsObserver = DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String), object: nil, queue: .main
+            ) { _ in MainActor.assumeIsolated { NeovimSession.langmapCache = nil } }
+        }
+        return langmap
     }
 
     /// The keyboard's layouts beside the Latin one as Neovim's `langmap`
@@ -249,34 +314,73 @@ final class NeovimSession {
     /// the buffer as it is now. Neovim sends the lines itself (`send_buffer`),
     /// as the first event, so they are in order with every edit after them:
     /// lines asked for apart could come back on either side of an edit, and
-    /// the mirror then lacked it for good.
+    /// the mirror then lacked it for good. A buffer still attached sends
+    /// none at a second attach, so it is detached first.
     private func takeBuffer() async throws {
         let id = MessagePackValue.int(Int64(buffer))
-        eol = try await client.request("nvim_get_option_value", ["eol", ["buf": id]]).boolValue ?? true
         awaitingSnapshot = true
+        // Its event comes while the lines are awaited, and is not a reload.
+        let detach = client.call("nvim_buf_detach", [id])
+        let eol = client.call("nvim_exec_lua", ["_G.daftar_state.eol(...)", [id]])
         // An attach that fails (the buffer is not loaded) waits for no lines.
+        let attach = client.call("nvim_buf_attach", [id, true, [:]])
+        _ = try? await detach.value
         do {
-            try await client.request("nvim_buf_attach", [id, true, [:]])
+            _ = try await eol.value
+            _ = try await attach.value
         } catch {
             awaitingSnapshot = false
+            wakeSnapshot()
             throw error
         }
-        // The event is sent before the answer; it is handled in its turn.
-        for _ in 0..<500 where awaitingSnapshot { try? await Task.sleep(for: .milliseconds(2)) }
+        try await snapshot()
+        // The cursor reports that came with the lines were dropped: one more.
+        client.notify("nvim_exec_lua", ["_G.daftar_state.note()", []])
+    }
+
+    private var snapshotWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Until the buffer's lines came, in their turn among the events: a
+    /// Neovim that sends none in a second has them asked for.
+    private func snapshot() async throws {
         if awaitingSnapshot {
-            // A Neovim that sent none: the lines as they are, asked for.
-            let lines = try await client.request("nvim_buf_get_lines", [id, 0, -1, false]).arrayValue?.compactMap(\.stringValue) ?? []
-            if awaitingSnapshot { take(lines) }
+            let limit = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                if !Task.isCancelled { self?.wakeSnapshot() }
+            }
+            await withCheckedContinuation { waiter in
+                if awaitingSnapshot { snapshotWaiters.append(waiter) } else { waiter.resume() }
+            }
+            limit.cancel()
         }
+        guard awaitingSnapshot else { return }
+        let id = MessagePackValue.int(Int64(max(buffer, 0)))
+        let lines = try await client.request("nvim_buf_get_lines", [id, 0, -1, false]).arrayValue?.compactMap(\.stringValue) ?? []
+        if awaitingSnapshot { take(lines) }
+    }
+
+    private func wakeSnapshot() {
+        let waiters = snapshotWaiters
+        snapshotWaiters = []
+        for waiter in waiters { waiter.resume() }
     }
 
     /// All the buffer's lines: the mirror is them, and the view too, by
     /// the one range that differs.
     private func take(_ lines: [String]) {
         awaitingSnapshot = false
+        defer { wakeSnapshot() }
         mirror = BufferMirror(lines: lines, endsWithNewline: eol)
+        show(mirror)
+    }
+
+    /// The view shows [mirror]'s text, by the one range that differs.
+    private func show(_ mirror: BufferMirror) {
         guard let view, let storage = view.textStorage else { return }
-        let edit = EditorController.smallestEdit(from: storage.string as NSString, to: mirror.text as NSString)
+        let text = mirror.text as NSString
+        // Most often the view shows the file Neovim read: one compare.
+        guard !text.isEqual(to: storage.string) else { return }
+        let edit = EditorController.smallestEdit(from: storage.string as NSString, to: text)
         if edit.range.length > 0 || !edit.text.isEmpty { view.applyRemote(edit.range, edit.text) }
     }
 
@@ -356,7 +460,7 @@ final class NeovimSession {
     /// `completefunc`, from the moment `[[` or a tag's `#` is typed. A
     /// person's own completefunc wins.
     static let links = """
-        local chan = ...
+        local chan = _G.daftar_state.chan
         local kind
         function _G.daftar_complete(findstart, base)
           local line = vim.api.nvim_get_current_line()
@@ -412,12 +516,20 @@ final class NeovimSession {
         return .array(items.map { .array([.string($0.label), .string($0.insert)]) })
     }
 
+    /// Opens the note and sets the autocommands up. The note's buffer and
+    /// Daftar's channel are in `_G.daftar_state`, which `open` and `note`
+    /// change when the same Neovim takes another note.
     private static let setup = """
-        local chan, buf = ...
+        local path = ...
+        local chan
+        for _, ui in ipairs(vim.api.nvim_list_uis()) do chan = ui.chan or chan end
+        vim.cmd.edit(vim.fn.fnameescape(path))
+        local state = { chan = chan, buf = vim.api.nvim_get_current_buf(), switching = false }
+        _G.daftar_state = state
         local group = vim.api.nvim_create_augroup('daftar', { clear = true })
         local function send()
           -- Another buffer's cursor is not the note's.
-          if vim.api.nvim_get_current_buf() ~= buf then return end
+          if vim.api.nvim_get_current_buf() ~= state.buf then return end
           local mode = vim.api.nvim_get_mode().mode
           local cursor = vim.api.nvim_win_get_cursor(0)
           local v = vim.fn.getpos('v')
@@ -434,16 +546,27 @@ final class NeovimSession {
           end
           vim.rpcnotify(chan, 'daftar_cursor', mode, cursor[1], cursor[2], v[2], v[3] - 1, block)
         end
+        -- The note is the current buffer: its cursor is reported from now on.
+        function state.note()
+          state.buf = vim.api.nvim_get_current_buf()
+          send()
+        end
+        -- Sent before the buffer's lines, in order with them.
+        function state.eol(buf)
+          if buf == 0 then buf = vim.api.nvim_get_current_buf() end
+          vim.rpcnotify(chan, 'daftar_eol', buf, vim.bo[buf].eol)
+        end
         vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI', 'ModeChanged', 'BufEnter' }, { group = group, callback = send })
         -- The view shows this one note. Another file opened here -- :e, gf,
         -- a picker -- would take the keys where nothing shows them: Neovim
         -- goes back to the note, and Daftar opens the file as its own note.
         -- A help page, a picker's prompt and the like are not files.
         vim.api.nvim_create_autocmd('BufEnter', { group = group, callback = function(event)
-          if event.buf == buf or vim.bo[event.buf].buftype ~= '' then return end
+          if state.switching or event.buf == state.buf or vim.bo[event.buf].buftype ~= '' then return end
           local name = vim.api.nvim_buf_get_name(event.buf)
           if name == '' then return end
           vim.schedule(function()
+            local buf = state.buf
             if not vim.api.nvim_buf_is_valid(buf) then return end
             if vim.api.nvim_get_current_buf() == event.buf then pcall(vim.api.nvim_set_current_buf, buf) end
             if vim.api.nvim_buf_is_valid(event.buf) and not vim.bo[event.buf].modified then
@@ -479,7 +602,14 @@ final class NeovimSession {
           end
         end, vim.api.nvim_create_namespace('daftar'))
         vim.o.autoread = true
-        send()
+        state.eol(state.buf)
+        """
+
+    /// The cursor where the editor opened, in the middle of the window, as `zz` puts it.
+    private static let place = """
+        local row, col = ...
+        pcall(vim.api.nvim_win_set_cursor, 0, { row, col })
+        vim.cmd('normal! zz')
         """
 
     // MARK: From Neovim
@@ -488,18 +618,21 @@ final class NeovimSession {
         switch note.method {
         case "nvim_buf_lines_event":
             guard note.params.count >= 5, let first = note.params[2].intValue, let last = note.params[3].intValue else { return }
-            // Only the note's buffer is the view's text.
-            guard buffer == 0 || note.params[0].intValue == buffer else { return }
             let lines = note.params[4].arrayValue?.compactMap(\.stringValue) ?? []
             if awaitingSnapshot {
                 // The whole buffer, after an attach; nothing else counts before
                 // it. An edit made while it was on its way is in it, and is saved.
                 scheduleSave()
                 guard first == 0, last == -1 else { return }
+                // The one buffer attached: the note's, when the same Neovim took another note.
+                if buffer <= 0, let id = note.params[0].intValue { buffer = id }
+                guard note.params[0].intValue == buffer else { return }
                 take(lines)
                 onRemoteEdit?()
                 return
             }
+            // Only the note's buffer is the view's text.
+            guard buffer == 0 || note.params[0].intValue == buffer else { return }
             let edit = mirror.apply(first: first, last: last, replacement: lines)
             if let view {
                 let fits = view.applyRemote(edit.range, edit.text)
@@ -511,7 +644,8 @@ final class NeovimSession {
             // Neovim read the file again -- a sync, a pull, another app --
             // and stopped sending the buffer's lines: the view takes the
             // buffer anew, or it stays as it was while Neovim edits.
-            guard case .running = state, buffer == 0 || note.params.first?.intValue == buffer else { return }
+            // One of the session's own, before the lines it waits for.
+            guard !awaitingSnapshot, case .running = state, buffer == 0 || note.params.first?.intValue == buffer else { return }
             Task {
                 try? await takeBuffer()
                 onRemoteEdit?()
@@ -523,8 +657,13 @@ final class NeovimSession {
             guard let file = note.params.first?.stringValue else { return }
             resync()
             onOpen?(file)
+        case "daftar_eol":
+            // The buffer's `eol`, just before its lines.
+            if let flag = note.params.count > 1 ? note.params[1].boolValue : nil { eol = flag }
         case "daftar_cursor":
             guard note.params.count >= 5, let row = note.params[1].intValue, let col = note.params[2].intValue else { return }
+            // Counted in lines the mirror does not have yet.
+            guard !awaitingSnapshot else { return }
             let wasInserting = !isNormal
             mode = note.params[0].stringValue ?? "n"
             // Leaving insert mode is when a pending save can happen.

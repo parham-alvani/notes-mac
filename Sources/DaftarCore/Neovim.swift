@@ -2,7 +2,8 @@ import Foundation
 
 /// A Neovim process started with `--embed`, spoken to over msgpack-RPC on its
 /// stdin and stdout. Requests wait for their answer; notifications -- buffer
-/// changes, the cursor, redraws -- arrive on [notifications].
+/// changes, the cursor, redraws -- arrive on [batches], as many at a time as
+/// came in one read, so the app handles one flush of Neovim's in one turn.
 public final class NeovimClient: @unchecked Sendable {
     public struct Failure: Error, CustomStringConvertible {
         public var message: String
@@ -12,6 +13,11 @@ public final class NeovimClient: @unchecked Sendable {
     public struct Notification: Sendable {
         public var method: String
         public var params: [MessagePackValue]
+
+        public init(method: String, params: [MessagePackValue]) {
+            self.method = method
+            self.params = params
+        }
     }
 
     private let process = Process()
@@ -22,7 +28,7 @@ public final class NeovimClient: @unchecked Sendable {
     /// one message goes whole before the next.
     private let writing = NSLock()
     private var nextId: UInt64 = 1
-    private var pending: [UInt64: CheckedContinuation<MessagePackValue, any Error>] = [:]
+    private var pending: [UInt64: Reply] = [:]
     private var stream = MessagePack.Stream()
     private var launched = false
     private var stopped = false
@@ -30,8 +36,8 @@ public final class NeovimClient: @unchecked Sendable {
     private var exited = false
     /// How often the output's end was seen: once.
     private(set) var endsOfOutput = 0
-    private let continuation: AsyncStream<Notification>.Continuation
-    public let notifications: AsyncStream<Notification>
+    private let continuation: AsyncStream<[Notification]>.Continuation
+    public let batches: AsyncStream<[Notification]>
     /// Answers Neovim's `rpcrequest`, by method and params; Neovim waits
     /// for it. Set before [start]; without it each request gets nil.
     public var onRequest: (@Sendable (String, [MessagePackValue]) async -> MessagePackValue)?
@@ -45,7 +51,7 @@ public final class NeovimClient: @unchecked Sendable {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        (notifications, continuation) = AsyncStream.makeStream(of: Notification.self)
+        (batches, continuation) = AsyncStream.makeStream(of: [Notification].self)
     }
 
     /// The first `nvim` on the usual paths, or nil when there is none.
@@ -105,18 +111,34 @@ public final class NeovimClient: @unchecked Sendable {
 
     deinit { stop() }
 
-    /// Calls an API function and waits for its result.
+    /// Calls an API function and waits for its result, on the caller's
+    /// actor: a request from the main thread came back to it through the
+    /// global executor, two hops where one does.
     @discardableResult
-    public func request(_ method: String, _ params: [MessagePackValue] = []) async throws -> MessagePackValue {
-        try await withCheckedThrowingContinuation { continuation in
-            let id: UInt64 = lock.withLock {
-                let id = nextId
-                nextId += 1
-                pending[id] = continuation
-                return id
-            }
-            send(.array([.uint(0), .uint(id), .string(method), .array(params)]))
+    public nonisolated(nonsending) func request(_ method: String, _ params: [MessagePackValue] = []) async throws -> MessagePackValue {
+        try await call(method, params).value
+    }
+
+    /// A request on its way: sent at once, its answer waited for later.
+    /// Neovim answers in order, so requests sent one after another without
+    /// waiting cost one round trip, not one each: the editor's start was a
+    /// dozen of them, each waiting for the main thread in turn.
+    public struct Call: Sendable {
+        fileprivate let reply: Reply
+        public nonisolated(nonsending) var value: MessagePackValue { get async throws { try await reply.value() } }
+    }
+
+    /// Sends a request and does not wait: [Call.value] is the answer.
+    public func call(_ method: String, _ params: [MessagePackValue] = []) -> Call {
+        let reply = Reply()
+        let id: UInt64 = lock.withLock {
+            let id = nextId
+            nextId += 1
+            pending[id] = reply
+            return id
         }
+        send(.array([.uint(0), .uint(id), .string(method), .array(params)]))
+        return Call(reply: reply)
     }
 
     /// Calls an API function without waiting.
@@ -135,6 +157,8 @@ public final class NeovimClient: @unchecked Sendable {
 
     private func received(_ data: Data) {
         let messages = lock.withLock { stream.feed(data) }
+        var notes: [Notification] = []
+        defer { if !notes.isEmpty { continuation.yield(notes) } }
         for message in messages {
             guard let parts = message.arrayValue, let kind = parts.first?.intValue else { continue }
             switch kind {
@@ -143,12 +167,12 @@ public final class NeovimClient: @unchecked Sendable {
                 let waiter = lock.withLock { pending.removeValue(forKey: id) }
                 if parts[2] != .nil {
                     let text = parts[2].arrayValue?.last?.stringValue ?? "\(parts[2])"
-                    waiter?.resume(throwing: Failure(message: text))
+                    waiter?.resolve(.failure(Failure(message: text)))
                 } else {
-                    waiter?.resume(returning: parts[3])
+                    waiter?.resolve(.success(parts[3]))
                 }
             case 2 where parts.count == 3:
-                continuation.yield(Notification(method: parts[1].stringValue ?? "", params: parts[2].arrayValue ?? []))
+                notes.append(Notification(method: parts[1].stringValue ?? "", params: parts[2].arrayValue ?? []))
             case 0 where parts.count == 4:
                 // Neovim asking us something (rpcrequest), and waiting: an
                 // answer, or an empty one, never a hang.
@@ -175,12 +199,44 @@ public final class NeovimClient: @unchecked Sendable {
             pending.removeAll()
             return Array(all)
         }
-        for waiter in waiters { waiter.resume(throwing: Failure(message: "Neovim exited")) }
+        for waiter in waiters { waiter.resolve(.failure(Failure(message: "Neovim exited"))) }
         // The notifications end when the output is read to its end and the
         // process is gone (so how it went is known), or when it was stopped
         // or never ran.
         let over = lock.withLock { stopped || !launched || (drained && exited) }
         if over { continuation.finish() }
+    }
+}
+
+/// The answer to one request: kept until it is asked for, or handed to
+/// whoever asked first.
+private final class Reply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<MessagePackValue, any Error>?
+    private var waiter: CheckedContinuation<MessagePackValue, any Error>?
+
+    func resolve(_ answer: Result<MessagePackValue, any Error>) {
+        let waiting: CheckedContinuation<MessagePackValue, any Error>? = lock.withLock {
+            guard result == nil else { return nil }
+            // Kept for a second look, too.
+            result = answer
+            defer { self.waiter = nil }
+            return waiter
+        }
+        waiting?.resume(with: answer)
+    }
+
+    /// The answer; one already here is returned without waiting a turn.
+    nonisolated(nonsending) func value() async throws -> MessagePackValue {
+        if let known = lock.withLock({ result }) { return try known.get() }
+        return try await withCheckedThrowingContinuation { continuation in
+            let known: Result<MessagePackValue, any Error>? = lock.withLock {
+                if let result { return result }
+                waiter = continuation
+                return nil
+            }
+            if let known { continuation.resume(with: known) }
+        }
     }
 }
 
@@ -269,6 +325,22 @@ public struct BufferMirror: Sendable, Equatable {
         let bytes = Array(line.utf8.prefix(max(0, byteColumn)))
         let prefix = String(decoding: bytes, as: UTF8.self)
         return start(of: index) + min(prefix.utf16.count, lengths[index])
+    }
+
+    /// [offset] of [text] as a Neovim position (row from 1, column in
+    /// UTF-8 bytes), with no mirror: where the cursor starts, counted in
+    /// the file before Neovim has sent its lines. Only the text up to the
+    /// offset is read.
+    public static func position(of offset: Int, in text: NSString) -> (row: Int, byteColumn: Int) {
+        let end = min(max(0, offset), text.length)
+        var row = 1, lineStart = 0
+        while lineStart < end {
+            let found = text.range(of: "\n", options: .literal, range: NSRange(location: lineStart, length: end - lineStart))
+            guard found.location != NSNotFound else { break }
+            row += 1
+            lineStart = NSMaxRange(found)
+        }
+        return (row, text.substring(with: NSRange(location: lineStart, length: end - lineStart)).utf8.count)
     }
 
     /// The other way: a UTF-16 offset as a Neovim (row from 1, byte column).

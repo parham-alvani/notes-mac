@@ -143,13 +143,37 @@ import Testing
         try await client.request("nvim_buf_attach", [0, false, [:]])
         try await client.request("nvim_input", ["ggAX<Esc>"])
         var changed: [String]?
-        for await note in client.notifications where note.method == "nvim_buf_lines_event" {
-            changed = note.params[4].arrayValue?.compactMap(\.stringValue)
-            break
+        search: for await batch in client.batches {
+            for note in batch where note.method == "nvim_buf_lines_event" {
+                changed = note.params[4].arrayValue?.compactMap(\.stringValue)
+                break search
+            }
         }
         #expect(changed == ["oneX"])
         try await client.request("nvim_command", ["write"])
         #expect(try String(contentsOf: file, encoding: .utf8) == "oneX\ntwo\n")
+    }
+
+    /// Requests sent one after another, before any answer is waited for,
+    /// are answered in order, each to its own call, and an answer waited
+    /// for late is kept until then.
+    @Test func callsSentAtOnceAreEachAnsweredInOrder() async throws {
+        let client = NeovimClient(executable: NeovimClient.locate()!, arguments: ["--clean"])
+        try client.start()
+        defer { client.stop() }
+        let attach = client.call("nvim_ui_attach", [80, 24, ["ext_linegrid": true]])
+        let set = client.call("nvim_set_var", ["daftar_test", 7])
+        let get = client.call("nvim_get_var", ["daftar_test"])
+        let bad = client.call("nvim_get_var", ["no_such_var"])
+        let eval = client.call("nvim_eval", ["1 + 2"])
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(try await eval.value.intValue == 3)
+        await #expect(throws: (any Error).self) { try await bad.value }
+        #expect(try await get.value.intValue == 7)
+        // An answer read twice is the same answer.
+        #expect(try await eval.value.intValue == 3)
+        _ = try await set.value
+        _ = try await attach.value
     }
 }
 
