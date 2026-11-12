@@ -103,6 +103,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var locateNeovim: (String) -> URL? = { NeovimClient.locate($0) }
     /// What the file said when it was last read or written.
     private var saved = ""
+    /// The file's date and size just after this editor wrote it: while they
+    /// are the same, the file holds [saved] and is not read back.
+    private var savedStamp: (path: String, stamp: FileStamp)?
     private var saveTask: Task<Void, Never>?
     private var seenRevision = -1
     private var fontKey = ""
@@ -387,7 +390,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         case .plain:
             break
         }
-        guard store.lastChanged.contains(path), let disk = store.text(of: path), disk != saved else { return }
+        guard store.lastChanged.contains(path), !holdsOwnSave(path), let disk = store.text(of: path), disk != saved else { return }
         if view.string == saved {
             take(disk)
         } else {
@@ -399,8 +402,14 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// when nothing here is unsaved: the same note in the other pane may
     /// have saved since this view last looked.
     func catchUp() {
-        guard session == nil, let path, let view, view.string == saved, let disk = store.text(of: path), disk != saved else { return }
+        guard session == nil, let path, let view, view.string == saved, !holdsOwnSave(path), let disk = store.text(of: path), disk != saved else { return }
         take(disk)
+    }
+
+    /// The file is as this editor last wrote it: same date and size.
+    private func holdsOwnSave(_ path: String) -> Bool {
+        guard let savedStamp, savedStamp.path == path, let now = FileStamp(store.url(of: path)) else { return false }
+        return now == savedStamp.stamp
     }
 
     /// A move or a delete, made in this window or another. The editor was
@@ -626,6 +635,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         do {
             try store.write(text, to: path)
             saved = text
+            savedStamp = FileStamp(store.url(of: path)).map { (path, $0) }
         } catch {
             store.notice = "\(Vault.title(of: path)) could not be saved: \(error.localizedDescription)"
         }
@@ -700,5 +710,19 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             let folder = json["attachmentFolderPath"] as? String, !folder.isEmpty, folder != "/"
         else { return "" }
         return folder.hasPrefix("./") ? "" : folder
+    }
+}
+
+/// A file's modification date and size, to tell that it was not written since.
+struct FileStamp: Equatable {
+    var modified: Date
+    var size: Int
+
+    init?(_ url: URL?) {
+        guard let values = try? url?.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+            let modified = values.contentModificationDate, let size = values.fileSize
+        else { return nil }
+        self.modified = modified
+        self.size = size
     }
 }
