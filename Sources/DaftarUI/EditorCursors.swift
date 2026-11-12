@@ -31,6 +31,8 @@ final class EditorExtras {
     var cursorEffects: CursorEffectsView?
     /// Neovim's selection is being set, and the cursor waits for it.
     var placingSelection = false
+    /// Neovim's edit is being applied: the cursor moves with the text, at once.
+    var applyingEdit = false
     /// The keys sent to Neovim: whether one is held down and repeating.
     var keys = KeyRepeat()
     /// The paragraph focus mode keeps bright, and the length of the text then.

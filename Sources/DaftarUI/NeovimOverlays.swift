@@ -720,7 +720,10 @@ extension NoteTextView {
         let moves = !first && !stayed && abs(from.midY - target.midY) < visibleRect.height && window?.isVisible == true
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let effect = settings?.cursorEffect ?? AppSettings.CursorEffect.none
-        let motion = moves
+        // Text that moved under the cursor is not a move: a glide and
+        // particles to where an undo put the letter, then a jump to where
+        // Neovim put the cursor, were a cursor going two ways at once.
+        let motion = moves && !extras.applyingEdit
             ? CursorMotion.of(
                 from: from, to: target, normal: vim.isNormal, repeating: extras.keys.held(at: ProcessInfo.processInfo.systemUptime),
                 animate: settings?.animateCursor ?? true, effects: effect != .none)

@@ -14,6 +14,10 @@ extension NoteTextView {
     func applyRemote(_ range: NSRange, _ text: String) -> Bool {
         guard let storage = textStorage, NSMaxRange(range) <= storage.length else { return false }
         holdScroll(editing: range, with: (text as NSString).length)
+        // The letter under the cursor moves with the text (u, dd, O, p):
+        // the cursor follows it at once. Neovim says where it is next.
+        extras.applyingEdit = true
+        defer { extras.applyingEdit = false }
         storage.replaceCharacters(in: range, with: text)
         redrawPanels()
         return true
