@@ -328,12 +328,15 @@ struct DrillView: View {
         let when = again ? (rating == .again ? "once more" : "done") : DrillReview.spoken(days: store.drill.preview(card, rating).interval)
         return Button { rate(rating) } label: {
             VStack(spacing: 1) {
-                Text("\(rating.rawValue)  \(rating.title)").font(.body.weight(.semibold)).foregroundStyle(color)
-                Text(when).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Text("\(rating.rawValue)  \(rating.title)").font(.body.weight(.semibold))
+                Text(when).font(.caption.monospacedDigit()).opacity(0.75)
             }
             .frame(minWidth: 72)
         }
         .buttonStyle(.glass)
+        // The glass takes the tint: a label in the rating's colour on the
+        // window's orange tint could not be read (Hard was orange on orange).
+        .tint(color)
         .help("\(rating.title) (\(rating.rawValue)): " + (again ? "this card was rated already" : "next in \(when)"))
         .accessibilityLabel(rating.title)
         .accessibilityValue(again ? (rating == .again ? "asks it once more" : "ends this card") : "next in \(when)")
