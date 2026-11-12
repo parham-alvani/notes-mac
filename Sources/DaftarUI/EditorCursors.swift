@@ -29,6 +29,8 @@ final class EditorExtras {
     var invertedLetter: (NSRange, Int)?
     /// The cursor's particles, while `cursor_effect` names one.
     var cursorEffects: CursorEffectsView?
+    /// The keys sent to Neovim: whether one is held down and repeating.
+    var keys = KeyRepeat()
     /// The paragraph focus mode keeps bright, and the length of the text then.
     var focused: (NSRange, Int)?
     /// The scroll view's own insets, before typewriter mode added room at the end.

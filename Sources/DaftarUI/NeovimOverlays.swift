@@ -269,8 +269,10 @@ private final class PanelCanvas: NSView {
 /// corners in front go fast, the ones behind follow, and the cursor
 /// stretches over the way between.
 struct CursorTrail {
-    /// How long the last corner takes, and a short move, as one letter typed.
-    static let length = 0.15
+    /// How long the last corner takes, as Neovide's cursor (80 to 150 ms):
+    /// longer, and a key pressed again in that time found the cursor still
+    /// on its way. And a short move.
+    static let length = 0.1
     static let short = 0.04
     /// The corners' times, from the one most in front, as parts of [length].
     static let shares = [0.35, 0.5, 0.9, 1.0]
@@ -332,6 +334,61 @@ struct CursorTrail {
             if part < 1 { moving = true }
         }
         return moving
+    }
+}
+
+/// How Neovim mode's cursor goes to its new place: in a glide, with the
+/// particles of `cursor_effect`, or at once. A glide shows where a jump
+/// went; the cursor never trails the text, so typing and a key held down
+/// move it at once: a letter typed, a line wrapped, a line broken and a
+/// key repeat at thirty a second each started a glide that the next key
+/// cut short, and the cursor was always behind the text.
+struct CursorMotion: Equatable {
+    var glide: Bool
+    var effect: Bool
+
+    static let still = CursorMotion(glide: false, effect: false)
+
+    /// From [from] to [to], the cursor's rectangles, in normal mode or
+    /// while typing; [animate] and [effects] are the settings.
+    static func of(from: NSRect, to: NSRect, normal: Bool, repeating: Bool, animate: Bool, effects: Bool) -> CursorMotion {
+        guard !repeating else { return .still }
+        let dx = abs(from.midX - to.midX), dy = abs(from.midY - to.midY)
+        let letter = max(from.height, to.height, 1)
+        guard normal else {
+            // Typing: a letter, a wrap, Return, a backspace move the bar by
+            // a line or less (a line is about one and a half of its letters'
+            // height). Only a jump glides, and particles never come.
+            return dy > letter * 3 ? CursorMotion(glide: animate, effect: false) : .still
+        }
+        // A letter to the side (h, l, x): at once, as a terminal draws it.
+        if dy < letter / 2, dx <= max(from.width, to.width, 8) * 2 { return .still }
+        return CursorMotion(glide: animate, effect: effects)
+    }
+}
+
+/// The keys sent to Neovim, as they come: a key held down repeats, and
+/// the cursor follows a key repeat at once, without a glide or particles.
+struct KeyRepeat {
+    /// Two presses of one key closer than this are a key held down,
+    /// whatever the event says (macOS repeats every 15 to 120 ms).
+    static let gap = 0.09
+    /// How long after its last key a repeat counts as still going: the
+    /// cursor's report comes a few milliseconds after the key.
+    static let lasts = 0.25
+
+    private var last: (code: UInt16, time: Double)?
+    private var repeating = false
+
+    /// A key, at its event's [time] (seconds since the Mac started).
+    mutating func key(_ code: UInt16, at time: Double, isRepeat: Bool) {
+        repeating = isRepeat || last.map { $0.code == code && time - $0.time < Self.gap } ?? false
+        last = (code, time)
+    }
+
+    /// A key is held down and repeating at [time].
+    func held(at time: Double) -> Bool {
+        repeating && last.map { time - $0.time < Self.lasts } ?? false
     }
 }
 
@@ -498,6 +555,8 @@ struct CursorParticles {
         }
     }
 
+    mutating func clear() { particles.removeAll() }
+
     private mutating func add(_ particle: Particle) {
         particles.append(particle)
         if particles.count > Self.most { particles.removeFirst(particles.count - Self.most) }
@@ -526,7 +585,10 @@ final class CursorEffectsView: NSView {
     private var link: CADisplayLink?
     private var last: Double = 0
 
+    /// One effect at a time: a new move's particles take the place of the
+    /// last one's, which were a cloud around a cursor moved again and again.
     func spawn(_ effect: AppSettings.CursorEffect, from: NSRect, to: NSRect) {
+        particles.clear()
         particles.spawn(effect, from: from, to: to)
         guard !particles.particles.isEmpty, link == nil else { return }
         last = CACurrentMediaTime()
@@ -636,9 +698,13 @@ extension NoteTextView {
         // not on screen runs no animation.
         let moves = !first && !stayed && abs(from.midY - target.midY) < visibleRect.height && window?.isVisible == true
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        // A letter typed, or one to the side: no trail, and quicker.
-        let short = abs(from.midY - target.midY) < 1 && abs(from.midX - target.midX) <= max(from.width, target.width, 8) * 2
-        let animated = moves && settings?.animateCursor ?? true
+        let effect = settings?.cursorEffect ?? AppSettings.CursorEffect.none
+        let motion = moves
+            ? CursorMotion.of(
+                from: from, to: target, normal: vim.isNormal, repeating: extras.keys.held(at: ProcessInfo.processInfo.systemUptime),
+                animate: settings?.animateCursor ?? true, effects: effect != .none)
+            : .still
+        let animated = motion.glide
         // The letter takes the background's colour when the block is on it,
         // not while it is on the way.
         if animated {
@@ -648,11 +714,10 @@ extension NoteTextView {
             cursor.onSettle = nil
             invertLetter(letter)
         }
-        cursor.move(to: target, animated: animated, trail: settings?.cursorTrail ?? true, short: short)
-        let effect = settings?.cursorEffect ?? AppSettings.CursorEffect.none
-        // Typing moves the bar at every key: the slide is enough there, and
-        // particles at each letter were a glow around the cursor.
-        if moves, vim.isNormal, effect != .none {
+        cursor.move(to: target, animated: animated, trail: settings?.cursorTrail ?? true, short: false)
+        // Never while typing (particles at each letter were a glow around
+        // the cursor), nor for a key held down.
+        if motion.effect {
             let effects = extras.cursorEffects ?? {
                 let effects = CursorEffectsView(frame: visibleRect)
                 addSubview(effects)

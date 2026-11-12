@@ -222,6 +222,7 @@ extension NoteTextView {
             if flags == [.option, .shift], event.keyCode == 126 || event.keyCode == 125 { return duplicateLines(up: event.keyCode == 126) }
             return super.keyDown(with: event)
         }
+        extras.keys.key(event.keyCode, at: event.timestamp, isRepeat: event.isARepeat)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         var modifiers: VimKeys.Modifiers = []
         if flags.contains(.shift) { modifiers.insert(.shift) }
