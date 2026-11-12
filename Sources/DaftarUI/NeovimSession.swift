@@ -50,10 +50,18 @@ final class NeovimSession {
         self.root = root
         self.view = view
         textSize = CGFloat(settings.textSize)
+        launch = Self.launch(settings, root: root)
     }
 
     /// The size of the note's body text, which the grid is measured in.
-    private let textSize: CGFloat
+    private var textSize: CGFloat
+    /// What this Neovim was started with: another `nvim` or config, or
+    /// another vault, is another Neovim.
+    private let launch: String
+
+    static func launch(_ settings: AppSettings, root: URL) -> String {
+        [settings.nvimPath, settings.nvimConfig, root.path].joined(separator: "\u{1}")
+    }
 
     /// `nvim_config`: "user" is your init.lua, "clean" is none, and any
     /// other value is a Lua or Vim file to start with instead, as `-u`.
@@ -109,6 +117,9 @@ final class NeovimSession {
         defer { watchdog.cancel() }
         return try await work()
     }
+
+    /// The note's path in the vault.
+    var notePath: String { path }
 
     /// Neovim's process, for a test that kills it.
     var processIdentifier: Int32 { client.processIdentifier }
@@ -231,6 +242,122 @@ final class NeovimSession {
 
     private func handle(_ notes: [NeovimClient.Notification]) {
         for note in notes { handle(note) }
+    }
+
+    /// The same Neovim for another note, or the same one again: the pane
+    /// kept it while the reader showed (`NeovimKeeper`), or the editor
+    /// opened another note. It starts again in a few milliseconds where a
+    /// new Neovim took a fifth of a second, and each note's undo stays in
+    /// its buffer. The note left is written first; the note opened is
+    /// read again when its file changed while it was hidden (`autoread`).
+    /// Keys typed until it runs wait, as they do while Neovim starts.
+    func reopen(_ path: String, in view: NoteTextView, textSize: Int) {
+        saveSoon?.cancel()
+        let same = path == self.path && buffer > 0
+        self.view = view
+        self.path = path
+        self.textSize = CGFloat(textSize)
+        state = .starting
+        status = ""
+        commandLine = nil
+        let old = buffer
+        if same {
+            // The note it kept: its buffer stayed attached and the mirror
+            // is the buffer, so the view takes it now, with no lines sent.
+            show(mirror)
+        } else {
+            // No buffer is the view's until the note's lines come.
+            buffer = -1
+        }
+        Task { await reopening(from: old, same: same) }
+    }
+
+    private func reopening(from old: Int, same: Bool) async {
+        do {
+            try await within(Self.startLimit) {
+                let (rows, cols) = size()
+                client.notify("nvim_ui_try_resize", [.int(Int64(cols)), .int(Int64(rows))])
+                let place = placement()
+                // The buffer left sends no more lines, so its next attach
+                // sends all of them. A buffer not attached, or gone, is no failure.
+                let detach = !same && old > 0 ? client.call("nvim_buf_detach", [.int(Int64(old))]) : nil
+                if !same { awaitingSnapshot = true }
+                var calls: [NeovimClient.Call] = []
+                let open = client.call("nvim_exec_lua", [.string(Self.open), [.string(path)]])
+                calls.append(open)
+                calls.append(client.call("nvim_exec_lua", [.string(Self.place), [.int(Int64(place.row)), .int(Int64(place.byteColumn))]]))
+                if !same { calls.append(client.call("nvim_buf_attach", [0, true, [:]])) }
+                calls.append(client.call("nvim_exec_lua", ["_G.daftar_state.note()", []]))
+                // Answered in order: once the last is, every one is, and
+                // each is read without another turn of the main thread.
+                _ = try? await calls[calls.count - 1].value
+                _ = try? await detach?.value
+                for call in calls { _ = try await call.value }
+                if same {
+                    // Read again from its file, which ended the attach: taken whole.
+                    if try await open.value.boolValue == true { try await takeBuffer() }
+                } else {
+                    try await snapshot()
+                }
+                running()
+            }
+        } catch {
+            let reason = unanswered ? "It did not answer in \(Self.startLimit.components.seconds) seconds." : String(describing: error)
+            state = .failed(reason)
+            status = "Neovim did not open the note: \(reason)"
+        }
+        onChange?()
+    }
+
+    /// The same Neovim, for another note of this vault, with these settings:
+    /// it runs, waits for no answer, and is in Normal mode.
+    func reusable(with settings: AppSettings, root: URL) -> Bool {
+        guard case .running = state, !crashed, launch == Self.launch(settings, root: root) else { return false }
+        return mode == "n" && commandLine == nil && !awaitingSnapshot
+    }
+
+    /// The editor lets this Neovim go and the pane keeps it (`NeovimKeeper`):
+    /// the note is written, and it waits for the next edit. Done when
+    /// Neovim has written, or was ended for not answering, its buffer then
+    /// written by the store.
+    func park() -> Task<Void, Never> {
+        detach()
+        saveSoon?.cancel()
+        guard case .running = state else { return Task {} }
+        // A pending operator, Insert mode or an open command line ends:
+        // the note opens in Normal mode, as in a new Neovim.
+        if mode != "n" || commandLine != nil { client.notify("nvim_input", ["<C-\\><C-n>"]) }
+        return written()
+    }
+
+    /// Writes the note now; done once Neovim has.
+    func written() -> Task<Void, Never> {
+        guard case .running = state else { return Task {} }
+        let call = client.call("nvim_command", ["silent! update"])
+        let path = path
+        return Task { [weak self] in
+            _ = try? await self?.within(Self.saveLimit) { try await call.value }
+            guard let self, self.unanswered else { return }
+            self.onUnwritten?(path, self.mirror.text)
+        }
+    }
+
+    /// The buffers of notes moved or deleted, but the note's own: a hidden
+    /// buffer of a file that went away is marked changed by `autoread`, and
+    /// `:q` then refuses to end Neovim.
+    func forget(_ paths: [String]) {
+        guard case .running = state, !paths.isEmpty else { return }
+        client.notify("nvim_exec_lua", [.string(Self.forget), [.array(paths.map { .string($0) })]])
+    }
+
+    /// Ends Neovim at once, writing nothing: the app quits, or the pane
+    /// that kept it went, with the note written when it was kept.
+    func kill() {
+        detach()
+        saveSoon?.cancel()
+        state = .ended
+        listen?.cancel()
+        client.stop()
     }
 
     /// The keyboard's langmap is the same until a layout is added or
@@ -610,6 +737,45 @@ final class NeovimSession {
         local row, col = ...
         pcall(vim.api.nvim_win_set_cursor, 0, { row, col })
         vim.cmd('normal! zz')
+        """
+
+    /// Another note in the same Neovim: the note left is written, the
+    /// other is opened, or found among the hidden buffers with its undo,
+    /// and read again if its file changed while it was hidden. Opening it
+    /// is not a file opened inside Neovim (`daftar_open`).
+    private static let open = """
+        local path = ...
+        local state = _G.daftar_state
+        pcall(vim.cmd, 'silent! update')
+        if vim.api.nvim_buf_get_name(0) ~= vim.fn.fnamemodify(path, ':p') then
+          state.switching = true
+          local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(path))
+          state.switching = false
+          if not ok then error(err) end
+        end
+        local buf = vim.api.nvim_get_current_buf()
+        local tick = vim.b[buf].changedtick
+        vim.cmd('silent! checktime ' .. buf)
+        state.eol(buf)
+        return vim.b[buf].changedtick ~= tick
+        """
+
+    /// Wipes the hidden buffers of [paths] (vault paths of files or folders).
+    private static let forget = """
+        local paths = ...
+        local current = vim.api.nvim_get_current_buf()
+        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+          local name = vim.api.nvim_buf_get_name(buf)
+          if buf ~= current and name ~= '' then
+            for _, path in ipairs(paths) do
+              local full = vim.fn.fnamemodify(path, ':p'):gsub('/$', '')
+              if name == full or name:sub(1, #full + 1) == full .. '/' then
+                pcall(vim.api.nvim_buf_delete, buf, { force = true })
+                break
+              end
+            end
+          end
+        end
         """
 
     // MARK: From Neovim

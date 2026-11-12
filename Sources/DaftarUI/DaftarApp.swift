@@ -307,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// review still running is ended, after format on save had its turn.
     func applicationWillTerminate(_ notification: Notification) {
         DaftarCLI.endAll()
+        MainActor.assumeIsolated { NeovimKeeper.endAll() }
     }
 
     private var answered = false

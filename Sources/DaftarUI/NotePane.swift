@@ -57,6 +57,8 @@ final class NotePane: Identifiable {
     var editorJump: EditorJump?
     /// The reader's page, for read aloud and Export as PDF.
     @ObservationIgnored weak var readerView: WKWebView?
+    /// The editor's Neovim while the pane reads, for the next edit.
+    @ObservationIgnored let neovim = NeovimKeeper()
 
     private var back: [ReaderRequest] = []
     private var forward: [ReaderRequest] = []
@@ -286,7 +288,7 @@ struct NotePaneView: View {
                 model.extractReplace = replace
                 model.fileAction = .extract(folder: model.currentFolder, text: text)
             }, onHeadingsRenamed: { pane.headingOffer = $0 }, jump: pane.editorJump, onQuit: { pane.editing = false },
-                onOpen: { model.open($0, in: pane, store: store) }, problems: store.checks.marks(for: path))
+                onOpen: { model.open($0, in: pane, store: store) }, problems: store.checks.marks(for: path), keeper: pane.neovim)
             .safeAreaInset(edge: .top, spacing: 0) { PropertiesView(path: path) }
             .safeAreaInset(edge: .top, spacing: 0) { Breadcrumb(path: path, model: model, onClose: onClose) }
     }
