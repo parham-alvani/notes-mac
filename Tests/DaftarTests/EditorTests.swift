@@ -499,7 +499,8 @@ import Testing
         #expect(size(at: text.range(of: "## Part 1199").location + 3) > body)
         let top = text.range(of: "## Part 0\n").location + 3
         #expect(controller.progressive != nil)
-        let until = Date().addingTimeInterval(5)
+        // The rest is styled in the background, a part per tick: a slow CI runner needs far more than a Mac.
+        let until = Date().addingTimeInterval(30)
         while controller.progressive != nil, Date() < until { try await Task.sleep(for: .milliseconds(10)) }
         #expect(controller.progressive == nil)
         #expect(size(at: top) > body)
