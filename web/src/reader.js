@@ -1138,11 +1138,9 @@ window.daftar = {
       main.appendChild(holder);
       renderBase(holder, note.base, note.path, "");
     }
-    if (keep !== null) {
-      // Kept below, once the page is laid out as the one the place was taken on.
-    } else if (note.heading) this.scrollTo(note.heading);
-    else if (note.line != null) this.scrollToLine(note.line);
-    else window.scrollTo(0, 0);
+    // A kept place, a heading and a line are scrolled to below, once the
+    // page is laid out as it will be seen.
+    if (keep === null && !note.heading && note.line == null) window.scrollTo(0, 0);
     // The reading cursor: on the line the editor was at, on the same block
     // when the note is shown again, or at the top in a note just opened.
     folds.shut = new Set(note.folds ?? []);
@@ -1153,17 +1151,18 @@ window.daftar = {
     folds.apply();
     timing.mark("folds");
     // A note shown again after it changed on disk (a format on leaving the
-    // editor, a pull) stays where it was. The code blocks' heads and the
-    // folds above it change the page's height, so the place is set after
-    // them: set before, the page slid by their height.
+    // editor, a pull) stays where it was, and a heading or a line (back
+    // from the editor) is scrolled to. The code blocks' heads and the folds
+    // above the place change the page's height, so the scroll comes after
+    // them: before, the page slid by their height. A link to a heading
+    // inside a folded section opens the section.
     if (keep !== null) {
       window.scrollTo(0, keep);
       const anchor = patchAnchor.block;
       patchAnchor.block = null;
       if (anchor?.el.isConnected) window.scrollBy(0, anchor.el.getBoundingClientRect().top - anchor.top);
-    }
-    // A link to a heading inside a folded section opens the section.
-    if (keep === null && note.heading) this.scrollTo(note.heading);
+    } else if (note.heading) this.scrollTo(note.heading);
+    else if (note.line != null) this.scrollToLine(note.line);
     reading.restore(note.line ?? (keep !== null ? reading.line : null));
     progress();
     timing.mark("decorated");
