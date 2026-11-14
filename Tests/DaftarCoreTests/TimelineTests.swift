@@ -54,7 +54,8 @@ import Testing
         #expect(TaskTime.parse("23:50 Late") == TaskTime(start: 1430, end: 1440, text: "Late"))
         #expect(TaskTime.parse("12:00") == TaskTime(start: 720, end: 750, text: ""))
         #expect(TaskTime.parse("10:00-09:00 Back") == TaskTime(start: 600, end: 630, text: "Back"))
-        for text in ["10:00am Coffee", "9:3 x", "24:00 x", "Call at 09:30", "12:60 x", ""] {
+        #expect(TaskTime.parse("10:00 - later") == TaskTime(start: 600, end: 630, text: "- later"))
+        for text in ["10:00am Coffee", "9:3 x", "24:00 x", "Call at 09:30", "12:60 x", "", "10:00-x", "10:00-25:00 x"] {
             #expect(TaskTime.parse(text) == nil, "\(text)")
         }
     }
