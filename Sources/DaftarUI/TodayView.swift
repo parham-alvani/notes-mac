@@ -197,7 +197,7 @@ struct Chip: View {
 /// time between them and a line at now: `today-timeline.md` §5 in
 /// notes-linux's `docs/specs`. A minute is a point.
 struct TimelineCard: View {
-    @Bindable var model: WindowModel
+    var model: WindowModel
     var day: Day
     var meetings: [Meeting]
     var tasks: [VaultTask]
