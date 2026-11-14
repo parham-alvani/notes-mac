@@ -89,6 +89,8 @@ import Testing
             #expect(Slugs.search(line).count == Slugs.fold(line).count)
             _ = TaskLine.toggled(line, today: "2026-10-26")
             _ = TaskMetadata.split(line)
+            // A time on a task always lasts, and ends by midnight.
+            if let time = TaskTime.parse(line) { #expect(time.start < time.end && time.end <= 1440) }
             _ = EditorCommands.onReturn(after: line)
             _ = EditorCommands.toggleTask(line, today: Day(year: 2026, month: 10, day: 26))
             _ = EditorCommands.heading(line, level: Int.random(in: 0...6, using: &random))

@@ -10,8 +10,10 @@ struct TodayView: View {
 
     var body: some View {
         let today = Day.today()
-        let days = store.calendarDays(from: today, count: 2)
+        // The day before too: a meeting late in it can run past midnight.
+        let days = store.calendarDays(from: today.adding(days: -1), count: 3)
         let day = days.first { $0.day == today }
+        let yesterday = days.first { $0.day == today.adding(days: -1) }
         let tomorrow = days.first { $0.day == today.adding(days: 1) }
         let groups = store.taskGroups(today: today)
         let coming = store.calendarEvents(from: today, to: today.adding(days: Self.holidayDays))
@@ -43,6 +45,12 @@ struct TodayView: View {
                             eventChip(happening.event)
                         }
                     }
+                }
+
+                if day != nil || groups.today.contains(where: { TaskTime.parse($0.task.text) != nil }) {
+                    TimelineCard(
+                        model: model, day: today, meetings: (yesterday?.meetings ?? []) + (day?.meetings ?? []),
+                        tasks: groups.today)
                 }
 
                 Card(title: "Meetings", symbol: "calendar", color: Palette.blue) {
@@ -182,6 +190,239 @@ struct Chip: View {
             .background(color.opacity(0.14), in: Capsule())
             .overlay(Capsule().strokeBorder(color.opacity(0.3)))
             .accessibilityElement(children: .combine)
+    }
+}
+
+/// The day's meetings and timed tasks on one axis of hours, with the free
+/// time between them and a line at now: `today-timeline.md` §5 in
+/// notes-linux's `docs/specs`. A minute is a point.
+struct TimelineCard: View {
+    var model: WindowModel
+    var day: Day
+    var meetings: [Meeting]
+    var tasks: [VaultTask]
+    @Environment(VaultStore.self) private var store
+
+    /// The height of one line of a box's text: the shortest box.
+    static let line: CGFloat = 18
+    static let hoursWidth: CGFloat = 42
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let timeline = DaftarCore.Timeline(
+                day: day, meetings: meetings, tasks: tasks, statuses: store.index.statuses, zone: .current, now: context.date)
+            Card(title: "Timeline", symbol: "clock", color: Palette.blue) {
+                if !timeline.allDay.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(Array(timeline.allDay.enumerated()), id: \.offset) { _, meeting in
+                            Chip(text: meeting.title, symbol: "calendar", color: meeting.busyOnly ? Palette.muted : Palette.blue)
+                                .opacity(meeting.tentative ? 0.6 : 1)
+                                .help(Self.details(meeting))
+                                .accessibilityLabel("All day, \(meeting.title)")
+                        }
+                    }
+                }
+                axis(timeline)
+                    .padding(.vertical, 8)
+            }
+        }
+    }
+
+    private func axis(_ timeline: DaftarCore.Timeline) -> some View {
+        let height = CGFloat(timeline.end - timeline.start)
+        let hours = Array(stride(from: timeline.start, through: timeline.end, by: 60))
+        return HStack(alignment: .top, spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                ForEach(hours, id: \.self) { minute in
+                    Text(Self.clock(minute))
+                        .font(.caption2.monospacedDigit())
+                        .faint()
+                        .offset(y: CGFloat(minute - timeline.start) - 7)
+                }
+            }
+            .frame(width: Self.hoursWidth, height: height, alignment: .topTrailing)
+            .accessibilityHidden(true)
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                ZStack(alignment: .topLeading) {
+                    ForEach(hours, id: \.self) { minute in
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.2))
+                            .frame(width: width, height: 1)
+                            .offset(y: CGFloat(minute - timeline.start))
+                    }
+                    .accessibilityHidden(true)
+                    ForEach(timeline.free, id: \.self) { free in
+                        freeBand(free, width: width)
+                            .offset(y: CGFloat(free.start - timeline.start))
+                    }
+                    // In order of start: a later box is drawn over an earlier one.
+                    ForEach(timeline.items) { item in
+                        let lane = width / CGFloat(max(item.lanes, 1))
+                        box(item, height: max(CGFloat(item.end - item.start), Self.line))
+                            .frame(width: max(lane - 3, 1), height: max(CGFloat(item.end - item.start), Self.line))
+                            .opacity(item.past ? 0.5 : 1)
+                            .offset(x: lane * CGFloat(item.lane), y: CGFloat(item.start - timeline.start))
+                    }
+                    if let now = timeline.now {
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(Palette.red).frame(width: width, height: 1.5)
+                            Circle().fill(Palette.red).frame(width: 8, height: 8).offset(x: -4)
+                        }
+                        .frame(width: width, height: 8)
+                        .offset(y: CGFloat(now - timeline.start) - 4)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Now, \(Self.clock(now))")
+                    }
+                }
+            }
+            .frame(height: height)
+        }
+    }
+
+    private func freeBand(_ free: DaftarCore.Timeline.Free, width: CGFloat) -> some View {
+        let height = CGFloat(free.minutes)
+        let label = "free \(DaftarCore.Timeline.duration(free.minutes))"
+        return Rectangle()
+            .fill(Palette.green.opacity(0.08))
+            .frame(width: width, height: height)
+            .overlay(alignment: .topLeading) {
+                if height >= Self.line {
+                    Text(label)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(Palette.green)
+                        .padding(.horizontal, 6).padding(.top, 2)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(Self.clock(free.start))–\(Self.clock(free.end)), \(label)")
+    }
+
+    @ViewBuilder
+    private func box(_ item: DaftarCore.Timeline.Item, height: CGFloat) -> some View {
+        if let meeting = item.meeting {
+            meetingBox(item, meeting, height: height)
+        } else if let task = item.task {
+            taskBox(item, task, height: height)
+        }
+    }
+
+    /// Lines of text a box [height] tall holds, at least one.
+    private static func lines(_ height: CGFloat) -> Int { max(1, Int((height - 4) / 15)) }
+
+    @ViewBuilder
+    private func meetingBox(_ item: DaftarCore.Timeline.Item, _ meeting: Meeting, height: CGFloat) -> some View {
+        let color = meeting.busyOnly ? Palette.muted : Palette.blue
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        let label = HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(Self.ownTime(meeting, item))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .fixedSize()
+            Text(item.title)
+                .foregroundStyle(meeting.busyOnly ? .secondary : .primary)
+                .lineLimit(Self.lines(height))
+        }
+        .font(.caption.weight(item.current ? .semibold : .regular))
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(color.opacity(meeting.tentative ? 0.07 : 0.18), in: shape)
+        .overlay(
+            shape.strokeBorder(
+                color.opacity(meeting.tentative ? 0.45 : 0.7), style: StrokeStyle(lineWidth: 1, dash: meeting.tentative ? [4, 3] : []))
+        )
+        .clipShape(shape)
+        .contentShape(shape)
+        let spoken = "\(Self.ownTime(meeting, item).replacingOccurrences(of: "–", with: " to ")), \(meeting.title)"
+        if let join = meeting.join, Vault.leavesTheApp(join) {
+            Button { NSWorkspace.shared.open(join) } label: { label }
+                .buttonStyle(.plain)
+                .help(Self.details(meeting, joins: true))
+                .accessibilityLabel(spoken)
+                .accessibilityValue(Self.state(item, meeting))
+                .accessibilityHint("Joins the meeting")
+        } else {
+            label
+                .help(Self.details(meeting))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(spoken)
+                .accessibilityValue(Self.state(item, meeting))
+        }
+    }
+
+    private func taskBox(_ item: DaftarCore.Timeline.Item, _ task: VaultTask, height: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Button {
+                store.toggleTask(path: task.path, line: task.task.line, status: task.task.status)
+            } label: {
+                Image(systemName: store.index.statuses.type(task.task.status) == .inProgress ? "square.inset.filled" : "square")
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Palette.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Complete")
+            .accessibilityLabel(TaskRow.plain(item.title))
+            .accessibilityValue(Spoken.status(task.task.status))
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityHint("Completes the task")
+            Button { model.open(task.path, line: task.task.line, store: store) } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(Self.clock(item.start))–\(Self.clock(item.end))")
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.accent)
+                        .fixedSize()
+                    Text(TaskRow.plain(item.title))
+                        .lineLimit(Self.lines(height))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open \(Vault.title(of: task.path)) at the task")
+            .accessibilityLabel("\(Self.clock(item.start)) to \(Self.clock(item.end)), \(TaskRow.plain(item.title))")
+            .accessibilityHint("Opens the note at the task")
+        }
+        .font(.caption.weight(item.current ? .semibold : .regular))
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Palette.accent.opacity(0.18), in: shape)
+        .overlay(shape.strokeBorder(Palette.accent.opacity(0.7)))
+        .clipShape(shape)
+    }
+
+    /// `09:30`; 1440 is `24:00`.
+    static func clock(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60, minute % 60) }
+
+    /// A meeting's own start and end on this Mac's clock, not the times cut at
+    /// midnight: the 00:00–01:00 box of a meeting from 23:00 says `23:00–01:00`.
+    static func ownTime(_ meeting: Meeting, _ item: DaftarCore.Timeline.Item) -> String {
+        guard let start = meeting.start, let end = meeting.end else { return "\(clock(item.start))–\(clock(item.end))" }
+        let calendar = Calendar.current
+        func minute(_ date: Date) -> Int {
+            let parts = calendar.dateComponents([.hour, .minute], from: date)
+            return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        }
+        return "\(clock(minute(start)))–\(clock(minute(end)))"
+    }
+
+    /// The tooltip of a meeting: its calendars and what it overlaps.
+    static func details(_ meeting: Meeting, joins: Bool = false) -> String {
+        var lines: [String] = []
+        if !meeting.calendars.isEmpty { lines.append(meeting.calendars.joined(separator: ", ")) }
+        if meeting.tentative { lines.append("Maybe") }
+        if meeting.busyOnly { lines.append("Busy only") }
+        if let overlaps = meeting.overlaps { lines.append("Overlaps \(overlaps)") }
+        if joins { lines.append("Click to join") }
+        return lines.isEmpty ? meeting.title : lines.joined(separator: "\n")
+    }
+
+    private static func state(_ item: DaftarCore.Timeline.Item, _ meeting: Meeting) -> String {
+        var parts = [item.current ? "now" : item.past ? "finished" : "", meeting.tentative ? "maybe" : "", meeting.busyOnly ? "busy only" : ""]
+        if let overlaps = meeting.overlaps { parts.append("overlaps \(overlaps)") }
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 }
 
