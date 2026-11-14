@@ -317,7 +317,7 @@ struct TimelineCard: View {
         let color = meeting.busyOnly ? Palette.muted : Palette.blue
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
         let label = HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("\(Self.clock(item.start))–\(Self.clock(item.end))")
+            Text(Self.ownTime(meeting, item))
                 .monospacedDigit()
                 .foregroundStyle(color)
                 .fixedSize()
@@ -335,7 +335,7 @@ struct TimelineCard: View {
         )
         .clipShape(shape)
         .contentShape(shape)
-        let spoken = "\(Self.clock(item.start)) to \(Self.clock(item.end)), \(meeting.title)"
+        let spoken = "\(Self.ownTime(meeting, item).replacingOccurrences(of: "–", with: " to ")), \(meeting.title)"
         if let join = meeting.join, Vault.leavesTheApp(join) {
             Button { NSWorkspace.shared.open(join) } label: { label }
                 .buttonStyle(.plain)
@@ -395,6 +395,18 @@ struct TimelineCard: View {
 
     /// `09:30`; 1440 is `24:00`.
     static func clock(_ minute: Int) -> String { String(format: "%02d:%02d", minute / 60, minute % 60) }
+
+    /// A meeting's own start and end on this Mac's clock, not the times cut at
+    /// midnight: the 00:00–01:00 box of a meeting from 23:00 says `23:00–01:00`.
+    static func ownTime(_ meeting: Meeting, _ item: DaftarCore.Timeline.Item) -> String {
+        guard let start = meeting.start, let end = meeting.end else { return "\(clock(item.start))–\(clock(item.end))" }
+        let calendar = Calendar.current
+        func minute(_ date: Date) -> Int {
+            let parts = calendar.dateComponents([.hour, .minute], from: date)
+            return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        }
+        return "\(clock(minute(start)))–\(clock(minute(end)))"
+    }
 
     /// The tooltip of a meeting: its calendars and what it overlaps.
     static func details(_ meeting: Meeting, joins: Bool = false) -> String {
