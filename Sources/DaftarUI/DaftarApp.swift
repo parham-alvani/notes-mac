@@ -7,12 +7,6 @@ public struct DaftarApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @ViewState private var store = VaultStore()
-    @FocusedValue(\.window) private var focusedWindow
-    /// The window the menu commands act on: the focused one, or else the one
-    /// last in front. SwiftUI's focused value is empty while no Daftar window
-    /// holds the focus -- after a sheet closes, or with a panel in front --
-    /// and every command, ⌘P among them, would turn grey with nothing to do.
-    private var window: WindowModel? { focusedWindow ?? ActiveWindow.shared.model }
 
     public var body: some Scene {
         WindowGroup(id: "main") {
@@ -35,132 +29,7 @@ public struct DaftarApp: App {
         }
         .windowToolbarStyle(.unified)
         .handlesExternalEvents(matching: ["*"])
-        .commands {
-            FileCommands(window: window, store: store)
-            EditorModeCommands(window: window, store: store)
-            ProblemsCommands(window: window, store: store)
-            CommandGroup(after: .pasteboard) {
-                Button("Copy Block Link") { window?.copyBlockLink(store: store) }
-                    .keyboardShortcut("b", modifiers: [.command, .option])
-                    .disabled(window?.showsText != true)
-                Divider()
-                Button("Find…") { window?.find(.showFindInterface) }
-                    .keyboardShortcut("f")
-                    .disabled(window?.showsText != true)
-                Button("Search in Vault") { window?.searchRequests += 1 }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(window == nil || store.root == nil)
-                Button("Find Next") { window?.find(.nextMatch) }
-                    .keyboardShortcut("g")
-                    .disabled(window?.showsText != true)
-                Button("Find Previous") { window?.find(.previousMatch) }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
-                    .disabled(window?.showsText != true)
-                Button("Replace in Vault…") { window?.vaultReplace = ReplaceTarget(folder: "") }
-                    .keyboardShortcut("h", modifiers: [.command, .shift])
-                    .disabled(window == nil || store.root == nil)
-            }
-            CommandGroup(after: .newItem) {
-                Button("Open Vault…") { chooseVault(store) }
-                    .keyboardShortcut("o", modifiers: [.command, .shift])
-                Divider()
-                Button("Quick Open…") { window?.openSwitcher() }
-                    .keyboardShortcut("p")
-                    .disabled(window == nil)
-                Button("Command Palette…") { window?.palette = true }
-                    .keyboardShortcut("p", modifiers: [.command, .shift])
-                    .disabled(window == nil)
-                Button("Quick Capture…") { QuickCaptureController.shared.show() }
-            }
-            // ⌘P is the file switcher, as in Obsidian; nothing here prints.
-            CommandGroup(replacing: .printItem) {}
-            CommandGroup(after: .sidebar) {
-                Button("Show Inspector") { window?.inspector.toggle() }
-                    .keyboardShortcut("i", modifiers: [.command, .option])
-                Button("Show Terminal") { window?.terminal.toggle() }
-                    .keyboardShortcut("`", modifiers: .control)
-                Button("Show Graph") { window?.graph = true }
-                    .keyboardShortcut("g", modifiers: [.command, .option])
-                    .disabled(window == nil)
-                Button("Translate…") { window?.translate(store: store) }
-                    .keyboardShortcut("t", modifiers: [.command, .control])
-                    .disabled(window?.showsText != true)
-                Button(ReadAloud.shared.isSpeaking ? "Stop Reading Aloud" : "Read Aloud") { window?.readAloud() }
-                    .keyboardShortcut("r", modifiers: [.command, .option])
-                    .disabled(!ReadAloud.shared.isSpeaking && window?.showsText != true)
-                Button("Apple Intelligence…") { window?.assistant = true }
-                    .keyboardShortcut("a", modifiers: [.command, .option])
-                    .disabled(window?.showsText != true)
-                Divider()
-                Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
-                    .keyboardShortcut("e")
-                    .disabled(window?.showsText != true)
-                Button(window?.isSplit == true ? "Close Split" : "Split Right") { window?.toggleSplit() }
-                    .keyboardShortcut("\\")
-                    .disabled(window == nil || window?.showsPage == true)
-                Toggle("Show Hidden Files", isOn: Bindable(store.settings).showHidden)
-                    .keyboardShortcut(".", modifiers: [.command, .shift])
-                Divider()
-                // On a picture the same keys zoom the picture, as in Preview.
-                Button(window?.showsImage == true ? "Zoom In" : "Bigger Text") {
-                    if let window, window.showsImage { window.zoomImage("in") } else { store.settings.textSize = min(store.settings.textSize + 1, 28) }
-                }
-                .keyboardShortcut("+")
-                Button(window?.showsImage == true ? "Zoom Out" : "Smaller Text") {
-                    if let window, window.showsImage { window.zoomImage("out") } else { store.settings.textSize = max(store.settings.textSize - 1, 10) }
-                }
-                .keyboardShortcut("-")
-                Button("Actual Size") {
-                    if let window, window.showsImage { window.zoomImage("actual") } else { store.settings.textSize = 14 }
-                }
-                .keyboardShortcut("0")
-                Button("Zoom to Fit") { window?.zoomImage("fit") }
-                    .keyboardShortcut("9")
-                    .disabled(window?.showsImage != true)
-            }
-            CommandMenu("Go") {
-                Button("Back") { window?.goBack() }
-                    .keyboardShortcut("[")
-                    .disabled(!(window?.canGoBack ?? false))
-                Button("Forward") { window?.goForward() }
-                    .keyboardShortcut("]")
-                    .disabled(!(window?.canGoForward ?? false))
-                Divider()
-                Button("Home") { window?.goHome() }
-                    .keyboardShortcut("d", modifiers: [.command, .shift])
-                    .disabled(window == nil || window?.showsHome == true)
-                Button("Today") { window?.showsToday = true }
-                    .keyboardShortcut("1")
-                Button("Board") { window?.showsBoard = true }
-                    .keyboardShortcut("2")
-                Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
-                    .keyboardShortcut("3")
-                    .disabled(window == nil || store.root == nil)
-                Button("Previous \(store.periodic.period.noun)") {
-                    if let window, let path = window.periodicNeighbour(-1, store: store) { window.open(path, store: store) }
-                }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-                .disabled(window?.periodicNeighbour(-1, store: store) == nil)
-                Button("Next \(store.periodic.period.noun)") {
-                    if let window, let path = window.periodicNeighbour(1, store: store) { window.open(path, store: store) }
-                }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-                .disabled(window?.periodicNeighbour(1, store: store) == nil)
-                Button("Weekly Review") { window?.openWeeklyReview(store: store) }
-                    .keyboardShortcut("4")
-                    .disabled(window == nil || store.root == nil)
-                Button("Review Cards") { window?.showsDrill = true }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
-                Button("Job Search") { window?.showsJobs = true }
-                    .keyboardShortcut("j", modifiers: [.command, .shift])
-                Divider()
-                Button("Sync Now") { Task { await store.sync() } }
-                    .keyboardShortcut("s", modifiers: [.command, .shift])
-                    .disabled(!store.isRepository)
-                Button("Resolve Sync Conflicts…") { window?.conflicts = true }
-                    .disabled(!store.rebasing || window == nil)
-            }
-        }
+        .commands { AppCommands(store: store) }
 
         // A tab: ⌘T, or a link opened with ⌘-click.
         WindowGroup("Tab", for: TabRequest.self) { $request in
@@ -194,6 +63,148 @@ public struct DaftarApp: App {
             }
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// The menus. They read the focused window and the vault here, not in the
+/// app's `body`: read there, every note opened, every Read or Edit and every
+/// file that changed made SwiftUI work out the app's scenes again and give
+/// each open window its root view again -- about 65 ms for each tab at each
+/// new tab, and the same at each of those changes.
+struct AppCommands: Commands {
+    var store: VaultStore
+    @FocusedValue(\.window) private var focusedWindow
+    /// The window the menu commands act on: the focused one, or else the one
+    /// last in front. SwiftUI's focused value is empty while no Daftar window
+    /// holds the focus -- after a sheet closes, or with a panel in front --
+    /// and every command, ⌘P among them, would turn grey with nothing to do.
+    private var window: WindowModel? { focusedWindow ?? ActiveWindow.shared.model }
+
+    var body: some Commands {
+        FileCommands(window: window, store: store)
+        EditorModeCommands(window: window, store: store)
+        ProblemsCommands(window: window, store: store)
+        CommandGroup(after: .pasteboard) {
+            Button("Copy Block Link") { window?.copyBlockLink(store: store) }
+                .keyboardShortcut("b", modifiers: [.command, .option])
+                .disabled(window?.showsText != true)
+            Divider()
+            Button("Find…") { window?.find(.showFindInterface) }
+                .keyboardShortcut("f")
+                .disabled(window?.showsText != true)
+            Button("Search in Vault") { window?.searchRequests += 1 }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(window == nil || store.root == nil)
+            Button("Find Next") { window?.find(.nextMatch) }
+                .keyboardShortcut("g")
+                .disabled(window?.showsText != true)
+            Button("Find Previous") { window?.find(.previousMatch) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(window?.showsText != true)
+            Button("Replace in Vault…") { window?.vaultReplace = ReplaceTarget(folder: "") }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(window == nil || store.root == nil)
+        }
+        CommandGroup(after: .newItem) {
+            Button("Open Vault…") { chooseVault(store) }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+            Divider()
+            Button("Quick Open…") { window?.openSwitcher() }
+                .keyboardShortcut("p")
+                .disabled(window == nil)
+            Button("Command Palette…") { window?.palette = true }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(window == nil)
+            Button("Quick Capture…") { QuickCaptureController.shared.show() }
+        }
+        // ⌘P is the file switcher, as in Obsidian; nothing here prints.
+        CommandGroup(replacing: .printItem) {}
+        CommandGroup(after: .sidebar) {
+            Button("Show Inspector") { window?.inspector.toggle() }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+            Button("Show Terminal") { window?.terminal.toggle() }
+                .keyboardShortcut("`", modifiers: .control)
+            Button("Show Graph") { window?.graph = true }
+                .keyboardShortcut("g", modifiers: [.command, .option])
+                .disabled(window == nil)
+            Button("Translate…") { window?.translate(store: store) }
+                .keyboardShortcut("t", modifiers: [.command, .control])
+                .disabled(window?.showsText != true)
+            Button(ReadAloud.shared.isSpeaking ? "Stop Reading Aloud" : "Read Aloud") { window?.readAloud() }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+                .disabled(!ReadAloud.shared.isSpeaking && window?.showsText != true)
+            Button("Apple Intelligence…") { window?.assistant = true }
+                .keyboardShortcut("a", modifiers: [.command, .option])
+                .disabled(window?.showsText != true)
+            Divider()
+            Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
+                .keyboardShortcut("e")
+                .disabled(window?.showsText != true)
+            Button(window?.isSplit == true ? "Close Split" : "Split Right") { window?.toggleSplit() }
+                .keyboardShortcut("\\")
+                .disabled(window == nil || window?.showsPage == true)
+            Toggle("Show Hidden Files", isOn: Bindable(store.settings).showHidden)
+                .keyboardShortcut(".", modifiers: [.command, .shift])
+            Divider()
+            // On a picture the same keys zoom the picture, as in Preview.
+            Button(window?.showsImage == true ? "Zoom In" : "Bigger Text") {
+                if let window, window.showsImage { window.zoomImage("in") } else { store.settings.textSize = min(store.settings.textSize + 1, 28) }
+            }
+            .keyboardShortcut("+")
+            Button(window?.showsImage == true ? "Zoom Out" : "Smaller Text") {
+                if let window, window.showsImage { window.zoomImage("out") } else { store.settings.textSize = max(store.settings.textSize - 1, 10) }
+            }
+            .keyboardShortcut("-")
+            Button("Actual Size") {
+                if let window, window.showsImage { window.zoomImage("actual") } else { store.settings.textSize = 14 }
+            }
+            .keyboardShortcut("0")
+            Button("Zoom to Fit") { window?.zoomImage("fit") }
+                .keyboardShortcut("9")
+                .disabled(window?.showsImage != true)
+        }
+        CommandMenu("Go") {
+            Button("Back") { window?.goBack() }
+                .keyboardShortcut("[")
+                .disabled(!(window?.canGoBack ?? false))
+            Button("Forward") { window?.goForward() }
+                .keyboardShortcut("]")
+                .disabled(!(window?.canGoForward ?? false))
+            Divider()
+            Button("Home") { window?.goHome() }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(window == nil || window?.showsHome == true)
+            Button("Today") { window?.showsToday = true }
+                .keyboardShortcut("1")
+            Button("Board") { window?.showsBoard = true }
+                .keyboardShortcut("2")
+            Button(store.periodic.period.current) { window?.openPeriodicNote(store: store) }
+                .keyboardShortcut("3")
+                .disabled(window == nil || store.root == nil)
+            Button("Previous \(store.periodic.period.noun)") {
+                if let window, let path = window.periodicNeighbour(-1, store: store) { window.open(path, store: store) }
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .disabled(window?.periodicNeighbour(-1, store: store) == nil)
+            Button("Next \(store.periodic.period.noun)") {
+                if let window, let path = window.periodicNeighbour(1, store: store) { window.open(path, store: store) }
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .disabled(window?.periodicNeighbour(1, store: store) == nil)
+            Button("Weekly Review") { window?.openWeeklyReview(store: store) }
+                .keyboardShortcut("4")
+                .disabled(window == nil || store.root == nil)
+            Button("Review Cards") { window?.showsDrill = true }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Job Search") { window?.showsJobs = true }
+                .keyboardShortcut("j", modifiers: [.command, .shift])
+            Divider()
+            Button("Sync Now") { Task { await store.sync() } }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!store.isRepository)
+            Button("Resolve Sync Conflicts…") { window?.conflicts = true }
+                .disabled(!store.rebasing || window == nil)
+        }
     }
 }
 
