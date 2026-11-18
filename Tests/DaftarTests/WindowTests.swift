@@ -4,8 +4,10 @@ import Testing
 
 @testable import DaftarUI
 
+/// One at a time: a window that takes a `TabbedWindow` sets the app's window
+/// in front (`ActiveWindow.shared`), which the first test reads.
 @MainActor
-@Suite struct WindowTests {
+@Suite(.serialized) struct WindowTests {
     @Test func everyWindowIsATabOfOneGroup() async throws {
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         let model = WindowModel()
