@@ -151,6 +151,27 @@ A change that makes a row slower than its budget is a bug. To find a slow path, 
 - **The search table deletes by rowid.** Its `path` column is not indexed; a delete by path reads the whole table.
 - **Work on many independent files or nodes is shared out with `concurrentPerform`**, each in its own slot of an `UnsafeMutableBufferPointer`, with the same order of operations, so the result is the same to the last bit. Deinitialize the buffer before it is deallocated, or what it holds leaks.
 
+### A window is a tab, and there are many
+
+Every tab is an `NSWindow` with its own SwiftUI root, so what one window costs is paid once for each tab, the hidden ones too. Measured on a copy of the real vault on an M4 Pro, in full screen, in view, with eight tabs, as the time the main thread does not answer:
+
+| Path | 0.22.1 | 0.22.2 | Budget |
+|---|---|---|---|
+| New Tab | 870 ms, and 65 ms more for each tab open | 450 ms, the same at any number of tabs | under 500 ms |
+| Open a note | 650 to 990 ms | 160 to 460 ms | under 500 ms |
+| Switch to another tab | 590 ms | 165 ms | under 200 ms |
+| A file changes | 600 to 770 ms | 45 to 165 ms | under 200 ms |
+
+The rules:
+
+- **`DaftarApp.body` reads nothing that changes.** The menus are `AppCommands`, which reads the focused window and the store itself. Read in the app's `body`, the focused window, `window?.editing`, `store.isRepository` or a periodic note's neighbour made SwiftUI work out the scenes again and give every open window its root view again (`AppGraph.graphDidChange`, `updateRootHost`), at each new tab, each switch of tabs, each note opened and each file that changed.
+- **`ContentView.body` reads only `store.root` and `settled`.** The title and the `onChange` handlers are `WindowFollowing`, the detail is `WindowDetail`, the banner is `NoticeBanner` and the toolbar is `WindowToolbar`. A read in `ContentView.body` builds the window and its toolbar again, about 100 ms of `NSToolbarView` layout for each tab.
+- **`WindowToolbar` reads only what gives the toolbar its shape** (is there a note, a repository, a rebase, a finding: `VaultChecks.any`, set only when it changes, never `counts`). What a button shows is read in the button's own view (`HistoryButton`, `HomeButton`, `ModePicker`, `ProblemsButton`, `SyncButton`), and each item is one view.
+- **A new tab fills its sidebar and toolbar after it settled.** AppKit lays a new window out when it makes it, when it sizes it to the tab group, when it takes it into full screen and when it shows it. `ContentView.settled` is false until `TabbedWindow` has joined the window to the tabs, so those passes lay out an empty sidebar and no toolbar items, and the tree's rows and the toolbar are laid out once.
+- **Only a window in view follows the pointer for the sidebar's reveal at the screen's edge** (`EdgeHover`). In full screen AppKit's `NSSplitViewController` follows every move of the pointer, in any app, for each window, and asks the window server whether the window is on a Space in view; with eleven tabs that was 217 of 2,250 samples of the main thread while the pointer moved, and 7 after. `EdgeHover` sets `revealsOnEdgeHoverInFullscreen` (not in AppKit's headers, so asked for with `responds(to:)`) off on a window that is not seen and on again when it is.
+
+To measure such a path: a copy of the vault without `.git`, a test `XDG_CONFIG_HOME`, `open -n build/Daftar.app --args -ApplePersistenceIgnoreState YES` (a test build has the installed app's bundle ID and would open its saved tabs), and a small accessibility client that presses the menu item (`AXPress`) and times how long the app takes to answer the next accessibility request, which is how long the main thread was busy. `sample <pid>` slows the app several times over: use it for where the time goes, never for how long. A full screen window on a Space that is not in view draws nothing and answers in a third of the time: check `kCGWindowIsOnscreen` at each run and compare two builds one after the other in the same state, or a build looks faster or slower than it is.
+
 ## Testing the app
 
 The installed app comes from Homebrew only (`brew install --cask parham-alvani/tap/daftar`): a release (`VERSION` and a `v*` tag) reaches the tap's cask, and the cask installs it. A release is `VERSION` bumped in its own commit and a `v*` tag; CI takes about twenty minutes, then the tap's `bump` workflow (`gh workflow run bump.yaml` in `homebrew-tap`) moves the cask, and `brew upgrade --cask parham-alvani/tap/daftar` installs it. A running Daftar keeps its old code until it is quit and opened again: check its start time against the release before calling a fix missing. Never copy a test build into `/Applications`; that makes the cask install fail and hides which version is installed. Test from `build/Daftar.app` (`just app`), with `open -n` and a test `XDG_CONFIG_HOME`; a build run from `build/` asks for notification permission again. The vault is the `vault` line of the config file. `open "daftar://open?path=Folder/Note.md"` opens a note, `daftar://open?path=today` the Today page, and `daftar://terminal` the terminal. A debug build makes the web view inspectable in Safari.

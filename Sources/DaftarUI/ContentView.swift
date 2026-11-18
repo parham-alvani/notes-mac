@@ -10,6 +10,13 @@ struct ContentView: View {
     var initialPath: String?
     @Environment(VaultStore.self) private var store
     @ViewState private var model = WindowModel()
+    /// The window is where it stays: a tab of the others, at their size and
+    /// in their full screen. Until then the sidebar and the toolbar are
+    /// empty: AppKit lays the window out when it makes it, when it sizes it
+    /// to the tabs, when it takes it into full screen and when it shows it,
+    /// and with the tree's rows and the toolbar's items in it each of those
+    /// was most of a new tab's wait. They are laid out once, after.
+    @ViewState private var settled = false
 
     var body: some View {
         @Bindable var model = model
@@ -18,18 +25,12 @@ struct ContentView: View {
                 WelcomeView()
             } else {
                 NavigationSplitView {
-                    SidebarView(model: model)
-                        .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
-                } detail: {
-                    if model.terminal {
-                        VSplitView {
-                            detail.frame(minHeight: 160)
-                            TerminalPane(session: model.terminalSession, folder: store.root)
-                                .frame(minHeight: 120, idealHeight: 260)
-                        }
-                    } else {
-                        detail
+                    Group {
+                        if settled { SidebarView(model: model) } else { Color.clear }
                     }
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
+                } detail: {
+                    WindowDetail(model: model)
                 }
                 .inspector(isPresented: $model.inspectorShown) {
                     InspectorView(model: model)
@@ -38,8 +39,7 @@ struct ContentView: View {
             }
         }
         .tint(Palette.accent)
-        .navigationTitle(title)
-        .navigationSubtitle(model.showsPage ? store.name : model.path.map { folder(of: $0) } ?? "")
+        .modifier(WindowFollowing(model: model))
         .toolbar { toolbar }
         .sheet(isPresented: $model.quickOpen) {
             QuickOpenView(model: model)
@@ -61,10 +61,6 @@ struct ContentView: View {
         .sheet(isPresented: $model.conflicts) {
             ConflictSheet(model: model)
         }
-        // A sync that stopped on a conflict opens the conflicts in the window in front.
-        .onChange(of: store.conflictStops) { _, _ in
-            if store.rebasing, ActiveWindow.shared.model == nil || ActiveWindow.shared.model === model { model.conflicts = true }
-        }
         .sheet(item: $model.vaultReplace) { VaultReplaceSheet(target: $0) }
         .sheet(item: $model.headingRename) { HeadingRenameSheet(target: $0) }
         .translationPresentation(isPresented: Binding { model.translation != nil } set: { if !$0 { model.translation = nil } }, text: model.translation ?? "")
@@ -77,7 +73,7 @@ struct ContentView: View {
         .sheet(item: $model.fileAction) { action in
             FileActionSheet(action: action, model: model)
         }
-        .overlay(alignment: .bottom) { noticeBanner }
+        .overlay(alignment: .bottom) { NoticeBanner() }
         // ⌘O opens the switcher too, as in the vault's Obsidian hotkeys.
         .background {
             Button("Quick Open") { model.openSwitcher() }
@@ -87,7 +83,7 @@ struct ContentView: View {
                 .accessibilityHidden(true)
         }
         .focusedSceneValue(\.window, model)
-        .background(TabbedWindow(model: model))
+        .background(TabbedWindow(model: model) { settled = true })
         .drillDeckFollows(store)
         .onAppear {
             // Every window follows a move or a delete, wherever it was made.
@@ -99,21 +95,7 @@ struct ContentView: View {
             }
         }
         .onDisappear { store.followers[ObjectIdentifier(model)] = nil }
-        // Neovim mode: one pane edits at a time.
-        .onChange(of: store.settings.vimMode, initial: true) { _, vim in
-            model.oneEditor = vim
-            if vim { model.setEditing(model.editing, in: model.focused) }
-        }
-        .onChange(of: model.path) { _, path in
-            if let path { WakaTime.shared.heartbeat(path, store: store) }
-            // The voice reads the note it started on, and stops when this window leaves it.
-            if ReadAloud.shared.path != nil, ReadAloud.shared.path != path, model.readerView === ReadAloud.shared.view { ReadAloud.shared.stop() }
-        }
         .onOpenURL { url in model.handle(url, store: store) }
-        // A setting that could not be saved is said, not dropped in silence.
-        .onChange(of: store.settings.problem, initial: true) { _, problem in
-            if let problem { store.notice = problem }
-        }
         // A note chosen in Spotlight.
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             if let path = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String, store.index.files.contains(path) {
@@ -124,46 +106,27 @@ struct ContentView: View {
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
     }
 
-    private var title: String {
-        if model.showsToday { return "Today" }
-        if model.showsBoard { return "Board" }
-        if model.showsDrill { return "Review Cards" }
-        if model.showsJobs { return "Job Search" }
-        return model.path.map(Vault.title(of:)) ?? store.name
-    }
-
-    @ViewBuilder private var detail: some View {
-        Group {
-            if store.loading {
-                ProgressView("Reading \(store.name)…")
-            } else if model.showsToday {
-                TodayView(model: model)
-            } else if model.showsBoard {
-                BoardView(model: model)
-            } else if model.showsJobs {
-                JobBoardView(model: model)
-            } else if model.showsDrill {
-                DrillView(model: model)
-            } else {
-                NotePanes(model: model)
-            }
-        }
-        // An inset, so showing the panel leaves the note's view where it is.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if model.problems { ProblemsPanel(model: model).transition(.move(edge: .bottom)) }
-        }
-    }
-
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        @Bindable var model = model
+        if settled { WindowToolbar(model: model, store: store) }
+    }
+}
+
+/// The window's toolbar. Its own type, so what it reads builds the toolbar
+/// again and not the window: read in `ContentView.body`, the note, the sync
+/// and the problems built both. It reads only what gives the toolbar its
+/// shape (is there a note, a repository, a finding); what a button shows --
+/// can it go back, how many problems -- is read in the button's own view.
+/// Each item is one view: a view that gives several buttons to one group
+/// made SwiftUI build the whole toolbar again at each switch of tabs.
+private struct WindowToolbar: ToolbarContent {
+    @Bindable var model: WindowModel
+    var store: VaultStore
+
+    var body: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
-            Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
-                .disabled(!model.canGoBack)
-            Button { model.goForward() } label: { Label("Forward", systemImage: "chevron.right") }
-                .disabled(!model.canGoForward)
-            Button { model.goHome() } label: { Label("Home", systemImage: "house") }
-                .disabled(model.showsHome)
-                .help("Show the home page (⇧⌘D)")
+            HistoryButton(model: model, forward: false)
+            HistoryButton(model: model, forward: true)
+            HomeButton(model: model)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             if let path = model.path, !model.showsPage {
@@ -188,15 +151,135 @@ struct ContentView: View {
         // The panes are their own group of glass, apart from the note's tools.
         ToolbarSpacer(.fixed, placement: .primaryAction)
         ToolbarItemGroup(placement: .primaryAction) {
-            if store.checks.counts.total > 0 { ProblemsButton(model: model) }
+            if store.checks.any { ProblemsButton(model: model) }
             Toggle(isOn: $model.terminal) { Label("Terminal", systemImage: "apple.terminal") }
                 .help("Show or hide a terminal in the vault's folder (⌃`)")
             Button { model.inspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
                 .help("Show or hide the outline and backlinks")
         }
     }
+}
 
-    @ViewBuilder private var noticeBanner: some View {
+/// Back or Forward, in the toolbar.
+private struct HistoryButton: View {
+    var model: WindowModel
+    var forward: Bool
+
+    var body: some View {
+        if forward {
+            Button { model.goForward() } label: { Label("Forward", systemImage: "chevron.right") }
+                .disabled(!model.canGoForward)
+        } else {
+            Button { model.goBack() } label: { Label("Back", systemImage: "chevron.left") }
+                .disabled(!model.canGoBack)
+        }
+    }
+}
+
+/// Home, in the toolbar.
+private struct HomeButton: View {
+    var model: WindowModel
+
+    var body: some View {
+        Button { model.goHome() } label: { Label("Home", systemImage: "house") }
+            .disabled(model.showsHome)
+            .help("Show the home page (⇧⌘D)")
+    }
+}
+
+/// What the window follows and names itself by: its title, and the changes
+/// of the note, the vault and the settings it answers to. A modifier of its
+/// own: read in `ContentView.body`, each of these built the whole window's
+/// view again, toolbar and all, in every tab, the hidden ones too -- about
+/// 100 ms of toolbar layout for each tab at every file that changed.
+private struct WindowFollowing: ViewModifier {
+    var model: WindowModel
+    @Environment(VaultStore.self) private var store
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(title)
+            .navigationSubtitle(model.showsPage ? store.name : model.path.map { folder(of: $0) } ?? "")
+            // A sync that stopped on a conflict opens the conflicts in the window in front.
+            .onChange(of: store.conflictStops) { _, _ in
+                if store.rebasing, ActiveWindow.shared.model == nil || ActiveWindow.shared.model === model { model.conflicts = true }
+            }
+            // Neovim mode: one pane edits at a time.
+            .onChange(of: store.settings.vimMode, initial: true) { _, vim in
+                model.oneEditor = vim
+                if vim { model.setEditing(model.editing, in: model.focused) }
+            }
+            .onChange(of: model.path) { _, path in
+                if let path { WakaTime.shared.heartbeat(path, store: store) }
+                // The voice reads the note it started on, and stops when this window leaves it.
+                if ReadAloud.shared.path != nil, ReadAloud.shared.path != path, model.readerView === ReadAloud.shared.view { ReadAloud.shared.stop() }
+            }
+            // A setting that could not be saved is said, not dropped in silence.
+            .onChange(of: store.settings.problem, initial: true) { _, problem in
+                if let problem { store.notice = problem }
+            }
+    }
+
+    private var title: String {
+        if model.showsToday { return "Today" }
+        if model.showsBoard { return "Board" }
+        if model.showsDrill { return "Review Cards" }
+        if model.showsJobs { return "Job Search" }
+        return model.path.map(Vault.title(of:)) ?? store.name
+    }
+
+    private func folder(of path: String) -> String {
+        let parts = path.split(separator: "/").dropLast()
+        return parts.joined(separator: " › ")
+    }
+}
+
+/// The window beside the sidebar: a page or the note panes, over the
+/// terminal when it is shown.
+private struct WindowDetail: View {
+    var model: WindowModel
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        if model.terminal {
+            VSplitView {
+                detail.frame(minHeight: 160)
+                TerminalPane(session: model.terminalSession, folder: store.root)
+                    .frame(minHeight: 120, idealHeight: 260)
+            }
+        } else {
+            detail
+        }
+    }
+
+    @ViewBuilder private var detail: some View {
+        Group {
+            if store.loading {
+                ProgressView("Reading \(store.name)…")
+            } else if model.showsToday {
+                TodayView(model: model)
+            } else if model.showsBoard {
+                BoardView(model: model)
+            } else if model.showsJobs {
+                JobBoardView(model: model)
+            } else if model.showsDrill {
+                DrillView(model: model)
+            } else {
+                NotePanes(model: model)
+            }
+        }
+        // An inset, so showing the panel leaves the note's view where it is.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if model.problems { ProblemsPanel(model: model).transition(.move(edge: .bottom)) }
+        }
+    }
+}
+
+/// What the store has to say, over the bottom of the window for five seconds.
+private struct NoticeBanner: View {
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
         if let notice = store.notice {
             Text(notice)
                 .padding(.horizontal, 14).padding(.vertical, 8)
@@ -214,12 +297,6 @@ struct ContentView: View {
                 .accessibilityAction(named: "Dismiss") { store.notice = nil }
         }
     }
-
-    private func folder(of path: String) -> String {
-        let parts = path.split(separator: "/").dropLast()
-        return parts.joined(separator: " › ")
-    }
-
 }
 
 /// Read or Edit, in the toolbar. Its own view, so ⌘E updates this picker
@@ -259,6 +336,8 @@ final class ActiveWindow {
 /// tells `ActiveWindow` when its window comes to the front.
 struct TabbedWindow: NSViewRepresentable {
     var model: WindowModel?
+    /// Called once, when the window is a tab of the others or stays alone.
+    var settled: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -266,6 +345,7 @@ struct TabbedWindow: NSViewRepresentable {
         let view = WindowView()
         let coordinator = context.coordinator
         coordinator.model = model
+        let settled = settled
         view.moved = { window in
             window.tabbingMode = .preferred
             window.tabbingIdentifier = "daftar.main"
@@ -278,9 +358,11 @@ struct TabbedWindow: NSViewRepresentable {
             if front != nil { window.alphaValue = 0 }
             coordinator.watch(window)
             DispatchQueue.main.async {
-                guard let front else { return }
-                TabbedWindow.join(window, to: front)
-                window.alphaValue = 1
+                if let front {
+                    TabbedWindow.join(window, to: front)
+                    window.alphaValue = 1
+                }
+                settled()
             }
         }
         return view
@@ -324,6 +406,7 @@ struct TabbedWindow: NSViewRepresentable {
     final class Coordinator {
         weak var model: WindowModel?
         nonisolated(unsafe) private var token: NSObjectProtocol?
+        nonisolated(unsafe) private var seen: NSObjectProtocol?
 
         func watch(_ window: NSWindow) {
             // The first window counts as in front until another one is.
@@ -336,9 +419,55 @@ struct TabbedWindow: NSViewRepresentable {
                     TabbedWindow.lastKey = window
                 }
             }
+            seen = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) {
+                [weak window] _ in
+                MainActor.assumeIsolated { if let window { EdgeHover.follow(window) } }
+            }
+            EdgeHover.follow(window)
         }
 
-        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+        deinit {
+            if let token { NotificationCenter.default.removeObserver(token) }
+            if let seen { NotificationCenter.default.removeObserver(seen) }
+        }
+    }
+}
+
+/// In full screen AppKit shows a collapsed sidebar when the pointer comes to
+/// the screen's edge, and for that each window follows every move of the
+/// pointer, in any app, and asks the window server at each one whether it is
+/// on a Space in view (`_startObservingEdgeHover`, `SLSWindowIsOnCurrentSpace`).
+/// Every tab is a window, so with a dozen tabs a pointer that moves kept the
+/// main thread busy. Only a window in view needs it: the others have it off
+/// until they are seen again.
+@MainActor
+enum EdgeHover {
+    private static let key = "revealsOnEdgeHoverInFullscreen"
+    /// The items it turned off, to turn on again: never one AppKit had off.
+    private static let off = NSHashTable<NSSplitViewItem>.weakObjects()
+
+    static func follow(_ window: NSWindow) {
+        set(window.occlusionState.contains(.visible), in: window)
+    }
+
+    /// Turns the reveal off in a window that is not seen, and on again, where
+    /// it was on, in one that is.
+    static func set(_ seen: Bool, in window: NSWindow) {
+        for item in items(under: window.contentView) where item.responds(to: Selector(("setRevealsOnEdgeHoverInFullscreen:"))) {
+            if seen, off.contains(item) {
+                item.setValue(true, forKey: key)
+                off.remove(item)
+            } else if !seen, item.value(forKey: key) as? Bool == true {
+                item.setValue(false, forKey: key)
+                off.add(item)
+            }
+        }
+    }
+
+    private static func items(under view: NSView?) -> [NSSplitViewItem] {
+        guard let view else { return [] }
+        let own = ((view as? NSSplitView)?.delegate as? NSSplitViewController)?.splitViewItems ?? []
+        return own + view.subviews.flatMap { items(under: $0) }
     }
 }
 

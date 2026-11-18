@@ -31,6 +31,10 @@ final class VaultChecks {
 
     private(set) var problems: [Problem] = []
     private(set) var counts = Problems.Counts()
+    /// There is a finding. Its own property, set only when it changes: the
+    /// toolbar's shape follows it, and following `counts` built the toolbar
+    /// of every tab again at each audit.
+    private(set) var any = false
     private(set) var state = State.idle
     /// An audit runs, perhaps over findings of the last one.
     private(set) var running = false
@@ -281,6 +285,7 @@ final class VaultChecks {
         groups = [:]
         problems = found
         counts = Problems.counts(found)
+        if any != (counts.total > 0) { any = counts.total > 0 }
         var paths: [String: [Problem]] = [:]
         for problem in found { paths[problem.path, default: []].append(problem) }
         byPath = paths

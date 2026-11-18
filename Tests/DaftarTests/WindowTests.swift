@@ -25,6 +25,43 @@ import Testing
         #expect(ActiveWindow.shared.model === other)
     }
 
+    /// A new tab fills its sidebar and toolbar when the window is where it
+    /// stays: the view is told so once, after the window took it.
+    @Test func aWindowSaysOnceThatItSettled() async throws {
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        var settled = 0
+        window.contentView = NSHostingView(rootView: Color.clear.background(TabbedWindow(model: WindowModel()) { settled += 1 }))
+        try await until { settled > 0 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(settled == 1)
+    }
+
+    /// In full screen each window with a sidebar follows every move of the
+    /// pointer to show the sidebar at the screen's edge. A tab that is not
+    /// seen has that off, and gets it back when it is seen; what AppKit had
+    /// off stays off.
+    @Test func aWindowNotSeenDoesNotFollowThePointer() throws {
+        let key = "revealsOnEdgeHoverInFullscreen"
+        let split = NSSplitViewController()
+        let sidebar = NSSplitViewItem(sidebarWithViewController: NSViewController())
+        let content = NSSplitViewItem(viewController: NSViewController())
+        for item in [sidebar, content] { item.viewController.view = NSView() }
+        split.addSplitViewItem(sidebar)
+        split.addSplitViewItem(content)
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 600, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentViewController = split
+        try #require(sidebar.responds(to: Selector(("setRevealsOnEdgeHoverInFullscreen:"))))
+        sidebar.setValue(true, forKey: key)
+        content.setValue(false, forKey: key)
+
+        EdgeHover.set(false, in: window)
+        #expect(sidebar.value(forKey: key) as? Bool == false)
+        #expect(content.value(forKey: key) as? Bool == false)
+        EdgeHover.set(true, in: window)
+        #expect(sidebar.value(forKey: key) as? Bool == true)
+        #expect(content.value(forKey: key) as? Bool == false)
+    }
+
     /// Waits for the window to take its view, which a slow machine does late.
     private func until(_ done: () -> Bool) async throws {
         for _ in 0..<100 where !done() { try await Task.sleep(for: .milliseconds(50)) }
