@@ -155,7 +155,7 @@ A change that makes a row slower than its budget is a bug. To find a slow path, 
 
 Every tab is an `NSWindow` with its own SwiftUI root, so what one window costs is paid once for each tab, the hidden ones too. Measured on a copy of the real vault on an M4 Pro, in full screen, in view, with eight tabs, as the time the main thread does not answer:
 
-| Path | 0.22.1 | 0.22.2 | Budget |
+| Path | 0.22.1 | 0.22.3 | Budget |
 |---|---|---|---|
 | New Tab | 870 ms, and 65 ms more for each tab open | 450 ms, the same at any number of tabs | under 500 ms |
 | Open a note | 650 to 990 ms | 160 to 460 ms | under 500 ms |
