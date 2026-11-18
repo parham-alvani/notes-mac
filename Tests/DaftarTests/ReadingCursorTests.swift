@@ -114,6 +114,23 @@ import WebKit
         #expect(top >= 0 && top < 600)
     }
 
+    /// A band that is off keeps the place it had, which in a longer note was far down:
+    /// the page stays as long as the note, with no empty screens under its end.
+    @Test func aBandLeftFarDownDoesNotMakeThePageLonger() async throws {
+        let (web, window) = try await page()
+        defer { window.orderOut(nil) }
+        // On the heading, of one line: the band is off.
+        try await key(web, "g")
+        #expect(try await band(web).on == false)
+        let before = Double(try await run(web, "document.documentElement.scrollHeight")) ?? 0
+        // As a paragraph of many lines far down a longer note left it.
+        _ = try await run(web, "Object.assign(document.querySelector('#reading-line').style, { top: (document.documentElement.scrollHeight + 50000) + 'px', height: '24px', left: '40px', width: '600px' }); 1")
+        try await Task.sleep(for: .milliseconds(300))
+        let after = Double(try await run(web, "document.documentElement.scrollHeight")) ?? 0
+        #expect(before > 600)
+        #expect(after == before)
+    }
+
     /// Back from the editor: the reader opens at the editor's line, not at the top.
     @Test func theReaderOpensAtTheEditorsLine() async throws {
         let (web, window) = try await page(line: 100)
