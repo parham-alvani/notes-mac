@@ -18,6 +18,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @ViewState private var query = ""
+    @FocusState private var searching: Bool
     /// Picked each time the page appears.
     @ViewState private var quote: Beautitab.Quote?
 
@@ -129,7 +130,12 @@ struct HomeView: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
             TextField("Search notes", text: $query, prompt: Text("Find a note"))
                 .textFieldStyle(.plain)
+                .focused($searching)
                 .onSubmit(openBest)
+                // The field has the keys when the page is shown: in a new
+                // tab, back in a tab left on it, and after Home.
+                .onAppear(perform: takeKeys)
+                .onChange(of: model.isShown) { takeKeys() }
                 .accessibilityLabel("Find a note")
             Text("⌘P").font(.callout.monospaced()).faint().accessibilityHidden(true)
         }
@@ -138,6 +144,18 @@ struct HomeView: View {
         .padding(.vertical, compact ? 8 : 11)
         .glassEffect(.regular, in: .capsule)
         .help("Return opens the best match; an empty field opens Quick Open")
+    }
+
+    /// The keys, when this page is on screen in the pane that has the focus
+    /// and nothing else in the window has them.
+    private func takeKeys() {
+        guard model.isShown, model.focused === pane else { return }
+        // After SwiftUI has put the field in the window.
+        DispatchQueue.main.async {
+            guard model.isShown, model.focused === pane, pane.request == nil, !model.showsPage else { return }
+            if let window = NSApp.keyWindow, window.attachedSheet != nil { return }
+            searching = true
+        }
     }
 
     /// Return opens the note quick open ranks first, in this pane; with no

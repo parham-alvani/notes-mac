@@ -8,13 +8,14 @@ import Testing
 /// in front (`ActiveWindow.shared`), which the first test reads.
 @MainActor
 @Suite(.serialized) struct WindowTests {
-    @Test func everyWindowIsATabOfOneGroup() async throws {
+    @Test func aWindowIsDaftarsAndItsTabsAreItsOwn() async throws {
         let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         let model = WindowModel()
         ActiveWindow.shared.model = nil
         window.contentView = NSHostingView(rootView: Color.clear.background(TabbedWindow(model: model)))
         try await until { window.tabbingIdentifier == "daftar.main" }
-        #expect(window.tabbingMode == .preferred)
+        // AppKit's window tabs are off: the tabs are `WindowTabs`.
+        #expect(window.tabbingMode == .disallowed)
         #expect(window.tabbingIdentifier == "daftar.main")
         // With no other window, this one is the menus' target.
         #expect(ActiveWindow.shared.model === model)
@@ -81,13 +82,5 @@ import Testing
         #expect(model.inspectorShown)
         model.inspectorShown = false
         #expect(!model.inspector)
-    }
-
-    @Test func eachTabRequestIsNew() throws {
-        // The same note can be open in two tabs: two requests are never equal.
-        #expect(TabRequest(path: "A.md") != TabRequest(path: "A.md"))
-        let request = TabRequest(path: "Notes/A.md")
-        let again = try JSONDecoder().decode(TabRequest.self, from: JSONEncoder().encode(request))
-        #expect(again == request)
     }
 }

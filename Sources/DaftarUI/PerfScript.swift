@@ -16,6 +16,8 @@ import DaftarCore
 /// tab 2                  the tab at that place in the window's tabs, from 0
 /// touch Books/Books.md   a line added to a file -- never in a git repository
 /// shot /tmp/window.png   the window in front, as a picture
+/// key j                 a key to the window, or cmd+w; esc, return, tab and space by name
+/// state after ⌘T         the tabs, the tab in front (*), each one's line, and who has the keys
 /// quit
 /// ```
 ///
@@ -28,6 +30,7 @@ enum PerfScript {
         private let lock = NSLock()
         private var total = 0.0
         private var worst = 0.0
+        private var first: Double?
 
         func start() {
             Thread.detachNewThread { [self] in
@@ -39,6 +42,7 @@ enum PerfScript {
                         lock.lock()
                         total += waited
                         worst = max(worst, waited)
+                        if first == nil { first = waited }
                         lock.unlock()
                     }
                     usleep(2000)
@@ -46,11 +50,12 @@ enum PerfScript {
             }
         }
 
-        /// The time since the last call, and the longest single wait in it.
-        func take() -> (total: Double, worst: Double) {
+        /// The time since the last call, the longest single wait in it, and
+        /// the first: how long after a step the window could draw again.
+        func take() -> (total: Double, worst: Double, first: Double) {
             lock.lock()
-            defer { total = 0; worst = 0; lock.unlock() }
-            return (total, worst)
+            defer { total = 0; worst = 0; first = nil; lock.unlock() }
+            return (total, worst, first ?? 0)
         }
     }
 
@@ -135,18 +140,21 @@ enum PerfScript {
             DispatchQueue.main.asyncAfter(deadline: .now() + (Double(rest) ?? 1)) { MainActor.assumeIsolated(next) }
             return
         }
-        if word == "quit" { return NSApp.terminate(nil) }
+        // From the run loop, not from this block of the main queue: Quit waits
+        // for the editors in a run loop of its own, and the main queue does
+        // not run while one of its blocks is still open.
+        if word == "quit" { return NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0) }
         _ = watch.take()
         _ = Layouts.shared.take()
         let done = run(word, rest, store: store())
-        DispatchQueue.main.asyncAfter(deadline: .now() + (word == "full" ? 5 : 2.5)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (word == "full" ? 5 : word == "key" || word == "state" ? 0.6 : 2.5)) {
             MainActor.assumeIsolated {
-                let (total, worst) = watch.take()
+                let (total, worst, first) = watch.take()
                 let window = front
                 let seen = window?.occlusionState.contains(.visible) == true
                 let full = window?.styleMask.contains(.fullScreen) == true
-                let tabs = window?.tabbedWindows?.count ?? 1
-                let text = String(format: "%6.0f ms  worst %5.0f  %@%@  tabs %d  %@%@\n          %@\n", total, worst, seen ? "seen" : "hidden", full ? " full" : "", tabs, line, done ? "" : "  (NOT DONE)", Layouts.shared.take())
+                let tabs = WindowTabs.of(window)?.tabs.count ?? 1
+                let text = String(format: "%6.0f ms  first %4.0f  worst %4.0f  %@%@  tabs %d  %@%@\n          %@\n", total, first, worst, seen ? "seen" : "hidden", full ? " full" : "", tabs, line, done ? "" : "  (NOT DONE)", Layouts.shared.take())
                 if let handle = try? FileHandle(forWritingTo: log) {
                     handle.seekToEndOfFile()
                     handle.write(Data(text.utf8))
@@ -161,8 +169,7 @@ enum PerfScript {
     /// front, the tab that is selected.
     private static var front: NSWindow? {
         if let window = NSApp.keyWindow ?? NSApp.mainWindow { return window }
-        let window = NSApp.windows.first { $0.tabbingIdentifier == "daftar.main" }
-        return window?.tabGroup?.selectedWindow ?? window
+        return NSApp.windows.first { $0.tabbingIdentifier == "daftar.main" }
     }
 
     private static func run(_ word: String, _ rest: String, store: VaultStore?) -> Bool {
@@ -179,6 +186,8 @@ enum PerfScript {
             var menu = NSApp.mainMenu
             let parts = rest.split(separator: ">").map(String.init)
             for (place, part) in parts.enumerated() {
+                // As when the menu opens: SwiftUI brings its items up to date then, not before.
+                if let menu { menu.delegate?.menuNeedsUpdate?(menu) }
                 menu?.update()
                 guard let item = menu?.items.first(where: { $0.title == part }) else { return false }
                 if place == parts.count - 1 {
@@ -196,8 +205,8 @@ enum PerfScript {
             DaftarServices.openInThisApp(url)
             return true
         case "tab":
-            guard let window = front, let tabs = window.tabbedWindows, let place = Int(rest), tabs.indices.contains(place) else { return false }
-            window.tabGroup?.selectedWindow = tabs[place]
+            guard let tabs = WindowTabs.of(front), let place = Int(rest), tabs.tabs.indices.contains(place) else { return false }
+            tabs.select(tabs.tabs[place])
             return true
         case "shot":
             // The window as its views draw it; glass, which the window server draws, is left white.
@@ -205,6 +214,55 @@ enum PerfScript {
             frame.cacheDisplay(in: frame.bounds, to: bitmap)
             guard let data = bitmap.representation(using: .png, properties: [:]) else { return false }
             return (try? data.write(to: URL(filePath: rest))) != nil
+        case "key":
+            // A key, as the keyboard sends it to the window: "j", or "cmd+w".
+            guard let window = front else { return false }
+            let parts = rest.split(separator: "+").map(String.init)
+            guard let last = parts.last else { return false }
+            var flags: NSEvent.ModifierFlags = []
+            for part in parts.dropLast() {
+                switch part {
+                case "cmd": flags.insert(.command)
+                case "shift": flags.insert(.shift)
+                case "ctrl": flags.insert(.control)
+                case "opt": flags.insert(.option)
+                default: return false
+                }
+            }
+            let named: [String: (String, UInt16)] = ["esc": ("\u{1B}", 53), "return": ("\r", 36), "tab": ("\t", 48), "space": (" ", 49)]
+            let (characters, code) = named[last] ?? (last, 0)
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                guard let event = NSEvent.keyEvent(
+                    with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
+                else { return false }
+                NSApp.sendEvent(event)
+            }
+            return true
+        case "state":
+            // What the window shows and who has the keys, into the log.
+            guard let window = front, let tabs = WindowTabs.of(window), let path = ProcessInfo.processInfo.environment["DAFTAR_PERF"] else { return false }
+            let names = tabs.tabs.map { tab -> String in
+                let name = tab.showsPage ? "page" : (tab.path.map { Vault.title(of: $0) } ?? "home")
+                let line = tab.cursorLine.map { " line \($0)" } ?? ""
+                return (tab === tabs.current ? "*" : "") + name + (tab.editing ? " editing" : "") + line
+            }
+            var responder = "none"
+            if let first = window.firstResponder {
+                responder = String(describing: type(of: first))
+                // Whose it is: the tab whose reader or pane holds it.
+                if let view = first as? NSView {
+                    let owner = tabs.tabs.first { tab in tab.panes.contains { pane in pane.readerView.map { view === $0 || view.isDescendant(of: $0) } ?? false } }
+                    if let owner { responder += " of " + (owner.path.map { Vault.title(of: $0) } ?? "home") }
+                }
+            }
+            let note = "state \(rest): [" + names.joined(separator: " | ") + "] keys: " + responder + "\n"
+            if let handle = try? FileHandle(forWritingTo: URL(filePath: path + ".log")) {
+                handle.seekToEndOfFile()
+                handle.write(Data(note.utf8))
+                try? handle.close()
+            }
+            return true
         case "touch":
             // Never the person's vault: a change there is committed and pushed.
             guard let store, let root = store.root, !store.isRepository else { return false }
