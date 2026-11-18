@@ -286,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Notifier.shared.start()
             QuickCaptureController.shared.start()
             DaftarServices.shared.start()
+            PerfScript.runIfAsked { [weak self] in self?.store }
         }
     }
 

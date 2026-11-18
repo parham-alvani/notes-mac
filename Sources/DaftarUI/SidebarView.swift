@@ -31,7 +31,10 @@ struct SidebarView: View {
                 SearchResults(model: model)
             }
         }
-        .searchable(text: $model.query, placement: .sidebar, prompt: "Search \(store.name)")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            SidebarSearchField(text: $model.query, prompt: "Search \(store.name)")
+                .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 8)
+        }
         .background(HostWindowFinder(host: host))
         .onChange(of: model.searchRequests) {
             // The field may not be in the window yet (a sidebar just shown, a window just made): asked again for a second.
@@ -1057,9 +1060,61 @@ func openInObsidian(_ path: String, store: VaultStore) {
     if let url = components.url { NSWorkspace.shared.open(url) }
 }
 
-/// The sidebar's search field. `searchFocused` does not reach a field in the
-/// sidebar on macOS, so Search in Vault finds the `NSSearchField` in the key
-/// window and makes it the first responder.
+/// The search field at the top of the sidebar: AppKit's own field, in the
+/// sidebar's view. Not `.searchable(placement: .sidebar)`: that field is an
+/// item of the window's toolbar to SwiftUI, and with it SwiftUI took every
+/// toolbar item out and made it again, hosting views and all, each time the
+/// window became or stopped being the one in front -- 47 ms of every switch
+/// of tabs, and as much of a new tab.
+struct SidebarSearchField: NSViewRepresentable {
+    @Binding var text: String
+    var prompt: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.delegate = context.coordinator
+        // The clear button and Escape empty the field without a text change: the action says so.
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searched(_:))
+        field.controlSize = .extraLarge
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = false
+        field.placeholderString = prompt
+        field.setAccessibilityLabel(prompt)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+        if field.placeholderString != prompt {
+            field.placeholderString = prompt
+            field.setAccessibilityLabel(prompt)
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            if let field = notification.object as? NSSearchField { searched(field) }
+        }
+
+        @objc func searched(_ field: NSSearchField) {
+            if text.wrappedValue != field.stringValue { text.wrappedValue = field.stringValue }
+        }
+    }
+}
+
+/// Search in Vault finds the sidebar's `NSSearchField` in the window asked
+/// and makes it the first responder.
 @MainActor enum SearchField {
     /// In [window], the sidebar's own: the command acts on a window's model,
     /// which is the last Daftar window in front even while Settings or a
