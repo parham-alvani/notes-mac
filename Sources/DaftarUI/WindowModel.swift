@@ -38,6 +38,8 @@ final class WindowModel {
     @ObservationIgnored var oneEditor = false
     /// The window's tabs, of which this is one.
     @ObservationIgnored weak var tabs: WindowTabs?
+    /// The tab's name while it is dragged, to another place or another window.
+    @ObservationIgnored let tabID = UUID()
     /// What had the keys when the tab was left, for when it is shown again.
     @ObservationIgnored weak var responder: NSResponder?
     var isSplit: Bool { panes.count > 1 }

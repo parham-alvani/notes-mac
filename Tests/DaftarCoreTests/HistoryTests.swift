@@ -48,6 +48,9 @@ import Testing
         try await git.run(["init", "-q", "-b", "main"])
         try await git.run(["config", "user.email", "test@example.com"])
         try await git.run(["config", "user.name", "Test"])
+        // The person's git may sign every commit: a test's commit is not theirs to sign, and
+        // gpg fails now and then when many tests ask it at once.
+        try await git.run(["config", "commit.gpgsign", "false"])
         try "one\n".write(to: base.appending(path: "Old/Nöte.md"), atomically: true, encoding: .utf8)
         try await git.run(["add", "-A"])
         try await git.run(["commit", "-qm", "first"])

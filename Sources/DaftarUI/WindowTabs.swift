@@ -118,12 +118,101 @@ final class WindowTabs {
     /// Every tab is given back, when the window goes.
     func releaseAll() { tabs.forEach(release) }
 
+    // MARK: A tab between windows
+
+    /// Takes [tab] out of this window with what it shows, for another
+    /// window. A window always has a tab: the last one leaves an empty one.
+    private func detach(_ tab: WindowModel) {
+        guard let place = tabs.firstIndex(where: { $0 === tab }) else { return }
+        if tabs.count == 1 {
+            let blank = WindowModel()
+            blank.tabs = self
+            adopt(blank)
+            tabs.append(blank)
+        }
+        if tab === current { select(tabs[place + 1 < tabs.count ? place + 1 : place - 1]) }
+        tabs.remove(at: place)
+        release(tab)
+        tab.tabs = nil
+        tab.responder = nil
+    }
+
+    /// Puts [tab], which is in no window, at [place] here, or after the tab in front, and shows it.
+    private func attach(_ tab: WindowModel, at place: Int?) {
+        tab.tabs = self
+        adopt(tab)
+        let after = (tabs.firstIndex { $0 === current } ?? tabs.count - 1) + 1
+        tabs.insert(tab, at: min(max(place ?? after, 0), tabs.count))
+        select(tab)
+    }
+
+    /// [tab] dropped at [place] of this window's bar: moved among the tabs
+    /// when it is this window's, else taken from its window, which closes
+    /// when it was its last tab.
+    func take(_ tab: WindowModel, at place: Int?) {
+        guard let from = tab.tabs else { return attach(tab, at: place) }
+        if from === self {
+            if let place { move(tab, to: place) }
+            return
+        }
+        let last = from.tabs.count == 1
+        from.detach(tab)
+        attach(tab, at: place)
+        if last { from.window?.close() }
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Window › Move Tab to New Window: [tab] leaves this window, and the
+    /// window [open] makes takes it as its only tab (`takeHandoff`).
+    func moveToNewWindow(_ tab: WindowModel, open: () -> Void) {
+        guard tabs.count > 1, tabs.contains(where: { $0 === tab }) else { return }
+        detach(tab)
+        WindowTabs.handoff = tab
+        open()
+    }
+
+    /// A new window's first act: the tab another window gave it is its only tab.
+    func takeHandoff() {
+        guard let tab = WindowTabs.handoff else { return }
+        WindowTabs.handoff = nil
+        let first = tabs
+        attach(tab, at: 0)
+        for other in first { close(other) }
+    }
+
+    /// Window › Merge All Windows: every other window's tabs come to this one, after its own.
+    func mergeAll() {
+        let keep = current
+        for other in WindowTabs.all where other !== self {
+            for tab in other.tabs {
+                other.detach(tab)
+                attach(tab, at: tabs.count)
+            }
+            other.window?.close()
+        }
+        select(keep)
+    }
+
+    /// The tab a new window is to take.
+    @ObservationIgnored private static var handoff: WindowModel?
+
     // MARK: The window's tabs
 
     @ObservationIgnored private static let byWindow = NSMapTable<NSWindow, WindowTabs>.weakToWeakObjects()
 
     /// The tabs of [window], when it is a Daftar window.
     static func of(_ window: NSWindow?) -> WindowTabs? { window.flatMap { byWindow.object(forKey: $0) } }
+
+    /// The tabs of every Daftar window that is open.
+    static var all: [WindowTabs] {
+        (byWindow.keyEnumerator().allObjects as? [NSWindow] ?? []).filter(\.isVisible).compactMap { byWindow.object(forKey: $0) }
+    }
+
+    /// The tab that is dragged as [id], in any window.
+    static func tab(dragged id: UUID) -> WindowModel? {
+        for tabs in all { if let tab = tabs.tabs.first(where: { $0.tabID == id }) { return tab } }
+        return nil
+    }
 }
 
 extension WindowModel: Identifiable {
@@ -140,6 +229,16 @@ extension WindowModel: Identifiable {
 
     /// The tab is the one its window shows. A model with no tabs is a window's only one.
     var isShown: Bool { tabs.map { $0.current === self } ?? true }
+
+    /// The keys go to [pane]'s page when the tab is on screen and nothing in
+    /// the window has them. The home page's field gives them up when its
+    /// page goes, which can be after the note that replaced it took them:
+    /// the home page asks for this as it goes.
+    func claimKeys(_ pane: NotePane) {
+        guard isShown, focused === pane, !pane.editing, !showsPage, let view = pane.readerView, let window = view.window, window.attachedSheet == nil else { return }
+        guard window.firstResponder == nil || window.firstResponder === window else { return }
+        window.makeFirstResponder(view)
+    }
 
     /// [path], or the home page, in a new tab of this tab's window.
     func openTab(_ path: String?, store: VaultStore) {
@@ -184,23 +283,31 @@ enum TabClose {
     }
 }
 
-/// ⌃Tab shows the next tab and ⌃⇧Tab the one before, as in every app with
-/// tabs. The Window menu names them, but the keys are taken here: to AppKit
-/// ⌃Tab moves the keys to the next view, and it did that first.
+/// ⌃Tab and ⇧⌘] show the next tab, ⌃⇧Tab and ⇧⌘[ the one before, as in
+/// every app with tabs. The Window menu names the first two, but the keys
+/// are taken here: to AppKit ⌃Tab moves the keys to the next view, and it
+/// did that first.
 enum TabKeys {
     /// Shows another tab of [window] for [event] and says so; false for any other key.
     @MainActor static func takes(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, event.window === window, event.keyCode == 48 else { return false }
+        guard let window, event.window === window else { return false }
         let flags = event.modifierFlags.intersection([.control, .shift, .command, .option])
-        guard flags == .control || flags == [.control, .shift] else { return false }
+        let step: Int
+        switch (event.keyCode, flags) {
+        case (48, .control), (30, [.command, .shift]): step = 1
+        case (48, [.control, .shift]), (33, [.command, .shift]): step = -1
+        default: return false
+        }
         guard let tabs = WindowTabs.of(window), tabs.tabs.count > 1, window.attachedSheet == nil else { return false }
-        tabs.step(flags.contains(.shift) ? -1 : 1)
+        tabs.step(step)
         return true
     }
 }
 
 /// The window's tabs, in a bar over the note: there when the window has more
-/// than one. A click shows a tab, the cross closes it, and + opens a new one.
+/// than one, as AppKit's bar of window tabs is. A click shows a tab, the
+/// cross (or the middle button) closes it, + opens a new one, and a tab is
+/// dragged to another place in the bar or to the bar of another window.
 struct TabStrip: View {
     var tabs: WindowTabs
     @Environment(VaultStore.self) private var store
@@ -214,19 +321,24 @@ struct TabStrip: View {
                     }
                 }
                 .padding(3)
-                .background(.quaternary.opacity(0.5), in: Capsule())
+                .background(Color(nsColor: .quaternarySystemFill), in: Capsule())
+                // A tab comes, goes and moves in the bar, as in AppKit's.
+                .motionAnimation(.snappy(duration: 0.2), value: tabs.tabs.map(\.id))
                 Button {
                     tabs.current.openTab(store.settings.newTab == .note && !tabs.current.showsPage ? tabs.current.path : nil, store: store)
                 } label: {
-                    Image(systemName: "plus").font(.body.weight(.medium)).frame(width: 26, height: 26)
+                    Image(systemName: "plus").font(.body.weight(.medium)).foregroundStyle(.secondary).frame(width: 30, height: 30)
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.borderless)
-                .background(.quaternary.opacity(0.5), in: Circle())
+                .buttonStyle(.plain)
+                .background(Color(nsColor: .quaternarySystemFill), in: Circle())
                 .help("New Tab (⌘T)")
                 .accessibilityLabel("New Tab")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
+            // The bar's own ground, as the toolbar has: the tabs read over any note or picture.
+            .background(.bar)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Tabs")
         }
@@ -239,7 +351,33 @@ private struct TabButton: View {
     var tabs: WindowTabs
     var tab: WindowModel
     @Environment(VaultStore.self) private var store
+    @Environment(\.openWindow) private var openWindow
     @ViewState private var hovered = false
+    /// A dragged tab is over this one.
+    @ViewState private var targeted = false
+
+    private static let prefix = "daftar-tab:"
+
+    /// The tab in front is lit, and the one under the pointer a little.
+    private func fill(selected: Bool) -> AnyShapeStyle {
+        // The control's own colour: white on a light bar, a lighter grey on a dark one, as AppKit's tab in front.
+        if selected { return AnyShapeStyle(Color(nsColor: .controlColor)) }
+        if hovered { return AnyShapeStyle(Color(nsColor: .quaternarySystemFill)) }
+        return AnyShapeStyle(.clear)
+    }
+
+    /// A tab dropped on this one takes its place, from this window or another.
+    private func drop(_ items: [String]) -> Bool {
+        guard let item = items.first, item.hasPrefix(Self.prefix), let id = UUID(uuidString: String(item.dropFirst(Self.prefix.count))),
+            let dragged = WindowTabs.tab(dragged: id), dragged !== tab, let place = tabs.tabs.firstIndex(where: { $0 === tab })
+        else { return false }
+        tabs.take(dragged, at: place)
+        return true
+    }
+
+    private func move(by step: Int) {
+        if let place = tabs.tabs.firstIndex(where: { $0 === tab }) { tabs.move(tab, to: place + step) }
+    }
 
     var body: some View {
         let selected = tabs.current === tab
@@ -251,29 +389,39 @@ private struct TabButton: View {
                 .lineLimit(1)
                 .font(.callout.weight(selected ? .medium : .regular))
                 .foregroundStyle(selected ? .primary : .secondary)
-                .padding(.horizontal, 26)
+                .padding(.horizontal, 22)
                 .frame(maxWidth: .infinity, minHeight: 24)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .background(selected ? AnyShapeStyle(.background.opacity(0.9)) : AnyShapeStyle(.clear), in: Capsule())
+        .background(fill(selected: selected), in: Capsule())
+        .overlay { if targeted { Capsule().strokeBorder(Palette.accent, lineWidth: 2) } }
         .overlay(alignment: .leading) {
             if hovered {
                 Button {
-                    tabs.close(tab)
+                    // ⌥ with the cross closes the others, as in AppKit's bar.
+                    if NSEvent.modifierFlags.contains(.option) { tabs.closeOthers(than: tab) } else { tabs.close(tab) }
                 } label: {
                     Image(systemName: "xmark").font(.caption2.weight(.bold)).frame(width: 18, height: 18)
                 }
                 .buttonStyle(.borderless)
                 .padding(.leading, 4)
-                .help("Close Tab (⌘W)")
+                .help("Close Tab (⌘W); with ⌥, the other tabs")
                 .accessibilityLabel("Close \(title)")
             }
         }
         .onHover { hovered = $0 }
+        .help(tab.showsPage ? title : tab.path ?? title)
+        // The middle button closes a tab, as in a browser.
+        .background(PaneClicks(buttons: .otherMouseDown) { [weak tabs, weak tab] in
+            if let tabs, let tab { tabs.close(tab) }
+        })
+        .draggable(Self.prefix + tab.tabID.uuidString)
+        .dropDestination(for: String.self) { items, _ in drop(items) } isTargeted: { targeted = $0 }
         .contextMenu {
             Button("Close Tab") { tabs.close(tab) }
             Button("Close Other Tabs") { tabs.closeOthers(than: tab) }
+            Button("Move Tab to New Window") { tabs.moveToNewWindow(tab) { openWindow(id: "main") } }
             Divider()
             Button("New Tab") { tab.openTab(nil, store: store) }
         }
@@ -282,5 +430,7 @@ private struct TabButton: View {
         .accessibilityValue(selected ? "Selected" : "")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: "Close Tab") { tabs.close(tab) }
+        .accessibilityAction(named: "Move Left") { move(by: -1) }
+        .accessibilityAction(named: "Move Right") { move(by: 1) }
     }
 }

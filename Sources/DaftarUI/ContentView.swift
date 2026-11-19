@@ -31,11 +31,17 @@ struct ContentView: View {
                     }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
                 } detail: {
-                    TabDetails(tabs: tabs)
-                }
-                .inspector(isPresented: $model.inspectorShown) {
-                    InspectorView(model: model)
-                        .inspectorColumnWidth(min: 200, ideal: 260, max: 400)
+                    // The bar of tabs is above the notes and the inspector, as AppKit's bar of
+                    // window tabs was. Above, not a safe area inset: the inspector's column does
+                    // not hear one, and the breadcrumb and the outline's top went under the bar.
+                    VStack(spacing: 0) {
+                        TabStrip(tabs: tabs)
+                        TabDetails(tabs: tabs)
+                            .inspector(isPresented: $model.inspectorShown) {
+                                InspectorView(model: model)
+                                    .inspectorColumnWidth(min: 200, ideal: 260, max: 400)
+                            }
+                    }
                 }
             }
         }
@@ -77,24 +83,19 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { NoticeBanner() }
         // ⌘O opens the switcher too, as in the vault's Obsidian hotkeys.
         .background {
-            Group {
-                Button("Quick Open") { model.openSwitcher() }
-                    .keyboardShortcut("o")
-                // The tabs' other keys, as in Safari: ⌃Tab and ⌃⇧Tab are in the Window menu.
-                Button("Show Next Tab") { tabs.step(1) }
-                    .keyboardShortcut("]", modifiers: [.command, .shift])
-                Button("Show Previous Tab") { tabs.step(-1) }
-                    .keyboardShortcut("[", modifiers: [.command, .shift])
-            }
-            .opacity(0)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            Button("Quick Open") { model.openSwitcher() }
+                .keyboardShortcut("o")
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .focusedSceneValue(\.window, model)
         .background(TabbedWindow(model: model, tabs: tabs) { settled = true })
         .drillDeckFollows(store)
         .onAppear {
             let store = store
+            // Move Tab to New Window made this window: the tab is its own.
+            tabs.takeHandoff()
             tabs.release = { store.followers[ObjectIdentifier($0)] = nil }
             tabs.adopt = { tab in
                 // Every tab follows a move or a delete, wherever it was made.
@@ -305,7 +306,6 @@ private struct TabDetails: View {
                     .zIndex(shown ? 1 : 0)
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { TabStrip(tabs: tabs) }
     }
 }
 

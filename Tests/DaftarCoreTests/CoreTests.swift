@@ -615,6 +615,9 @@ import Testing
         let vault = Git(root: clone)
         try await vault.run(["config", "user.email", "test@example.com"])
         try await vault.run(["config", "user.name", "Test"])
+        // The person's git may sign every commit: a test's commit is not theirs to sign, and
+        // gpg fails now and then when many tests ask it at once.
+        try await vault.run(["config", "commit.gpgsign", "false"])
         try "one".write(to: clone.appending(path: "a.md"), atomically: true, encoding: .utf8)
         // The first push has no upstream yet.
         try await vault.run(["add", "-A"])

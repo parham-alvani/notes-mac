@@ -153,6 +153,127 @@ import Testing
         #expect(!TabClose.closesTab(plain, sender: NSMenuItem()))
     }
 
+    /// A window on screen with its tabs, as `TabbedWindow` gives a Daftar window its tabs.
+    private func window(with tabs: WindowTabs) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        tabs.window = window
+        window.orderBack(nil)
+        return window
+    }
+
+    /// A tab dropped on another window's bar leaves its window for that one,
+    /// with what it shows; a window whose last tab left closes.
+    @Test func aTabGoesToAnotherWindow() {
+        let here = WindowTabs(), there = WindowTabs()
+        let hereWindow = window(with: here), thereWindow = window(with: there)
+        defer { hereWindow.orderOut(nil); thereWindow.orderOut(nil) }
+        let first = here.current
+        let second = here.add { $0.page = .today }
+        var released: [ObjectIdentifier] = [], adopted: [ObjectIdentifier] = []
+        here.release = { released.append($0.id) }
+        there.adopt = { adopted.append($0.id) }
+        #expect(WindowTabs.tab(dragged: second.tabID) === second)
+        there.take(second, at: 0)
+        #expect(here.tabs.map(\.id) == [first.id])
+        #expect(here.current === first)
+        #expect(there.tabs.first === second)
+        #expect(there.current === second)
+        #expect(second.tabs === there)
+        #expect(second.showsToday)
+        #expect(released == [second.id])
+        #expect(adopted.last == second.id)
+        // The last tab of a window: the window goes.
+        there.take(first, at: nil)
+        #expect(!hereWindow.isVisible)
+        #expect(there.tabs.contains { $0 === first })
+        #expect(there.current === first)
+        #expect(first.tabs === there)
+    }
+
+    /// A tab dropped in its own bar moves there and stays as it is.
+    @Test func aTabDroppedInItsOwnBarMoves() {
+        let tabs = WindowTabs()
+        let first = tabs.current
+        let second = tabs.add()
+        tabs.take(second, at: 0)
+        #expect(tabs.tabs.map(\.id) == [second.id, first.id])
+        #expect(tabs.current === second)
+    }
+
+    /// Move Tab to New Window: the tab leaves, and the window that opens has it alone.
+    @Test func aTabMovesToANewWindow() {
+        let tabs = WindowTabs()
+        let first = tabs.current
+        let second = tabs.add { $0.page = .board }
+        let made = WindowTabs()
+        var opened = 0
+        tabs.moveToNewWindow(second) {
+            opened += 1
+            // What the new window's view does when it appears.
+            made.takeHandoff()
+        }
+        #expect(opened == 1)
+        #expect(tabs.tabs.map(\.id) == [first.id])
+        #expect(made.tabs.map(\.id) == [second.id])
+        #expect(made.current === second)
+        #expect(second.showsBoard)
+        // The only tab of a window does not move: it is its window already.
+        tabs.moveToNewWindow(first) { opened += 1 }
+        #expect(opened == 1)
+        // A window opened by New Window takes nothing.
+        let plain = WindowTabs()
+        let own = plain.current
+        plain.takeHandoff()
+        #expect(plain.tabs.map(\.id) == [own.id])
+    }
+
+    /// Merge All Windows: the other windows' tabs come after this one's, and those windows close.
+    @Test func everyWindowsTabsComeToOne() {
+        let here = WindowTabs(), there = WindowTabs()
+        let hereWindow = window(with: here), thereWindow = window(with: there)
+        defer { hereWindow.orderOut(nil); thereWindow.orderOut(nil) }
+        let mine = here.current
+        let theirs = there.current
+        let more = there.add()
+        here.mergeAll()
+        #expect(here.tabs.prefix(1).map(\.id) == [mine.id])
+        #expect(Set(here.tabs.map(\.id)) == [mine.id, theirs.id, more.id])
+        #expect(here.current === mine)
+        #expect(!thereWindow.isVisible)
+        #expect(theirs.tabs === here && more.tabs === here)
+    }
+
+    /// ⌃Tab and ⇧⌘] show the next tab, ⌃⇧Tab and ⇧⌘[ the one before; other keys are left alone.
+    @Test func theTabKeys() throws {
+        let tabs = WindowTabs()
+        let window = window(with: tabs)
+        defer { window.orderOut(nil) }
+        let first = tabs.current
+        let second = tabs.add()
+        func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: code))
+        }
+        #expect(TabKeys.takes(try key(48, .control), in: window))
+        #expect(tabs.current === first)
+        #expect(TabKeys.takes(try key(48, [.control, .shift]), in: window))
+        #expect(tabs.current === second)
+        #expect(TabKeys.takes(try key(30, [.command, .shift]), in: window))
+        #expect(tabs.current === first)
+        #expect(TabKeys.takes(try key(33, [.command, .shift]), in: window))
+        #expect(tabs.current === second)
+        // Tab alone, ⌘], and a key of another window are not the tabs' keys.
+        #expect(!TabKeys.takes(try key(48, []), in: window))
+        #expect(!TabKeys.takes(try key(30, .command), in: window))
+        #expect(!TabKeys.takes(try key(48, .control), in: nil))
+        #expect(tabs.current === second)
+        // One tab: the keys go on to whoever wants them.
+        tabs.close(second)
+        #expect(!TabKeys.takes(try key(48, .control), in: window))
+    }
+
     @Test func aTabIsNamedByItsPageOrItsNote() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "daftar-tabs-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root.appending(path: "Work"), withIntermediateDirectories: true)
