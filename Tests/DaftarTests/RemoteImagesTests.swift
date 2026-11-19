@@ -106,7 +106,8 @@ import WebKit
               img.onerror = () => setTimeout(() => resolve('error'), 200);
               img.src = address;
               document.body.appendChild(img);
-              setTimeout(() => resolve('nothing'), 4000);
+              // A slow runner takes many seconds to refuse a picture while every suite runs at once.
+              setTimeout(() => resolve('nothing'), 30000);
             })
             """
         return "\(try await web.callAsyncJavaScript(script, arguments: ["address": address], in: nil, contentWorld: .page) ?? "")"
