@@ -19,6 +19,16 @@ final class VaultStore {
     @ObservationIgnored private var indexGeneration = 0
     /// The Iconic plugin's icons and colours for the tree.
     private(set) var iconic = Iconic()
+    /// The vault says its notes open with their sections folded (`reader.folded` in `.daftar.toml`).
+    private(set) var vaultFolds = false
+    /// A note opens with its sections folded: the app's setting, or the vault's word.
+    var foldsSections: Bool {
+        switch settings.foldSections {
+        case .always: true
+        case .never: false
+        case .vault: vaultFolds
+        }
+    }
     /// Obsidian's excluded files and the files for AI agents (`files.hidden`):
     /// what the lists leave out, always, as Spotlight does.
     private(set) var hidden = ExcludedFiles()
@@ -111,6 +121,7 @@ final class VaultStore {
         // Only a new vault is written: the file may say `~/org` for this one.
         if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
+        vaultFolds = VaultSettings.read(root: url).folded
         loadHidden(url)
         bookmarks = Bookmarks.load(url)
         periodic = PeriodicNotes(DailyNotes.read(root: url))
@@ -202,6 +213,7 @@ final class VaultStore {
         periodic = PeriodicNotes(DailyNotes.read(root: url))
         templates = Templates.read(root: url)
         beautitab = Beautitab.read(root: url)
+        vaultFolds = VaultSettings.read(root: url).folded
         places.load(root: url, directory: settings.stateDirectory)
         search = SearchIndex()
         index = Vault.index(url, search: search)
@@ -233,6 +245,7 @@ final class VaultStore {
         if paths.contains(FileWatcher.dailyNotes) { periodic = PeriodicNotes(DailyNotes.read(root: root)) }
         if paths.contains(FileWatcher.templates) { templates = Templates.read(root: root) }
         if paths.contains(FileWatcher.app) { loadHidden(root) }
+        if paths.contains(FileWatcher.vault) { vaultFolds = VaultSettings.read(root: root).folded }
         revision += 1
     }
 

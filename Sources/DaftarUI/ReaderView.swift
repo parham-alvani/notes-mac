@@ -37,8 +37,8 @@ struct ReaderView: NSViewRepresentable {
     }
 
     /// The settings the note on screen was drawn with: a change to one draws it again.
-    @MainActor static func shownKey(_ settings: AppSettings) -> String {
-        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)"
+    @MainActor static func shownKey(_ settings: AppSettings, folded: Bool = false) -> String {
+        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)|\(folded)"
     }
 
     /// The reader's one page.
@@ -200,7 +200,7 @@ struct ReaderView: NSViewRepresentable {
             // change to a note can change it.
             let changedOnDisk = store.revision != shownRevision
                 && (store.lastChanged.contains(request.path) || (hasQuery && store.lastChanged.contains(where: Vault.isNote)))
-            let sizeChanged = ReaderView.shownKey(store.settings) != shownSize
+            let sizeChanged = ReaderView.shownKey(store.settings, folded: store.foldsSections) != shownSize
             // Back from the editor at the same place: what was saved there
             // since is drawn, though it is no longer the last change.
             let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path)
@@ -241,7 +241,7 @@ struct ReaderView: NSViewRepresentable {
             if shown?.path != request.path { remote.forget() }
             shown = request
             shownRevision = store.revision
-            shownSize = ReaderView.shownKey(store.settings)
+            shownSize = ReaderView.shownKey(store.settings, folded: store.foldsSections)
             showCount += 1
             if Vault.isImage(request.path) {
                 showImage(request, keepScroll: keepScroll)
@@ -277,7 +277,10 @@ struct ReaderView: NSViewRepresentable {
                 "properties": parsed.properties.filter { !Vault.hiddenProperties.contains($0.key) }
                     .map { [$0.key, $0.values.joined(separator: ", ")] },
                 "keepScroll": keepScroll,
-                "folds": request.text == nil ? store.places.folds(request.path) : [],
+                // The person's folds for the note, or none kept: then the page folds every
+                // section when notes open folded (`docs/specs/folded-sections.md` in notes-linux).
+                "folds": request.text == nil ? (store.places.keptFolds(request.path).map { $0 as Any } ?? NSNull()) : [],
+                "folded": request.text == nil && store.foldsSections,
                 "detected": detected.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             note.merge(ReaderView.appearance(store.settings)) { $1 }
@@ -511,7 +514,10 @@ struct ReaderView: NSViewRepresentable {
                 guard let path = shown?.path, Vault.isImage(path), let url = parent.store.url(of: path) else { return }
                 NSWorkspace.shared.open(url)
             case "folds":
-                if let shown, shown.text == nil, let folds = body["folds"] as? [String] { parent.store.places.setFolds(shown.path, folds) }
+                // Where notes open folded, "none shut" is a choice to keep too.
+                if let shown, shown.text == nil, let folds = body["folds"] as? [String] {
+                    parent.store.places.setFolds(shown.path, folds, explicit: parent.store.foldsSections)
+                }
             case "cursor":
                 if let line = body["line"] as? Int { parent.onCursor?(line) }
                 if let path = shown?.path { WakaTime.shared.heartbeat(path, store: parent.store) }

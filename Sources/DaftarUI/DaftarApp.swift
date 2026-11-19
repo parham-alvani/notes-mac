@@ -421,6 +421,12 @@ private struct GeneralSettings: View {
             Picker("Code font", selection: $settings.codeFont) {
                 ForEach(Self.codeFonts(current: settings.codeFont), id: \.self) { Text($0).tag($0) }
             }
+            Picker("Notes open folded", selection: $settings.foldSections) {
+                Text("As the vault says").tag(AppSettings.FoldSections.vault)
+                Text("Always").tag(AppSettings.FoldSections.always)
+                Text("Never").tag(AppSettings.FoldSections.never)
+            }
+            .help("A note opens with its sections folded, each heading saying what is under it. A note whose sections you fold or open yourself stays as you left it. The vault says so with reader.folded in its .daftar.toml.")
             Toggle("Load pictures from the web", isOn: $settings.remoteImages)
                 .help("Off, a picture from another site is a placeholder until you click it, so opening a note tells no site.")
             Toggle("Persian calendar", isOn: $settings.persianCalendar)
