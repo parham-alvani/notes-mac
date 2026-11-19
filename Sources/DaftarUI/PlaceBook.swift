@@ -41,9 +41,11 @@ final class PlaceBook {
 
     func folds(_ path: String) -> [String] { places.folds(path) }
 
-    func setFolds(_ path: String, _ folds: [String]) {
-        guard places.folds(path) != folds else { return }
-        places.setFolds(path, folds)
+    func keptFolds(_ path: String) -> [String]? { places.keptFolds(path) }
+
+    func setFolds(_ path: String, _ folds: [String], explicit: Bool = false) {
+        guard places.keptFolds(path) != (folds.isEmpty && !explicit ? nil : folds) else { return }
+        places.setFolds(path, folds, explicit: explicit)
         later()
     }
 

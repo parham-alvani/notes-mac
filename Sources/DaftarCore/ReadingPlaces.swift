@@ -29,6 +29,9 @@ public struct ReadingPlaces: Sendable, Equatable {
     public var count: Int { entries.count }
 
     public func folds(_ path: String) -> [String] { entries[path]?.folds ?? [] }
+    /// The sections the person left shut in [path], or nil when they never
+    /// shut or opened one there: such a note opens as the `folded` setting says.
+    public func keptFolds(_ path: String) -> [String]? { entries[path]?.folds }
 
     public func closed(_ path: String) -> [String] { entries[path]?.closed ?? [] }
 
@@ -50,8 +53,10 @@ public struct ReadingPlaces: Sendable, Equatable {
         update(path) { $0.line = line }
     }
 
-    public mutating func setFolds(_ path: String, _ folds: [String]) {
-        update(path) { $0.folds = folds.isEmpty ? nil : folds }
+    /// [explicit] keeps "none shut" as the person's choice: where notes open
+    /// folded, a note they opened whole stays open the next time.
+    public mutating func setFolds(_ path: String, _ folds: [String], explicit: Bool = false) {
+        update(path) { $0.folds = folds.isEmpty && !explicit ? nil : folds }
     }
 
     public mutating func setClosed(_ path: String, _ closed: [String]) {

@@ -35,6 +35,9 @@ final class AppSettings {
     var readingLine: Int { didSet { write("appearance.reading_line", .int(readingLine)) } }
     /// Pictures from the web in a note are shown; off, the reader asks no site for one until it is clicked.
     var remoteImages: Bool { didSet { write("appearance.remote_images", .bool(remoteImages)) } }
+    /// Whether a note opens with its sections folded: as the vault says
+    /// (`reader.folded` in its `.daftar.toml`), always, or never.
+    var foldSections: FoldSections { didSet { write("appearance.fold_sections", .string(foldSections.rawValue)) } }
     /// The Jalali date beside the Gregorian one, and the Jalali month in the day picker.
     var persianCalendar: Bool { didSet { write("appearance.persian_calendar", .bool(persianCalendar)) } }
     /// `calendar.place` as the file has it: whose holidays and feasts are shown.
@@ -112,6 +115,11 @@ final class AppSettings {
         var title: String { self == .none ? "None" : rawValue.capitalized }
     }
 
+    enum FoldSections: String, CaseIterable, Identifiable {
+        case vault, always, never
+        var id: String { rawValue }
+    }
+
     enum NewTab: String, CaseIterable, Identifiable {
         case home, note
         var id: String { rawValue }
@@ -150,6 +158,7 @@ final class AppSettings {
         readingLine = 18
         textWidth = 46
         remoteImages = true
+        foldSections = .vault
         persianCalendar = false
         calendarPlace = ""
         dockBadge = true
@@ -222,6 +231,7 @@ final class AppSettings {
         textWidth = max(0, file.int("appearance.text_width") ?? 46)
         // Anything but `false` shows them, as before the setting was there.
         remoteImages = file.bool("appearance.remote_images") ?? true
+        foldSections = file.string("appearance.fold_sections").flatMap(FoldSections.init(rawValue:)) ?? .vault
         persianCalendar = file.bool("appearance.persian_calendar") ?? false
         calendarPlace = file.string("calendar.place") ?? ""
         dockBadge = file.bool("appearance.dock_badge") ?? true

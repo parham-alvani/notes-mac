@@ -223,6 +223,11 @@ public struct ConfigFile: Sendable, Equatable {
         # Pictures from the web in a note: true shows them; false asks no site
         # for one until you click it, so opening a note tells no one.
         remote_images = true
+        # A note opens with its sections folded, each heading saying what is
+        # under it: "vault" as the vault says (reader.folded in its
+        # .daftar.toml), "always" or "never". A note whose sections you fold
+        # or open yourself is kept as you left it.
+        fold_sections = "vault"
         # The Solar Hijri date beside the Gregorian one (home, Today), and the
         # Jalali month in the day picker of a task's dates and a date property.
         persian_calendar = false

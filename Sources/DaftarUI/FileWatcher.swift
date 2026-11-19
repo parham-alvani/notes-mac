@@ -21,7 +21,9 @@ final class FileWatcher: @unchecked Sendable {
     static let bookmarks = ".obsidian/bookmarks.json"
     static let iconic = ".obsidian/plugins/iconic/data.json"
     static let app = ".obsidian/app.json"
-    static let settings: Set<String> = [dailyNotes, templates, bookmarks, iconic, app]
+    /// The vault's own settings for Daftar, on every device (`reader.folded`).
+    static let vault = ".daftar.toml"
+    static let settings: Set<String> = [dailyNotes, templates, bookmarks, iconic, app, vault]
 
     /// Whether a change of the vault path [relative] is one to report.
     static func reports(_ relative: String) -> Bool {
