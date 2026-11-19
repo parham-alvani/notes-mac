@@ -212,7 +212,6 @@ struct NotePaneView: View {
     var model: WindowModel
     var pane: NotePane
     @Environment(VaultStore.self) private var store
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         content
@@ -298,7 +297,7 @@ struct NotePaneView: View {
                 request: pane.request, store: store, revision: store.revision,
                 onOpen: { path, anchor, newWindow in
                     if newWindow {
-                        openWindow(value: TabRequest(path: path))
+                        model.openTab(path, store: store)
                     } else {
                         model.open(path, heading: anchor, in: pane, store: store)
                     }
@@ -327,7 +326,8 @@ struct NotePaneView: View {
                 onSection: { if !pane.editing { pane.section = $0 } },
                 onView: { pane.readerView = $0 },
                 active: !paused,
-                onShown: { pane.readerShown = true })
+                onShown: { pane.readerShown = true },
+                shown: model.isShown)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = pane.path { Breadcrumb(path: path, model: model, onClose: onClose) }
             }

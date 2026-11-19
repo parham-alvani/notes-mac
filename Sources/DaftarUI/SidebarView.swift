@@ -342,12 +342,11 @@ struct FileMenu: View {
     var folder: String?
     var model: WindowModel
     @Environment(VaultStore.self) private var store
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         if Vault.opensInApp(path), store.index.files.contains(path) {
             Button(store.bookmarks.contains(path) ? "Remove Bookmark" : "Bookmark") { store.toggleBookmark(path) }
-            Button("Open in New Tab") { openWindow(value: TabRequest(path: path)) }
+            Button("Open in New Tab") { model.openTab(path, store: store) }
             Button("Open in Obsidian") { openInObsidian(path, store: store) }
             Divider()
             Button("Copy Link") {
@@ -556,28 +555,56 @@ struct InspectorView: View {
     @Bindable var model: WindowModel
     @Environment(VaultStore.self) private var store
     /// Found again for each note and each change to the vault, off the main thread.
-    @ViewState private var mentions: [MentionHit] = []
-    @ViewState private var mentionsFor = ""
-    /// The addresses the note names, found with the mentions.
-    @ViewState private var places: [Detected.Item] = []
-    @ViewState private var placesFor = ""
-    /// The notes nearest this one in meaning, by `daftar-cli related`.
-    @ViewState private var related = MeaningQuery()
+    @ViewState private var found = Found()
+    /// What was found for the notes shown last. A tab shown again, or a note
+    /// gone back to, has its links, places and mentions at its first
+    /// drawing: found again each time, they came one after the other and
+    /// each one drew the whole inspector again, 30 ms of every switch of tabs.
+    @ViewState private var cache = InspectorCache()
 
-    /// The note's links, each once, with where it goes when it goes anywhere.
-    private func outgoingLinks(_ note: NoteEntry, from path: String) -> [(target: String, path: String?, embed: Bool)] {
+    /// What the inspector finds for a note off the main thread: where its
+    /// links go, the addresses it names and the notes that name it without
+    /// a link. Worked out in `body`, the links of a note with three hundred
+    /// took 25 ms at each drawing.
+    struct Facts {
+        var outgoing: [OutgoingLink] = []
+        var places: [Detected.Item] = []
+        var mentions: [MentionHit] = []
+        /// The mentions are in: until then the section says it is looking.
+        var complete = false
+    }
+
+    /// The facts being found, and the note they are of.
+    struct Found {
+        var path = ""
+        var facts = Facts()
+    }
+
+    struct OutgoingLink: Hashable, Sendable {
+        var target: String
+        var path: String?
+        var embed: Bool
+    }
+
+    nonisolated static func outgoingLinks(of path: String, in index: VaultIndex) -> [OutgoingLink] {
+        guard let note = index.notes[path] else { return [] }
         var seen = Set<String>()
         return note.parsed.links.compactMap { link in
             guard !link.target.isEmpty, seen.insert(link.target).inserted else { return nil }
-            let found = store.index.resolve(link.target, from: path)
+            let found = index.resolve(link.target, from: path)
             guard found != path else { return nil }
-            return (link.target, found, link.embed)
+            return OutgoingLink(target: link.target, path: found, embed: link.embed)
         }
     }
 
     var body: some View {
         if !model.showsPage, let path = model.path, let note = store.index.notes[path] {
-            List {
+            // The vault's as it is, else the ones being found, else the last ones known.
+            let facts = cache.facts(of: path, at: store.revision) ?? (found.path == path ? found.facts : cache.last(of: path) ?? Facts())
+            // The notes nearest this one in meaning, by `daftar-cli related`: each note's own
+            // list, so a note gone back to has it already and is not asked about again.
+            let related = cache.related(to: path)
+            InspectorList {
                 if !note.parsed.headings.isEmpty {
                     OutlineSection(model: model, path: path, headings: note.parsed.headings)
                 }
@@ -596,15 +623,15 @@ struct InspectorView: View {
                         .accessibilityHint("Links to this note")
                     }
                 } header: {
-                    SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua)
+                    InspectorHeader { SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua) }
                 }
                 Section {
-                    if mentionsFor != path {
+                    if !facts.complete {
                         Text("Looking…").foregroundStyle(.secondary)
-                    } else if mentions.isEmpty {
+                    } else if facts.mentions.isEmpty {
                         Text("No note names this one without a link.").foregroundStyle(.secondary)
                     }
-                    ForEach(mentionsFor == path ? mentions : [], id: \.self) { item in
+                    ForEach(facts.mentions, id: \.self) { item in
                         MentionRow(source: item.source, mention: item.mention) {
                             model.open(item.source, line: item.mention.line, store: store)
                         } link: {
@@ -612,7 +639,7 @@ struct InspectorView: View {
                         }
                     }
                 } header: {
-                    SectionTitle(title: "Unlinked mentions", count: mentionsFor == path ? mentions.count : 0, color: Palette.purple)
+                    InspectorHeader { SectionTitle(title: "Unlinked mentions", count: facts.mentions.count, color: Palette.purple) }
                 }
                 if store.settings.meaningSearch {
                     Section {
@@ -621,10 +648,10 @@ struct InspectorView: View {
                             model.open(hit.path, line: hit.zeroBasedLine, store: store)
                         }
                     } header: {
-                        SectionTitle(title: "Related notes", count: 0, color: Palette.purple)
+                        InspectorHeader { SectionTitle(title: "Related notes", count: 0, color: Palette.purple) }
                     }
                 }
-                let outgoing = outgoingLinks(note, from: path)
+                let outgoing = facts.outgoing
                 if !outgoing.isEmpty {
                     Section {
                         ForEach(outgoing, id: \.target) { link in
@@ -644,10 +671,11 @@ struct InspectorView: View {
                             }
                         }
                     } header: {
-                        SectionTitle(title: "Outgoing links", count: outgoing.count, color: Palette.accent)
+                        InspectorHeader { SectionTitle(title: "Outgoing links", count: outgoing.count, color: Palette.accent) }
                     }
                 }
-                if placesFor == path, !places.isEmpty {
+                let places = facts.places
+                if !places.isEmpty {
                     Section {
                         ForEach(places, id: \.self) { place in
                             Button { Detected.open(kind: place.kind.rawValue, value: place.value) } label: {
@@ -658,37 +686,46 @@ struct InspectorView: View {
                             .help("Show in Maps")
                         }
                     } header: {
-                        SectionTitle(title: "Places in this note", count: places.count, color: Palette.green)
+                        InspectorHeader { SectionTitle(title: "Places in this note", count: places.count, color: Palette.green) }
                     }
                 }
                 if !note.parsed.tags.isEmpty {
                     Section {
                         FlowTags(tags: note.parsed.tags) { model.searchTag($0) }
                     } header: {
-                        SectionTitle(title: "Tags", count: note.parsed.tags.count, color: Palette.pink)
+                        InspectorHeader { SectionTitle(title: "Tags", count: note.parsed.tags.count, color: Palette.pink) }
                     }
                 }
             }
-            .listStyle(.sidebar)
             .task(id: "\(path)\u{0}\(store.revision)") {
+                let revision = store.revision
+                // Found already, for the vault as it is: a tab shown again.
+                guard cache.facts(of: path, at: revision) == nil else { return related.relate(path, store: store) }
                 // Each save while typing changes the vault: wait for a pause
                 // before looking again, but not for a note just opened.
-                if mentionsFor == path { try? await Task.sleep(for: .milliseconds(600)) }
+                if cache.last(of: path) != nil { try? await Task.sleep(for: .milliseconds(600)) }
                 guard !Task.isCancelled else { return }
                 related.relate(path, store: store)
+                // The links first: they are in the index already.
+                let index = store.index
+                var facts = Facts()
+                facts.outgoing = await Task.detached(priority: .userInitiated) { InspectorView.outgoingLinks(of: path, in: index) }.value
+                guard !Task.isCancelled else { return }
+                // Shown at once for a note seen for the first time; one that
+                // has older facts keeps them until the new ones are whole.
+                if cache.last(of: path) == nil { found = Found(path: path, facts: facts) }
                 // The data detector takes about 100 ms on a long note: not on the main thread.
                 let file = store.url(of: path)
-                let addresses = await Task.detached(priority: .userInitiated) {
+                facts.places = await Task.detached(priority: .userInitiated) {
                     let text = file.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
                     return Detected.find(in: text).filter { $0.kind == .address }
                 }.value
                 guard !Task.isCancelled else { return }
-                places = addresses
-                placesFor = path
-                let found = await store.unlinkedMentions(of: path)
+                facts.mentions = await store.unlinkedMentions(of: path)
                 guard !Task.isCancelled else { return }
-                mentions = found
-                mentionsFor = path
+                facts.complete = true
+                cache.keep(facts, of: path, at: revision)
+                found = Found(path: path, facts: facts)
             }
             // The index was built again, or the setting turned on.
             .onChange(of: MeaningService.shared.generation) { related.relate(path, store: store) }
@@ -696,7 +733,7 @@ struct InspectorView: View {
         } else if !model.showsPage, let path = model.path, Vault.isImage(path) {
             // A picture has no outline: the notes that show it or link to it.
             let backlinks = (store.index.backlinks[path] ?? []).filter { !store.excluded.contains($0.source) }
-            List {
+            InspectorList {
                 Section {
                     if backlinks.isEmpty {
                         Text("No note shows or links to this picture.").foregroundStyle(.secondary)
@@ -711,13 +748,79 @@ struct InspectorView: View {
                         .accessibilityHint("Shows or links to this picture")
                     }
                 } header: {
-                    SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua)
+                    InspectorHeader { SectionTitle(title: "Backlinks", count: backlinks.count, color: Palette.aqua) }
                 }
             }
-            .listStyle(.sidebar)
         } else {
             ContentUnavailableView("No note", systemImage: "sidebar.right", description: Text("Open a note to see its outline and backlinks."))
         }
+    }
+}
+
+/// The inspector's rows: a scrolling stack that makes only the rows on
+/// screen, all in the inspector's own SwiftUI view. Not a `List`: a list's
+/// row is an AppKit row with a hosting view of its own, sized by Auto
+/// Layout, and each note opened or tab shown took the last note's rows out
+/// and made the new one's -- most of what was left of a switch of tabs.
+struct InspectorList<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 7) { content }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A section's name in the inspector, set off from the rows above it.
+struct InspectorHeader<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .font(.subheadline.weight(.semibold))
+            .padding(.top, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// What the inspector found for the notes shown last, by note, with the
+/// vault's revision it was found at.
+@MainActor
+final class InspectorCache {
+    private var entries: [String: (revision: Int, facts: InspectorView.Facts)] = [:]
+    private var order: [String] = []
+    private let limit = 24
+
+    /// The facts of [path] when they were found at [revision] of the vault.
+    func facts(of path: String, at revision: Int) -> InspectorView.Facts? {
+        entries[path].flatMap { $0.revision == revision ? $0.facts : nil }
+    }
+
+    /// The facts of [path] found last, at any revision: shown while the new ones are found.
+    func last(of path: String) -> InspectorView.Facts? { entries[path]?.facts }
+
+    private var queries: [String: MeaningQuery] = [:]
+    private var asked: [String] = []
+
+    /// The list of the notes related to [path], made when it is first asked for.
+    func related(to path: String) -> MeaningQuery {
+        if let query = queries[path] { return query }
+        let query = MeaningQuery()
+        queries[path] = query
+        asked.append(path)
+        while asked.count > limit { queries[asked.removeFirst()] = nil }
+        return query
+    }
+
+    func keep(_ facts: InspectorView.Facts, of path: String, at revision: Int) {
+        entries[path] = (revision, facts)
+        order.removeAll { $0 == path }
+        order.append(path)
+        while order.count > limit { entries[order.removeFirst()] = nil }
     }
 }
 

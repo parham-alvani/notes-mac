@@ -36,6 +36,10 @@ final class WindowModel {
     /// Neovim mode: only one pane edits at a time, so two Neovims never own
     /// the same file. `ContentView` follows the setting.
     @ObservationIgnored var oneEditor = false
+    /// The window's tabs, of which this is one.
+    @ObservationIgnored weak var tabs: WindowTabs?
+    /// What had the keys when the tab was left, for when it is shown again.
+    @ObservationIgnored weak var responder: NSResponder?
     var isSplit: Bool { panes.count > 1 }
 
     init() {

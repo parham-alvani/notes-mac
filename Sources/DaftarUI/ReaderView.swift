@@ -73,6 +73,9 @@ struct ReaderView: NSViewRepresentable {
     var active = true
     /// The page drew the note it was given on coming back from the editor.
     var onShown: (() -> Void)?
+    /// The page's tab is the one in front. A tab behind draws nothing new,
+    /// as a page under the editor does, and comes back as it was left.
+    var shown = true
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -103,8 +106,10 @@ struct ReaderView: NSViewRepresentable {
         private var ready = false
         private var shown: ReaderRequest?
         private var shownRevision = -1
-        /// The editor was over the page at the last update.
+        /// The editor was over the page at the last update, or its tab was behind.
         private var paused = false
+        /// It was the tab that was behind, not the editor over the page.
+        private var behind = false
         /// Back from the editor, the pane waits for the page's next drawing.
         private var revealing = false
         /// A `daftar.show` of a note is running.
@@ -148,8 +153,9 @@ struct ReaderView: NSViewRepresentable {
         /// changed on disk, keeping the place the person was reading.
         func update() {
             guard ready else { return }
-            guard parent.active else {
+            guard parent.active, parent.shown else {
                 paused = true
+                behind = parent.active
                 return
             }
             // Back from the editor: what it holds is saved first, so the
@@ -159,13 +165,18 @@ struct ReaderView: NSViewRepresentable {
                 paused = false
                 revealing = true
                 flushing = true
+                // A tab shown again has the keys where they were when it was
+                // left (`WindowTabs.select`): the page takes them only when
+                // nothing has them.
+                let free = behind
+                behind = false
                 let store = parent.store
                 Task { @MainActor [weak self] in
                     await store.flushEditors()
                     guard let self else { return }
                     self.flushing = false
                     self.update()
-                    self.takeKeys()
+                    self.takeKeys(ifFree: free)
                 }
                 return
             }
@@ -281,6 +292,9 @@ struct ReaderView: NSViewRepresentable {
             view?.callAsyncJavaScript("await daftar.show(note)", arguments: ["note": note], in: nil, in: .page) { [weak self] _ in
                 guard let self, count == self.showCount else { return }
                 self.drawing = false
+                // The home page's field gives the keys up only when its page
+                // has gone, after the note took them: taken again if no one has them.
+                if !keepScroll, request.text == nil, self.parent.active, self.parent.shown { self.takeKeys(ifFree: true) }
                 if self.revealing {
                     self.revealing = false
                     self.parent.onShown?()
@@ -321,9 +335,10 @@ struct ReaderView: NSViewRepresentable {
         /// A note just opened gets the keys, so `j` and `k` move the reading
         /// cursor at once -- unless the person walks the sidebar with the
         /// arrows, which keeps them there.
-        private func takeKeys() {
-            guard let view, let window = view.window else { return }
+        private func takeKeys(ifFree: Bool = false) {
+            guard let view, let window = view.window, parent.shown else { return }
             let responder = window.firstResponder
+            if ifFree, !(responder == nil || responder === window) { return }
             // The arrows walking the sidebar's list keep the keys there; a
             // click, ⌘P or a link gives them to the page.
             let event = NSApp.currentEvent

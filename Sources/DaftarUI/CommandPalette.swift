@@ -202,7 +202,7 @@ enum PaletteCommands {
                     openInObsidian(note, store: store)
                 },
                 PaletteCommand(id: "note-tab", title: "Open in New Tab", group: "Note", symbol: "plus.rectangle.on.rectangle", color: Palette.blue, shortcut: "⌘T") {
-                    openWindow(value: TabRequest(path: note))
+                    model.openTab(note, store: store)
                 },
             ]
         }

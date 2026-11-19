@@ -125,6 +125,21 @@ import WebKit
         #expect(found.contains { $0.value.hasPrefix("Note") || $0.value.hasPrefix("Folder") })
     }
 
+    /// The bar of tabs names each tab, says which one is in front, and names its + button.
+    @Test func theTabsAreNamedAndTheOneInFrontIsSaid() async throws {
+        let tabs = WindowTabs()
+        tabs.current.open("Notes.md", store: store)
+        tabs.add { $0.open("Work/Plan.md", store: self.store) }
+        let found = try await elements(TabStrip(tabs: tabs), size: CGSize(width: 700, height: 60))
+        expectNamedButtons(found)
+        #expect(found.contains { $0.name == "Notes" && $0.value.isEmpty })
+        #expect(found.contains { $0.name == "Plan" && $0.value == "Selected" })
+        #expect(found.contains { $0.name == "New Tab" })
+        // One tab: no bar.
+        let alone = try await elements(TabStrip(tabs: WindowTabs()), size: CGSize(width: 700, height: 60))
+        #expect(!alone.contains { $0.name == "New Tab" })
+    }
+
     @Test func theInspectorOutlineSaysTheLevel() async throws {
         let model = WindowModel()
         model.open("Notes.md", store: store)

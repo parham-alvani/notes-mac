@@ -31,14 +31,6 @@ public struct DaftarApp: App {
         .handlesExternalEvents(matching: ["*"])
         .commands { AppCommands(store: store) }
 
-        // A tab: ⌘T, or a link opened with ⌘-click.
-        WindowGroup("Tab", for: TabRequest.self) { $request in
-            ContentView(initialPath: request?.path)
-                .environment(store)
-                .frame(minWidth: 760, minHeight: 440)
-        }
-        .windowToolbarStyle(.unified)
-
         Settings {
             SettingsView().environment(store)
         }
@@ -84,6 +76,15 @@ struct AppCommands: Commands {
         FileCommands(window: window, store: store)
         EditorModeCommands(window: window, store: store)
         ProblemsCommands(window: window, store: store)
+        // The window's own tabs (`WindowTabs`), where AppKit had its window tabs' commands.
+        CommandGroup(after: .windowArrangement) {
+            Button("Show Previous Tab") { window?.tabs?.step(-1) }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .disabled((window?.tabs?.tabs.count ?? 1) < 2)
+            Button("Show Next Tab") { window?.tabs?.step(1) }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .disabled((window?.tabs?.tabs.count ?? 1) < 2)
+        }
         CommandGroup(after: .pasteboard) {
             Button("Copy Block Link") { window?.copyBlockLink(store: store) }
                 .keyboardShortcut("b", modifiers: [.command, .option])
@@ -283,6 +284,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.applyAppearance()
             AppSettings.shared.applyMenuBar()
             FullScreenEscape.install()
+            // The tabs are Daftar's own (`WindowTabs`): AppKit's would make a new window a tab too.
+            NSWindow.allowsAutomaticWindowTabbing = false
+            TabClose.install()
             Notifier.shared.start()
             QuickCaptureController.shared.start()
             DaftarServices.shared.start()
@@ -702,9 +706,10 @@ struct FileCommands: Commands {
                 .disabled(window == nil || store.root == nil)
             Button("New Tab") {
                 let note = store.settings.newTab == .note && window?.showsPage != true ? window?.path : nil
-                openWindow(value: TabRequest(path: note))
+                window?.openTab(note, store: store)
             }
                 .keyboardShortcut("t")
+                .disabled(window == nil || store.root == nil)
             Button("New Window") { openWindow(id: "main") }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             Divider()

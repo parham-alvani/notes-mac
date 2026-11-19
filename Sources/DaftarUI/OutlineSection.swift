@@ -23,7 +23,7 @@ struct OutlineSection: View {
         let visible = Sections.visible(headings, closed: closed)
         // The section in a closed heading marks that heading.
         let current = headings.firstIndex { $0.line == model.section }.flatMap { Sections.shown($0, visible: visible) }
-        Section("Outline") {
+        Section {
             ForEach(visible, id: \.self) { offset in
                 let heading = headings[offset]
                 let parent = Sections.hasChildren(offset, in: headings)
@@ -91,6 +91,8 @@ struct OutlineSection: View {
                 .accessibilityAction(named: "Move Section Up") { move(offset, by: -1) }
                 .accessibilityAction(named: "Move Section Down") { move(offset, by: 1) }
             }
+        } header: {
+            InspectorHeader { Text("Outline").foregroundStyle(.secondary) }
         }
     }
 
