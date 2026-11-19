@@ -91,6 +91,9 @@ import Testing
             try await Git(root: base).run(["clone", "-q", "remote.git", git.root.lastPathComponent])
             try await git.run(["config", "user.email", "test@example.com"])
             try await git.run(["config", "user.name", "Test"])
+            // The person's git may sign every commit: a test's commit is not theirs to sign, and
+            // gpg fails now and then when many tests ask it at once.
+            try await git.run(["config", "commit.gpgsign", "false"])
         }
 
         func write(_ git: Git, _ path: String, _ text: String) throws {

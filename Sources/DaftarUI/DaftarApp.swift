@@ -65,6 +65,7 @@ public struct DaftarApp: App {
 /// new tab, and the same at each of those changes.
 struct AppCommands: Commands {
     var store: VaultStore
+    @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.window) private var focusedWindow
     /// The window the menu commands act on: the focused one, or else the one
     /// last in front. SwiftUI's focused value is empty while no Daftar window
@@ -84,6 +85,12 @@ struct AppCommands: Commands {
             Button("Show Next Tab") { window?.tabs?.step(1) }
                 .keyboardShortcut(.tab, modifiers: .control)
                 .disabled((window?.tabs?.tabs.count ?? 1) < 2)
+            Button("Move Tab to New Window") {
+                if let window { window.tabs?.moveToNewWindow(window) { openWindow(id: "main") } }
+            }
+            .disabled((window?.tabs?.tabs.count ?? 1) < 2)
+            Button("Merge All Windows") { window?.tabs?.mergeAll() }
+                .disabled(window == nil || WindowTabs.all.count < 2)
         }
         CommandGroup(after: .pasteboard) {
             Button("Copy Block Link") { window?.copyBlockLink(store: store) }

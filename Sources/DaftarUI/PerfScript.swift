@@ -1,5 +1,6 @@
 import AppKit
 import DaftarCore
+import WebKit
 
 /// The app timing itself, for the paths a person waits on that need real
 /// windows: a new tab, a switch of tabs, a note opened, a file that changed.
@@ -17,7 +18,9 @@ import DaftarCore
 /// touch Books/Books.md   a line added to a file -- never in a git repository
 /// shot /tmp/window.png   the window in front, as a picture
 /// key j                 a key to the window, or cmd+w; esc, return, tab and space by name
-/// state after ⌘T         the tabs, the tab in front (*), each one's line, and who has the keys
+/// state after ⌘T         the tabs, the tab in front (*), each one's line, who has the keys, the pages and the windows
+/// page after a change    how much text the page in front shows, and its end
+/// append Note.md words   words at the end of a file, as another app writes them -- never in a git repository
 /// quit
 /// ```
 ///
@@ -147,7 +150,7 @@ enum PerfScript {
         _ = watch.take()
         _ = Layouts.shared.take()
         let done = run(word, rest, store: store())
-        DispatchQueue.main.asyncAfter(deadline: .now() + (word == "full" ? 5 : word == "key" || word == "state" ? 0.6 : 2.5)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (word == "full" ? 5 : ["key", "state", "page"].contains(word) ? 0.6 : 2.5)) {
             MainActor.assumeIsolated {
                 let (total, worst, first) = watch.take()
                 let window = front
@@ -209,7 +212,21 @@ enum PerfScript {
             tabs.select(tabs.tabs[place])
             return true
         case "shot":
-            // The window as its views draw it; glass, which the window server draws, is left white.
+            // The window as the window server draws it, glass and all: an app
+            // may take a picture of its own window with no permission. The
+            // call is not in the SDK any more, so it is found by name.
+            if let window = front, let found = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") {
+                typealias Take = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+                let take = unsafeBitCast(found, to: Take.self)
+                // This window only (8), its bounds without the shadow (1), at the screen's resolution (8).
+                if let image = take(.null, 8, UInt32(window.windowNumber), 1 | 8)?.takeRetainedValue(), image.width > 1,
+                    let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+                    (try? data.write(to: URL(filePath: rest))) != nil
+                {
+                    return true
+                }
+            }
+            // Else the window as its views draw it; glass, which the window server draws, is left white.
             guard let frame = front?.contentView?.superview, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { return false }
             frame.cacheDisplay(in: frame.bounds, to: bitmap)
             guard let data = bitmap.representation(using: .png, properties: [:]) else { return false }
@@ -256,12 +273,39 @@ enum PerfScript {
                     if let owner { responder += " of " + (owner.path.map { Vault.title(of: $0) } ?? "home") }
                 }
             }
-            let note = "state \(rest): [" + names.joined(separator: " | ") + "] keys: " + responder + "\n"
+            // The pages in the window, seen or not, and the Daftar windows open.
+            func pages(_ view: NSView) -> Int { (view is WKWebView ? 1 : 0) + view.subviews.reduce(0) { $0 + pages($1) } }
+            let windows = NSApp.windows.filter { $0.isVisible && $0.tabbingIdentifier == "daftar.main" }.count
+            let note = "state \(rest): [" + names.joined(separator: " | ") + "] keys: " + responder
+                + "; pages \(window.contentView.map(pages) ?? 0), windows \(windows)\n"
             if let handle = try? FileHandle(forWritingTo: URL(filePath: path + ".log")) {
                 handle.seekToEndOfFile()
                 handle.write(Data(note.utf8))
                 try? handle.close()
             }
+            return true
+        case "page":
+            // What the page of the tab in front shows: how much text, and its end.
+            guard let tabs = WindowTabs.of(front), let view = tabs.current.readerView, let path = ProcessInfo.processInfo.environment["DAFTAR_PERF"] else { return false }
+            let script = "(function(){var n=document.getElementById('note');var t=n?n.innerText:'';return t.length+' letters, ends: '+t.slice(-48).replace(/\\s+/g,' ')})()"
+            view.evaluateJavaScript(script) { result, _ in
+                let note = "page \(rest): \(result as? String ?? "nothing")\n"
+                if let handle = try? FileHandle(forWritingTo: URL(filePath: path + ".log")) {
+                    handle.seekToEndOfFile()
+                    handle.write(Data(note.utf8))
+                    try? handle.close()
+                }
+            }
+            return true
+        case "append":
+            // Text at the end of a file, as another app writes it -- never in a git repository.
+            let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2, let store, let root = store.root, !store.isRepository,
+                let handle = try? FileHandle(forWritingTo: root.appending(path: parts[0]))
+            else { return false }
+            handle.seekToEndOfFile()
+            handle.write(Data(("\n" + parts[1] + "\n").utf8))
+            try? handle.close()
             return true
         case "touch":
             // Never the person's vault: a change there is committed and pushed.

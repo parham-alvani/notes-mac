@@ -351,6 +351,8 @@ struct PaneCloseButton: View {
 /// The view lies behind a pane, so the reader's web view and the editor
 /// keep their clicks; a local monitor sees each click first.
 struct PaneClicks: NSViewRepresentable {
+    /// The buttons it hears: all of them, or only some.
+    var buttons: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
     var action: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -359,7 +361,7 @@ struct PaneClicks: NSViewRepresentable {
         let view = NSView()
         context.coordinator.view = view
         context.coordinator.action = action
-        context.coordinator.start()
+        context.coordinator.start(buttons)
         return view
     }
 
@@ -373,8 +375,8 @@ struct PaneClicks: NSViewRepresentable {
         var action: () -> Void = {}
         private var monitor: Any?
 
-        func start() {
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+        func start(_ buttons: NSEvent.EventTypeMask) {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: buttons) { [weak self] event in
                 // Local monitors run on the main thread, with the event loop.
                 nonisolated(unsafe) let event = event
                 MainActor.assumeIsolated { self?.clicked(event) }

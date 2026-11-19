@@ -136,6 +136,16 @@ struct HomeView: View {
                 // tab, back in a tab left on it, and after Home.
                 .onAppear(perform: takeKeys)
                 .onChange(of: model.isShown) { takeKeys() }
+                // A note took this page's place: its page has the keys, which the field let go of only now.
+                // SwiftUI takes the field out some turns after the page went, so it is asked a few times.
+                .onDisappear {
+                    Task { @MainActor in
+                        for wait in [0, 50, 100, 200] {
+                            try? await Task.sleep(for: .milliseconds(wait))
+                            model.claimKeys(pane)
+                        }
+                    }
+                }
                 .accessibilityLabel("Find a note")
             Text("⌘P").font(.callout.monospaced()).faint().accessibilityHidden(true)
         }
