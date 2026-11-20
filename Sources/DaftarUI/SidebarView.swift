@@ -366,17 +366,21 @@ struct FileMenu: View {
         Divider()
         let item = folder ?? path
         let parent = folder ?? path.split(separator: "/").dropLast().joined(separator: "/")
-        Button("New Note") { model.fileAction = .newNote(folder: parent) }
-        Button("New Folder…") { model.fileAction = .newFolder(parent: parent) }
-        Divider()
-        Button("Set Icon…") { model.iconTarget = IconTarget(path: item, folder: folder != nil || !store.index.files.contains(item)) }
-        Button("Rename…") { model.fileAction = .rename(item) }
-        Button("Move to…") { model.fileAction = .move(item) }
-        if let folder {
-            Button("Replace in Folder…") { model.vaultReplace = ReplaceTarget(folder: folder) }
+        // What writes is off in a read-only vault, not hidden.
+        Group {
+            Button("New Note") { model.fileAction = .newNote(folder: parent) }
+            Button("New Folder…") { model.fileAction = .newFolder(parent: parent) }
+            Divider()
+            Button("Set Icon…") { model.iconTarget = IconTarget(path: item, folder: folder != nil || !store.index.files.contains(item)) }
+            Button("Rename…") { model.fileAction = .rename(item) }
+            Button("Move to…") { model.fileAction = .move(item) }
+            if let folder {
+                Button("Replace in Folder…") { model.vaultReplace = ReplaceTarget(folder: folder) }
+            }
+            Divider()
+            Button("Move to Trash…", role: .destructive) { model.fileAction = .delete(item) }
         }
-        Divider()
-        Button("Move to Trash…", role: .destructive) { model.fileAction = .delete(item) }
+        .disabled(store.readOnly)
     }
 }
 

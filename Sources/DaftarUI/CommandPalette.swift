@@ -109,7 +109,12 @@ enum PaletteCommands {
                 openSettings()
             },
         ]
-        if store.isRepository {
+        if store.isRepository, store.readOnly {
+            // A read-only vault's sync is a pull.
+            out.append(PaletteCommand(id: "sync", title: "Pull", group: "Git", symbol: "arrow.down.circle.fill", color: Palette.blue, shortcut: "⇧⌘S") {
+                Task { await store.sync() }
+            })
+        } else if store.isRepository {
             out += [
                 PaletteCommand(id: "sync", title: "Sync Now", group: "Git", symbol: "arrow.triangle.2.circlepath", color: Palette.green, shortcut: "⇧⌘S") {
                     Task { await store.sync() }

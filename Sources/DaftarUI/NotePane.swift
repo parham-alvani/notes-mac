@@ -233,9 +233,19 @@ struct NotePaneView: View {
             // A file that is not UTF-8 text has no editor: it would open
             // empty, and the first key would write the file away.
             .onChange(of: pane.editing, initial: true) { _, editing in
+                // A read-only vault has no editor: the note stays in the reader.
+                if editing, store.readOnly {
+                    pane.editing = false
+                    store.notice = VaultStore.readOnlyNotice
+                    return
+                }
                 guard editing, pane.canEdit, let path = pane.path, !store.isText(path) else { return }
                 pane.editing = false
                 store.notice = "\(Vault.title(of: path)) is not UTF-8 text, so it is not opened in the editor."
+            }
+            // The vault became read-only with the editor open: back to the reader.
+            .onChange(of: store.readOnly) { _, readOnly in
+                if readOnly, pane.editing { pane.editing = false }
             }
             // The accent line is the focus for the eye; VoiceOver hears it.
             .accessibilityElement(children: .contain)
@@ -256,7 +266,7 @@ struct NotePaneView: View {
     /// The editor over the reader: the reader stays loaded under it, so
     /// going back to reading is a redraw, not a new page.
     @ViewBuilder private var content: some View {
-        let editable = pane.path.map { pane.canEdit && store.isText($0) } ?? false
+        let editable = pane.path.map { pane.canEdit && store.isText($0) && !store.readOnly } ?? false
         let editing = editable && pane.editing
         // Just back from the editor: it covers the page until the page has drawn the note.
         let covered = editable && (pane.editing || !pane.readerShown)

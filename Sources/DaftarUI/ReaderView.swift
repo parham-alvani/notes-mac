@@ -456,6 +456,24 @@ struct ReaderView: NSViewRepresentable {
         /// the vault (a PDF, a page someone saved), which has nothing to ask.
         func hears(mainFrame: Bool) -> Bool { mainFrame }
 
+        /// The note whose task clicks already said "This vault is read-only."
+        private var saidReadOnly: String?
+
+        /// True in a read-only vault: a click that would write does
+        /// nothing, and the notice comes once for each note.
+        private func refusesReadOnly(on path: String) -> Bool {
+            parent.store.refreshReadOnly()
+            guard parent.store.readOnly else {
+                saidReadOnly = nil
+                return false
+            }
+            if saidReadOnly != path {
+                saidReadOnly = path
+                parent.store.notice = VaultStore.readOnlyNotice
+            }
+            return true
+        }
+
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard hears(mainFrame: message.frameInfo.isMainFrame) else { return }
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
@@ -470,6 +488,8 @@ struct ReaderView: NSViewRepresentable {
                 // note on screen, or a task a query of this show answered with.
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
                 guard trust.mayName(task: path, line: line, shown: request.path), request.text == nil || path != request.path else { return }
+                // In a read-only vault the box does not tick, and says why once for each note.
+                guard !refusesReadOnly(on: request.path) else { return }
                 parent.store.toggleTask(path: path, line: line, status: status)
             case "open":
                 let path = body["path"] as? String ?? ""
@@ -527,6 +547,7 @@ struct ReaderView: NSViewRepresentable {
                 guard let request = shown, let line = body["line"] as? Int else { return }
                 let path = (body["path"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? request.path
                 guard trust.mayName(task: path, line: line, shown: request.path), request.text == nil || path != request.path else { return }
+                guard !refusesReadOnly(on: request.path) else { return }
                 parent.onEditTask(path, line)
             case "copy":
                 if let text = body["text"] as? String {

@@ -347,6 +347,8 @@ final class WindowModel {
     /// is in; with no note, for the scratchpad when it is there. [text]
     /// fills the form's text (New Daftar Task from another app).
     func newTask(store: VaultStore, text: String = "") {
+        // A new task is a write: a read-only vault says why there is no form.
+        guard !store.readOnly else { return store.notice = VaultStore.readOnlyNotice }
         if let path, showsText, Vault.isNote(path) {
             let headings = Sections.headings(in: store.text(of: path) ?? "")
             let heading = cursorLine.flatMap { Sections.heading(at: $0, in: headings) }.map { headings[$0].line }
@@ -374,7 +376,8 @@ final class WindowModel {
             let path = try store.scratchpad()
             let last = (store.text(of: path) ?? "").utf8.count { $0 == 10 }
             open(path, line: last, store: store)
-            editing = true
+            // A read-only vault's scratchpad is read, not written.
+            if !store.readOnly { editing = true }
         } catch {
             store.notice = "The scratchpad could not be made: " + ((error as? VaultMoves.Failure)?.description ?? error.localizedDescription)
         }

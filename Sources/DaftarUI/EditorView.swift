@@ -749,6 +749,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         let path = VaultMoves.freeName(base, ext: ext, in: attachmentFolder, files: store.index.files)
         guard let target = store.url(of: path) else { return nil }
         do {
+            try store.refuseReadOnly()
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: url, to: target)
             return path
@@ -768,6 +769,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         let stem = (EditorCommands.pastedImageName(at: date) as NSString).deletingPathExtension
         var files = store.index.files
         do {
+            try store.refuseReadOnly()
             while true {
                 let path = VaultMoves.freeName(stem, ext: "png", in: attachmentFolder, files: files)
                 guard let url = store.url(of: path) else {

@@ -372,6 +372,7 @@ struct HomeSettings: View {
                             .disabled(settings.homeImage.isEmpty)
                     }
                 }
+                .fromVault("home.image", settings)
             } footer: {
                 Text("The picture fills the page a window or a pane shows with no note open. PNG, JPEG, HEIC or WebP. A picture in the vault is kept as its path in the vault. The time, the greeting, the lists and the quotes follow the Beautitab plugin's settings in the vault.")
             }

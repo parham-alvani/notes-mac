@@ -147,6 +147,9 @@ private struct WindowToolbar: ToolbarContent {
             if store.rebasing {
                 ConflictsButton(tabs: tabs)
             }
+            if store.readOnly {
+                ReadOnlyBadge()
+            }
             if store.isRepository {
                 SyncButton()
             }
@@ -356,13 +359,26 @@ private struct NoticeBanner: View {
 
     var body: some View {
         if let notice = store.notice {
-            Text(notice)
+            let offer = store.noticeOffer
+            HStack(spacing: 10) {
+                Text(notice)
+                // A push the remote refused for a read-only key: one click
+                // makes the vault read-only, so Daftar stops committing.
+                if offer == .makeReadOnly {
+                    Button("Make This Vault Read-only") {
+                        store.notice = nil
+                        Task { await store.setReadOnly(true) }
+                    }
+                    .buttonStyle(.glassProminent).tint(Palette.accent).controlSize(.small)
+                }
+            }
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .glassEffect(.regular.interactive(), in: .capsule)
                 .padding(.bottom, 16)
-                .task {
-                    try? await Task.sleep(for: .seconds(5))
-                    store.notice = nil
+                // A notice with something to choose stays long enough to read and click.
+                .task(id: notice) {
+                    try? await Task.sleep(for: .seconds(offer == nil ? 5 : 20))
+                    if !Task.isCancelled { store.notice = nil }
                 }
                 .onTapGesture { store.notice = nil }
                 // Said when it shows: VoiceOver does not see a banner come.
@@ -381,6 +397,7 @@ private struct NoticeBanner: View {
 /// a page, the home page, a picture.
 private struct ModePicker: View {
     var tabs: WindowTabs
+    @Environment(VaultStore.self) private var store
 
     var body: some View {
         @Bindable var model = tabs.chrome
@@ -389,8 +406,8 @@ private struct ModePicker: View {
             Label("Edit", systemImage: "square.and.pencil").tag(true)
         }
         .pickerStyle(.segmented)
-        .disabled(!model.showsText)
-        .help("Read or edit the note (⌘E)")
+        .disabled(!model.showsText || store.readOnly)
+        .help(store.readOnly ? ReadOnlyBadge.explanation : "Read or edit the note (⌘E)")
     }
 }
 
@@ -539,8 +556,17 @@ struct SyncButton: View {
                 Text("Failed: \(error)")
             }
             Divider()
-            Button("Sync Now") { Task { await store.sync() } }
-            Button("Pull") { Task { await store.pull() } }
+            if store.readOnly {
+                // A read-only vault's sync is a pull: nothing is committed or pushed.
+                Button("Pull") { Task { await store.sync() } }
+            } else {
+                Button("Sync Now") { Task { await store.sync() } }
+                Button("Pull") { Task { await store.pull() } }
+                if store.pushRefused {
+                    Divider()
+                    Button("Make This Vault Read-only") { Task { await store.setReadOnly(true) } }
+                }
+            }
         } label: {
             Label(title, systemImage: symbol)
                 // The arrows turn while the sync runs, and the icon changes in place.
@@ -552,13 +578,14 @@ struct SyncButton: View {
         }
         .disabled(store.syncing)
         // The icon's colour and shape are the state: in words for VoiceOver.
-        .accessibilityLabel("Sync")
+        .accessibilityLabel(store.readOnly ? "Pull" : "Sync")
         .accessibilityValue(spokenState)
-        .help(store.syncError.map { "The last sync failed: \($0)" } ?? "Commit, pull and push. Hold for more.")
+        .help(store.syncError.map { "The last \(store.readOnly ? "pull" : "sync") failed: \($0)" }
+            ?? (store.readOnly ? "Pull. This vault is read-only: nothing is committed or pushed." : "Commit, pull and push. Hold for more."))
     }
 
     private var spokenState: String {
-        if store.syncing { return "Syncing" }
+        if store.syncing { return store.readOnly ? "Pulling" : "Syncing" }
         if store.rebasing { return "Stopped on a conflict" }
         if let error = store.syncError { return "The last sync failed: \(error)" }
         guard let status = store.gitStatus else { return "" }
@@ -575,7 +602,7 @@ struct SyncButton: View {
     }
 
     private var title: String {
-        guard let status = store.gitStatus else { return "Sync" }
+        guard let status = store.gitStatus else { return store.readOnly ? "Pull" : "Sync" }
         return status.changed > 0 ? "\(status.changed) changed" : status.branch
     }
 
@@ -585,6 +612,23 @@ struct SyncButton: View {
         if status.ahead > 0 { parts.append("\(status.ahead) to push") }
         if status.behind > 0 { parts.append("\(status.behind) to pull") }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// "Read-only", by the vault's tools in the toolbar: the vault is a
+/// read-only clone on this computer.
+struct ReadOnlyBadge: View {
+    static let explanation = "This vault is read-only on this computer. Daftar pulls and never writes."
+
+    var body: some View {
+        Label("Read-only", systemImage: "lock.fill")
+            .labelStyle(.titleAndIcon)
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .help(Self.explanation)
+            .accessibilityLabel("Read-only vault")
+            .accessibilityHint(Self.explanation)
     }
 }
 

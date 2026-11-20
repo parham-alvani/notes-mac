@@ -110,6 +110,7 @@ struct AppCommands: Commands {
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(window?.showsText != true)
             Button("Replace in Vault…") { window?.vaultReplace = ReplaceTarget(folder: "") }
+                .disabled(store.readOnly)
                 .keyboardShortcut("h", modifiers: [.command, .shift])
                 .disabled(window == nil || store.root == nil)
         }
@@ -147,7 +148,7 @@ struct AppCommands: Commands {
             Divider()
             Button(window?.editing == true ? "Read" : "Edit") { window?.editing.toggle() }
                 .keyboardShortcut("e")
-                .disabled(window?.showsText != true)
+                .disabled(window?.showsText != true || store.readOnly)
             Button(window?.isSplit == true ? "Close Split" : "Split Right") { window?.toggleSplit() }
                 .keyboardShortcut("\\")
                 .disabled(window == nil || window?.showsPage == true)
@@ -207,7 +208,7 @@ struct AppCommands: Commands {
             Button("Job Search") { window?.showsJobs = true }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
             Divider()
-            Button("Sync Now") { Task { await store.sync() } }
+            Button(store.readOnly ? "Pull" : "Sync Now") { Task { await store.sync() } }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(!store.isRepository)
             Button("Resolve Sync Conflicts…") { window?.conflicts = true }
@@ -346,6 +347,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
+            VaultSettingsTab().tabItem { Label("Vault", systemImage: "books.vertical") }
             NotificationSettings().tabItem { Label("Notifications", systemImage: "bell.badge") }
             EditorSettings().tabItem { Label("Editor", systemImage: "character.cursor.ibeam") }
             GitSettings().tabItem { Label("Git", systemImage: "arrow.triangle.2.circlepath") }
@@ -404,38 +406,40 @@ private struct GeneralSettings: View {
     var body: some View {
         @Bindable var settings = store.settings
         Form {
-            LabeledContent("Vault") {
-                HStack {
-                    Text(store.root?.path ?? "None").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    Button("Change…") { chooseVault(store) }
-                }
-            }
             Picker("Appearance", selection: $settings.appearance) {
                 ForEach(AppSettings.Appearance.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+            .fromVault("appearance.theme", settings)
             Stepper("Text size: \(settings.textSize) pt", value: $settings.textSize, in: 10...28)
+                .fromVault("appearance.text_size", settings)
             Picker("Font", selection: $settings.font) {
                 ForEach(Self.textFonts(current: settings.font), id: \.self) { Text($0).tag($0) }
             }
+            .fromVault("appearance.font", settings)
             Picker("Code font", selection: $settings.codeFont) {
                 ForEach(Self.codeFonts(current: settings.codeFont), id: \.self) { Text($0).tag($0) }
             }
+            .fromVault("appearance.code_font", settings)
             Picker("Notes open folded", selection: $settings.foldSections) {
                 Text("As the vault says").tag(AppSettings.FoldSections.vault)
                 Text("Always").tag(AppSettings.FoldSections.always)
                 Text("Never").tag(AppSettings.FoldSections.never)
             }
             .help("A note opens with its sections folded, each heading saying what is under it. A note whose sections you fold or open yourself stays as you left it. The vault says so with reader.folded in its .daftar.toml.")
+            .fromVault("appearance.fold_sections", settings)
             Toggle("Load pictures from the web", isOn: $settings.remoteImages)
                 .help("Off, a picture from another site is a placeholder until you click it, so opening a note tells no site.")
+                .fromVault("appearance.remote_images", settings)
             Toggle("Persian calendar", isOn: $settings.persianCalendar)
                 .help("The Solar Hijri date on the home page and Today, and the Jalali month in the day picker.")
+                .fromVault("appearance.persian_calendar", settings)
             Picker("Holidays and feasts", selection: Binding { settings.place?.key ?? "" } set: { settings.calendarPlace = $0 }) {
                 Text("None").tag("")
                 ForEach(CalendarEvents.Place.allCases, id: \.self) { Text($0.name).tag($0.key) }
             }
             .help("Shown on Today, the home page and the day picker, each opening its note when the vault has one by that name.")
+            .fromVault("calendar.place", settings)
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
             Toggle("Show notes in Spotlight", isOn: $settings.spotlight)
                 .help("The index is on this Mac only. Excluded files are left out.")
@@ -443,7 +447,9 @@ private struct GeneralSettings: View {
                 .help("The menu bar comes back when the pointer reaches the top of the screen.")
             Section {
                 HiddenNamesField(settings: settings)
+                    .fromVault("files.hidden", settings)
                 Toggle("Show hidden files", isOn: $settings.showHidden)
+                    .fromVault("files.show_hidden", settings)
             } footer: {
                 Text("Files with these names, in any folder, and Obsidian's excluded files are not in the file tree, quick open, search or the graph. A link to one still opens it.")
             }
@@ -464,7 +470,9 @@ private struct GeneralSettings: View {
             }
             Section {
                 Toggle("Table of contents", isOn: $settings.exportContents)
+                    .fromVault("export.contents", settings)
                 Toggle("Landscape", isOn: $settings.exportLandscape)
+                    .fromVault("export.landscape", settings)
             } header: {
                 Text("Export as PDF")
             } footer: {
@@ -513,15 +521,19 @@ private struct NotificationSettings: View {
         Form {
             Section {
                 Toggle("Announce meetings", isOn: $settings.meetingAlerts)
+                    .fromVault("notifications.meetings", settings)
                 Stepper("\(settings.meetingLead) minutes before", value: $settings.meetingLead, in: 0...60)
                     .disabled(!settings.meetingAlerts)
+                    .fromVault("notifications.meeting_lead", settings)
             } footer: {
                 Text("Meetings come from the week notes in Calendar/, which Daftar on the phone writes.")
             }
             Section {
                 Toggle("Morning digest of the tasks due", isOn: $settings.taskDigest)
+                    .fromVault("notifications.digest", settings)
                 DatePicker("At", selection: digestTime, displayedComponents: .hourAndMinute)
                     .disabled(!settings.taskDigest)
+                    .fromVault("notifications.digest_time", settings)
             }
             Section {
                 Button("Open Notification Settings…") {
@@ -563,10 +575,17 @@ private struct GitSettings: View {
                     Text("Every minute").tag(1)
                     Text("Every 5 minutes").tag(5)
                     Text("Every 15 minutes").tag(15)
+                    if ![0, 1, 5, 15].contains(settings.syncInterval) {
+                        Text("Every \(settings.syncInterval) minutes").tag(settings.syncInterval)
+                    }
                 }
+                .fromVault("git.sync_interval", settings)
                 Toggle("Pull when the app starts", isOn: $settings.pullOnLaunch)
+                    .fromVault("git.pull_on_launch", settings)
             } footer: {
-                Text("A sync commits, pulls with a rebase and pushes, with the system git and your SSH keys. Keep it off while Obsidian's git plugin syncs the same folder: two syncs at once can conflict.")
+                Text(store.readOnly
+                    ? "This vault is read-only on this Mac: a sync is a pull that only fast-forwards, with no commit and no push. Settings › Vault has the switch."
+                    : "A sync commits, pulls with a rebase and pushes, with the system git and the clone's SSH key (Settings › Vault), else yours. Keep it off while Obsidian's git plugin syncs the same folder: two syncs at once can conflict.")
             }
             if let error = store.syncError {
                 Section("Last error") {
@@ -589,12 +608,14 @@ private struct EditorSettings: View {
         Form {
             Section {
                 Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
+                    .fromVault("editor.live_preview", settings)
                 Toggle("Show the front matter as properties", isOn: $settings.propertiesForm)
                 Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)
                 Toggle("Dim all but the cursor's paragraph (focus)", isOn: $settings.focusMode)
                 Toggle("Check spelling as you type", isOn: $settings.spellCheck)
                 Toggle("Format the note when you leave the editor", isOn: $settings.formatOnSave)
                     .help("daftar-cli fmt, with the vault's .prettierrc: never while you type")
+                    .fromVault("editor.format_on_save", settings)
                 Toggle("Edit with Neovim", isOn: $settings.vimMode)
                 LabeledContent("nvim") {
                     Text(found?.path ?? "Not found").foregroundStyle(found == nil ? Palette.red : .secondary)
@@ -644,6 +665,7 @@ private struct TerminalSettings: View {
             Section {
                 TextField("Shell", text: $settings.shell, prompt: Text(ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"))
                 Stepper("Font size: \(settings.terminalFontSize) pt", value: $settings.terminalFontSize, in: 9...24)
+                    .fromVault("terminal.font_size", settings)
             } footer: {
                 Text("The terminal opens in the vault's folder with ⌃`. A change here applies to the next terminal.")
             }
@@ -710,10 +732,10 @@ struct FileCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Note") { window?.fileAction = .newNote(folder: window?.currentFolder ?? "") }
                 .keyboardShortcut("n")
-                .disabled(window == nil)
+                .disabled(window == nil || store.readOnly)
             Button("New Folder…") { window?.fileAction = .newFolder(parent: window?.currentFolder ?? "") }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(window == nil)
+                .disabled(window == nil || store.readOnly)
             Button("Scratchpad") { window?.openScratchpad(store: store) }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(window == nil || store.root == nil)
@@ -728,35 +750,35 @@ struct FileCommands: Commands {
             Divider()
             Button("Rename…") { if let path = window?.path { window?.fileAction = .rename(path) } }
                 .keyboardShortcut("r")
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.path == nil || window?.showsPage == true || store.readOnly)
             Button("Move to…") { if let path = window?.path { window?.fileAction = .move(path) } }
                 .keyboardShortcut("m", modifiers: [.command, .option])
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.path == nil || window?.showsPage == true || store.readOnly)
             Button("Extract Selection to New Note…") {
                 NSApp.sendAction(#selector(NoteTextView.extractSelection(_:)), to: nil, from: nil)
             }
             .keyboardShortcut("x", modifiers: [.command, .option])
             .disabled(window?.editing != true || window?.showsPage == true)
             Button("Move to Trash…") { if let path = window?.path { window?.fileAction = .delete(path) } }
-                .disabled(window?.path == nil || window?.showsPage == true)
+                .disabled(window?.path == nil || window?.showsPage == true || store.readOnly)
             Button("Show History…") { window?.history = true }
                 .keyboardShortcut("y", modifiers: [.command, .option])
                 .disabled(window?.showsText != true || !store.isRepository)
             Button("New Task…") { window?.newTask(store: store) }
                 .keyboardShortcut("t", modifiers: [.command, .option])
-                .disabled(window == nil || store.root == nil)
+                .disabled(window == nil || store.root == nil || store.readOnly)
             Button("Sort Tasks") { window?.sortTasks(store: store) }
-                .disabled(window?.showsText != true)
+                .disabled(window?.showsText != true || store.readOnly)
             Button("Rename Heading…") { window?.renameHeading(store: store) }
-                .disabled(window?.showsText != true)
+                .disabled(window?.showsText != true || store.readOnly)
             Button("Move Section Up") { window?.moveSection(up: true, store: store) }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .option])
-                .disabled(window?.showsText != true)
+                .disabled(window?.showsText != true || store.readOnly)
             Button("Move Section Down") { window?.moveSection(up: false, store: store) }
                 .keyboardShortcut(.downArrow, modifiers: [.command, .option])
-                .disabled(window?.showsText != true)
+                .disabled(window?.showsText != true || store.readOnly)
             Button("Sort Headings Under This") { window?.sortHeadings(store: store) }
-                .disabled(window?.showsText != true)
+                .disabled(window?.showsText != true || store.readOnly)
             Divider()
             Button("Export as PDF…") { window?.exportPDF(store: store) }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
@@ -766,7 +788,7 @@ struct FileCommands: Commands {
                 if let path = window?.path { store.toggleBookmark(path) }
             }
             .keyboardShortcut("d")
-            .disabled(window?.path == nil || window?.showsPage == true)
+            .disabled(window?.path == nil || window?.showsPage == true || store.readOnly)
         }
     }
 }
