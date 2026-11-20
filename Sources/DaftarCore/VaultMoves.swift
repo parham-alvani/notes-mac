@@ -164,10 +164,26 @@ public enum VaultMoves {
                 result = result.replacing(NoteParser.markdownLink) { match -> String in
                     guard !code.contains(where: { $0.overlaps(match.range) }) else { return String(match.output.0) }
                     guard let (target, fragment) = NoteParser.destination(String(match.output.3), bracketed: !match.output.2.isEmpty),
-                        let old = index.resolver.resolve(target, from: source, aliases: false),
-                        let moved = moves[old] ?? (isRelative(target) && rebased ? old : nil)
+                        let old = index.resolve(markdown: target, from: source)
                     else { return String(match.output.0) }
-                    let new = isRelative(target) ? relative(moved, from: newSource) : moved
+                    // A plain path from the note's folder moves with the note, as a `./` path does.
+                    let local = !target.hasPrefix("/") && !isRelative(target) && OKF.resolve(target, from: source, files: index.files, roots: index.bundleRoots) == old
+                    guard let moved = moves[old] ?? ((isRelative(target) || local) && rebased ? old : nil) else { return String(match.output.0) }
+                    // Written again in the form it had: a `/` path from the
+                    // bundle root stays one, a relative one stays relative.
+                    let new: String
+                    if target.hasPrefix("/") {
+                        let root = OKF.bundleRoot(of: newSource, roots: index.bundleRoots)
+                        // Out of the bundle, a `/` path cannot name it any more: a relative one does.
+                        new = root.isEmpty ? "/" + moved : moved.hasPrefix(root + "/") ? String(moved.dropFirst(root.count)) : relative(moved, from: newSource)
+                    } else if isRelative(target) {
+                        new = relative(moved, from: newSource)
+                    } else if local {
+                        let written = relative(moved, from: newSource)
+                        new = written.hasPrefix("./") ? String(written.dropFirst(2)) : written
+                    } else {
+                        new = moved
+                    }
                     let anchor = fragment.map { "#" + $0 } ?? ""
                     let written = match.output.2.isEmpty
                         ? (new + anchor).addingPercentEncoding(withAllowedCharacters: urlAllowed) ?? new
@@ -214,6 +230,7 @@ public enum VaultMoves {
     /// Returns every vault path that changed, old and new.
     @discardableResult
     public static func perform(_ from: String, to: String, index: VaultIndex, root: URL) throws -> Set<String> {
+        try VaultEdits.refuseReadOnly(root)
         let moves = try plan(from, to: to, files: index.files)
         let manager = FileManager.default
         let source = root.appending(path: from), destination = root.appending(path: to)

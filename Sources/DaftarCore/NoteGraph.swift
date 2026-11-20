@@ -53,7 +53,7 @@ public struct NoteGraph: Sendable, Equatable {
     static func neighbours(of path: String, in index: VaultIndex) -> [String] {
         var out: [String] = []
         for link in index.notes[path]?.parsed.links ?? [] {
-            if let target = index.resolve(link.target, from: path), Vault.isNote(target), target != path, !out.contains(target) { out.append(target) }
+            if let target = index.resolve(link, from: path), Vault.isNote(target), target != path, !out.contains(target) { out.append(target) }
         }
         for back in index.backlinks[path] ?? [] where !out.contains(back.source) { out.append(back.source) }
         return out
@@ -71,7 +71,7 @@ public struct NoteGraph: Sendable, Equatable {
         for path in paths {
             guard let from = position[path] else { continue }
             for link in index.notes[path]?.parsed.links ?? [] {
-                guard let target = index.resolve(link.target, from: path), let to = position[target], to != from else { continue }
+                guard let target = index.resolve(link, from: path), let to = position[target], to != from else { continue }
                 let edge = Edge(from: min(from, to), to: max(from, to))
                 if seen.insert(edge).inserted { graph.edges.append(edge) }
             }

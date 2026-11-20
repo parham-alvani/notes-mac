@@ -58,6 +58,21 @@ public struct ConfigFile: Sendable, Equatable {
         return nil
     }
 
+    /// Every key the file sets, as `section.key`, in the file's order.
+    public var keys: [String] {
+        var current = ""
+        var keys: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let header = Self.header(trimmed) {
+                current = header
+            } else if let (name, _) = Self.assignment(trimmed) {
+                keys.append(current.isEmpty ? name : current + "." + name)
+            }
+        }
+        return keys
+    }
+
     public func string(_ path: String) -> String? {
         if case .string(let text) = self[path] { return text }
         return nil
@@ -201,6 +216,14 @@ public struct ConfigFile: Sendable, Equatable {
 
         # The folder of the Obsidian vault.
         vault = ""
+        # A vault may carry settings of the app in the .daftar.toml at its
+        # root, in the same sections and keys as here, and its value wins over
+        # this file's: a new computer is set up by its first pull. false reads
+        # no setting from any vault; a list, as ["appearance.theme",
+        # "git.sync_interval"], declines only those keys. A vault never sets
+        # the keys that name a program or send something out (the shell,
+        # Neovim, WakaTime) or the vault's folder.
+        vault_settings = true
 
         [appearance]
         # "system", "light" (Daftar's Daylight palette) or "dark" (naz).
@@ -369,6 +392,12 @@ public struct ConfigFile: Sendable, Equatable {
         enabled = false
         # Empty finds wakatime-cli in ~/.wakatime or Homebrew.
         cli = ""
+
+        [okf]
+        # Mark as Verified signs a concept (a note with a type in its
+        # properties, as the Open Knowledge Format has it) as human:<actor>.
+        # Empty is the name before the @ of the vault's git user.email.
+        actor = ""
 
         [export]
         # `daftar-cli export`, which Export as PDF runs: an SVG or PNG at the

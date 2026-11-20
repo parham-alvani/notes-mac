@@ -24,6 +24,27 @@ final class AppSettings {
     /// Why the last change was not kept in the file, for the person to read; nil when it was.
     private(set) var problem: String?
 
+    @ObservationIgnored private var vaultText = ""
+    @ObservationIgnored private var vaultRoot: URL?
+    /// The keys the open vault's `.daftar.toml` sets on this computer.
+    private(set) var fromVault: Set<String> = []
+    /// The keys of the vault's file that a vault may not set (a program, a
+    /// path outside it, what leaves the computer): ignored, and named.
+    private(set) var refusedByVault: [String] = []
+    /// The vault's own author (`git.name`, `git.email`), for a clone that names none.
+    private(set) var vaultAuthor = Git.Author()
+    /// The keys this computer declines from any vault (`vault_settings` as a list).
+    private(set) var declinedKeys: [String] = []
+    /// This computer takes the app's settings a vault carries
+    /// (`vault_settings`); off, no setting is read from any vault.
+    var followsVault: Bool {
+        didSet {
+            guard !loading, followsVault != oldValue else { return }
+            write("vault_settings", .bool(followsVault))
+            load()
+        }
+    }
+
     var vaultPath: String? { didSet { writeVault() } }
     var appearance: Appearance { didSet { write("appearance.theme", .string(appearance.rawValue)); applyAppearance() } }
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
@@ -107,6 +128,9 @@ final class AppSettings {
     /// The hidden and the excluded files show in the lists anyway.
     var showHidden: Bool { didSet { write("files.show_hidden", .bool(showHidden)) } }
 
+    /// Who Mark as Verified signs an OKF concept as (`human:<actor>`); empty is the git email's name.
+    var okfActor: String { didSet { write("okf.actor", .string(okfActor)) } }
+
     static let defaultHiddenNames = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", "CLAUDE.local.md"]
 
     enum CursorEffect: String, CaseIterable, Identifiable {
@@ -150,6 +174,7 @@ final class AppSettings {
     /// [url] is for tests, which must never touch the person's own file.
     init(url: URL = ConfigFile.defaultURL) {
         self.url = url
+        followsVault = true
         vaultPath = nil
         appearance = .system
         textSize = 14
@@ -200,11 +225,26 @@ final class AppSettings {
         newTab = .home
         hiddenNames = Self.defaultHiddenNames
         showHidden = false
+        okfActor = ""
         load()
         watch()
     }
 
     /// Reads the file, making it from the template the first time.
+    /// The open vault's `.daftar.toml` and its folder: the app's settings
+    /// the vault carries are read with the computer's (`ResolvedSettings`).
+    /// The store gives them when a vault opens, when the file changes and
+    /// at each sync.
+    func follow(vault text: String, root: URL?) {
+        guard text != vaultText || root != vaultRoot else { return }
+        vaultText = text
+        vaultRoot = root
+        load()
+    }
+
+    /// Whether the open vault sets [key], so its control shows "From the vault" and is off.
+    func isFromVault(_ key: String) -> Bool { fromVault.contains(key) }
+
     private func load() {
         let manager = FileManager.default
         if !manager.fileExists(atPath: url.path) {
@@ -219,60 +259,70 @@ final class AppSettings {
         if unreadable { problem = nil }
         unreadable = false
         file = ConfigFile(text: text)
+        // The open vault's own settings win over this file's, for the keys
+        // a vault may set and this computer has not declined.
+        let resolved = ResolvedSettings.resolved(vault: vaultText, computer: text, root: vaultRoot)
         loading = true
         defer { loading = false }
+        if resolved.fromVault != fromVault { fromVault = resolved.fromVault }
+        if resolved.refused != refusedByVault { refusedByVault = resolved.refused }
+        if resolved.author != vaultAuthor { vaultAuthor = resolved.author }
+        followsVault = file["vault_settings"] != .bool(false)
+        declinedKeys = file.strings("vault_settings") ?? []
         let vault = file.string("vault") ?? ""
         vaultPath = vault.isEmpty ? nil : (vault as NSString).expandingTildeInPath
-        appearance = file.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
-        textSize = file.int("appearance.text_size") ?? 14
-        font = file.string("appearance.font") ?? "SF Pro"
-        codeFont = file.string("appearance.code_font") ?? "SF Mono"
-        readingLine = max(0, min(100, file.int("appearance.reading_line") ?? 18))
-        textWidth = max(0, file.int("appearance.text_width") ?? 46)
+        appearance = resolved.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
+        textSize = resolved.int("appearance.text_size") ?? 14
+        font = resolved.string("appearance.font") ?? "SF Pro"
+        codeFont = resolved.string("appearance.code_font") ?? "SF Mono"
+        readingLine = max(0, min(100, resolved.int("appearance.reading_line") ?? 18))
+        textWidth = max(0, resolved.int("appearance.text_width") ?? 46)
         // Anything but `false` shows them, as before the setting was there.
-        remoteImages = file.bool("appearance.remote_images") ?? true
-        foldSections = file.string("appearance.fold_sections").flatMap(FoldSections.init(rawValue:)) ?? .vault
-        persianCalendar = file.bool("appearance.persian_calendar") ?? false
-        calendarPlace = file.string("calendar.place") ?? ""
-        dockBadge = file.bool("appearance.dock_badge") ?? true
-        spotlight = file.bool("appearance.spotlight") ?? true
-        hideMenuBar = file.bool("appearance.hide_menu_bar") ?? false
-        wakatime = file.bool("wakatime.enabled") ?? false
-        wakatimeCLI = file.string("wakatime.cli") ?? ""
-        exportContents = file.bool("export.contents") ?? false
-        exportLandscape = file.bool("export.landscape") ?? false
-        syncInterval = file.int("git.sync_interval") ?? 0
-        pullOnLaunch = file.bool("git.pull_on_launch") ?? true
-        meetingAlerts = file.bool("notifications.meetings") ?? true
-        meetingLead = file.int("notifications.meeting_lead") ?? 5
-        taskDigest = file.bool("notifications.digest") ?? true
-        digestTime = file.string("notifications.digest_time").flatMap(Self.minutes) ?? 9 * 60
-        shell = file.string("terminal.shell") ?? ""
-        vimMode = file.bool("editor.vim_mode") ?? false
-        livePreview = file.bool("editor.live_preview") ?? true
-        propertiesForm = file.bool("editor.properties_form") ?? true
-        typewriter = file.bool("editor.typewriter") ?? false
-        focusMode = file.bool("editor.focus") ?? false
-        spellCheck = file.bool("editor.spell_check") ?? true
-        formatOnSave = file.bool("editor.format_on_save") ?? true
-        animateCursor = file.bool("editor.animate_cursor") ?? true
-        cursorTrail = file.bool("editor.cursor_trail") ?? true
-        cursorEffect = file.string("editor.cursor_effect").flatMap(CursorEffect.init(rawValue:)) ?? CursorEffect.none
-        optionAsMeta = file.string("editor.option_as_meta").flatMap(VimKeys.OptionKey.init(rawValue:)) ?? VimKeys.OptionKey.none
-        blurPanels = file.bool("editor.blur_panels") ?? true
-        nvimPath = file.string("editor.nvim") ?? ""
-        nvimConfig = file.string("editor.nvim_config") ?? "user"
-        terminalFontSize = file.int("terminal.font_size") ?? 13
-        captureHotkey = file.string("capture.hotkey") ?? "ctrl+opt+n"
-        captureTarget = file.string("capture.target") ?? "daily"
-        captureHeading = file.string("capture.heading") ?? ""
-        scratchpadNote = file.string("scratchpad.note") ?? "Scratchpad.md"
-        meaningSearch = file.bool("meaning.search") ?? true
-        meaningRefresh = max(0, file.int("meaning.refresh_minutes") ?? 10)
-        homeImage = file.string("home.image") ?? ""
-        newTab = file.string("home.new_tab").flatMap(NewTab.init(rawValue:)) ?? .home
-        hiddenNames = file.strings("files.hidden") ?? Self.defaultHiddenNames
-        showHidden = file.bool("files.show_hidden") ?? false
+        remoteImages = resolved.bool("appearance.remote_images") ?? true
+        foldSections = resolved.string("appearance.fold_sections").flatMap(FoldSections.init(rawValue:)) ?? .vault
+        persianCalendar = resolved.bool("appearance.persian_calendar") ?? false
+        calendarPlace = resolved.string("calendar.place") ?? ""
+        dockBadge = resolved.bool("appearance.dock_badge") ?? true
+        spotlight = resolved.bool("appearance.spotlight") ?? true
+        hideMenuBar = resolved.bool("appearance.hide_menu_bar") ?? false
+        wakatime = resolved.bool("wakatime.enabled") ?? false
+        wakatimeCLI = resolved.string("wakatime.cli") ?? ""
+        exportContents = resolved.bool("export.contents") ?? false
+        exportLandscape = resolved.bool("export.landscape") ?? false
+        syncInterval = resolved.int("git.sync_interval") ?? 0
+        pullOnLaunch = resolved.bool("git.pull_on_launch") ?? true
+        meetingAlerts = resolved.bool("notifications.meetings") ?? true
+        meetingLead = resolved.int("notifications.meeting_lead") ?? 5
+        taskDigest = resolved.bool("notifications.digest") ?? true
+        digestTime = resolved.string("notifications.digest_time").flatMap(Self.minutes) ?? 9 * 60
+        shell = resolved.string("terminal.shell") ?? ""
+        vimMode = resolved.bool("editor.vim_mode") ?? false
+        livePreview = resolved.bool("editor.live_preview") ?? true
+        propertiesForm = resolved.bool("editor.properties_form") ?? true
+        typewriter = resolved.bool("editor.typewriter") ?? false
+        focusMode = resolved.bool("editor.focus") ?? false
+        spellCheck = resolved.bool("editor.spell_check") ?? true
+        formatOnSave = resolved.bool("editor.format_on_save") ?? true
+        animateCursor = resolved.bool("editor.animate_cursor") ?? true
+        cursorTrail = resolved.bool("editor.cursor_trail") ?? true
+        cursorEffect = resolved.string("editor.cursor_effect").flatMap(CursorEffect.init(rawValue:)) ?? CursorEffect.none
+        optionAsMeta = resolved.string("editor.option_as_meta").flatMap(VimKeys.OptionKey.init(rawValue:)) ?? VimKeys.OptionKey.none
+        blurPanels = resolved.bool("editor.blur_panels") ?? true
+        nvimPath = resolved.string("editor.nvim") ?? ""
+        nvimConfig = resolved.string("editor.nvim_config") ?? "user"
+        terminalFontSize = resolved.int("terminal.font_size") ?? 13
+        captureHotkey = resolved.string("capture.hotkey") ?? "ctrl+opt+n"
+        captureTarget = resolved.string("capture.target") ?? "daily"
+        captureHeading = resolved.string("capture.heading") ?? ""
+        scratchpadNote = resolved.string("scratchpad.note") ?? "Scratchpad.md"
+        meaningSearch = resolved.bool("meaning.search") ?? true
+        meaningRefresh = max(0, resolved.int("meaning.refresh_minutes") ?? 10)
+        homeImage = resolved.string("home.image") ?? ""
+        newTab = resolved.string("home.new_tab").flatMap(NewTab.init(rawValue:)) ?? .home
+        hiddenNames = resolved.strings("files.hidden") ?? Self.defaultHiddenNames
+        showHidden = resolved.bool("files.show_hidden") ?? false
+        // The computer's own: a vault does not say who its reader is.
+        okfActor = file.string("okf.actor") ?? ""
     }
 
     private func write(_ path: String, _ value: ConfigFile.Value) {

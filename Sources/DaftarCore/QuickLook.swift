@@ -40,8 +40,11 @@ public enum QuickLookPreview {
     public static func links(in parsed: ParsedNote, from path: String, files: some Collection<String>) -> [String: String] {
         let resolver = LinkResolver(paths: files)
         var out: [String: String] = [:]
+        let all = Set(files)
         for link in parsed.links where out[link.target] == nil {
-            if let found = resolver.resolve(link.target, from: path) { out[link.target] = found }
+            // A Markdown link from the note's folder first, as the app resolves it.
+            let found = link.markdown ? OKF.resolve(link.target, from: path, files: all) ?? resolver.resolve(link.target, from: path) : resolver.resolve(link.target, from: path)
+            if let found { out[link.target] = found }
         }
         return out
     }

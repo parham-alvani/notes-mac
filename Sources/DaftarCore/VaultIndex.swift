@@ -83,12 +83,55 @@ public struct VaultIndex: Sendable {
         resolver.resolve(target, from: source)
     }
 
+    /// Where [link] goes from [source]: a wikilink as Obsidian resolves
+    /// it, a Markdown link as OKF does (`resolve(markdown:from:)`).
+    public func resolve(_ link: Link, from source: String) -> String? {
+        link.markdown ? resolve(markdown: link.target, from: source) : resolver.resolve(link.target, from: source)
+    }
+
+    /// Where a Markdown link's target goes (`OKF.resolve`): from the note's
+    /// folder, or for a `/` path from the bundle root. A plain name or
+    /// path that is no file there (`[x](Note.md)` for a note elsewhere) is
+    /// found as a wikilink is, as before OKF's rules; a `/`, `./` or `../`
+    /// path is only what it says.
+    public func resolve(markdown target: String, from source: String) -> String? {
+        if let found = OKF.resolve(target, from: source, files: files, roots: bundleRoots) { return found }
+        let trimmed = target.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.hasPrefix("/"), !trimmed.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+        return resolver.resolve(target, from: source)
+    }
+
+    /// The folders whose `index.md` has `okf_version` in its front matter:
+    /// the roots of OKF bundles in the vault, which a `/` link starts from.
+    public var bundleRoots: Set<String> {
+        var roots: Set<String> = []
+        for path in files where path == "index.md" || path.hasSuffix("/index.md") {
+            guard notes[path]?.parsed.properties.contains(where: { $0.key == "okf_version" }) == true else { continue }
+            roots.insert(String(path.dropLast("index.md".count)).trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        }
+        return roots
+    }
+
+    /// The OKF concept the note at [path] is; nil for a note with no
+    /// `type`, and for `index.md` and `log.md` whatever they hold.
+    public func concept(of path: String) -> OKF.Concept? {
+        OKF.isReserved(path) ? nil : notes[path]?.parsed.concept
+    }
+
+    /// The note a concept's `superseded_by` names, by the rules of a Markdown link.
+    public func superseding(_ path: String) -> String? {
+        guard let concept = concept(of: path), concept.isDeprecated, let target = concept.supersededBy,
+            let (file, _) = NoteParser.destination(target, bracketed: false)
+        else { return nil }
+        return resolve(markdown: file, from: path)
+    }
+
     /// Every wikilink target in the note, with where it goes, for the reader.
     public func resolvedLinks(of path: String) -> [String: String] {
         guard let note = notes[path] else { return [:] }
         var out: [String: String] = [:]
         for link in note.parsed.links where out[link.target] == nil {
-            if let found = resolver.resolve(link.target, from: path) { out[link.target] = found }
+            if let found = resolve(link, from: path) { out[link.target] = found }
         }
         return out
     }
@@ -97,7 +140,7 @@ public struct VaultIndex: Sendable {
     public func resolvedLinks(in parsed: ParsedNote, from path: String) -> [String: String] {
         var out: [String: String] = [:]
         for link in parsed.links where out[link.target] == nil {
-            if let found = resolver.resolve(link.target, from: path) { out[link.target] = found }
+            if let found = resolve(link, from: path) { out[link.target] = found }
         }
         return out
     }
@@ -207,7 +250,7 @@ public struct VaultIndex: Sendable {
         var seen = Set<String>()
         var out: [(target: String, line: Int)] = []
         for link in note.parsed.links {
-            guard let target = resolver.resolve(link.target, from: note.path), target != note.path, seen.insert(target).inserted else { continue }
+            guard let target = resolve(link, from: note.path), target != note.path, seen.insert(target).inserted else { continue }
             out.append((target, link.line))
         }
         return out

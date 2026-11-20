@@ -327,7 +327,14 @@ final class VaultChecks {
     /// writes its older text over it; the notes are read again after, and
     /// an editor with nothing unsaved takes them.
     private func fix(tools: Set<Problem.Tool>, paths: [String]) {
-        guard let store, let root, !fixing else { return }
+        guard let store, !fixing else { return }
+        // A fix writes notes: a read-only vault has none.
+        store.refreshReadOnly()
+        guard !store.readOnly else {
+            store.notice = VaultStore.readOnlyNotice
+            return
+        }
+        guard let root else { return }
         guard let cli = locate() else {
             store.notice = DaftarCLI.missing
             return
@@ -433,7 +440,7 @@ final class VaultChecks {
     }
 
     private func formatFile(_ left: LeftNote) async {
-        guard let store, let text = store.text(of: left.path) else { return }
+        guard let store, !store.readOnly, let text = store.text(of: left.path) else { return }
         guard NoteFormat.formats(at: .closed, setting: true, path: left.path, edited: text != left.loaded) else { return }
         guard oldFormatter == nil || oldFormatter != locate() else { return }
         let result = await formatted(text, path: left.path)
@@ -462,6 +469,10 @@ final class VaultChecks {
     /// Format Note in the reader: the file, through the editors' gate.
     func formatNote(_ path: String) {
         guard let store else { return }
+        guard !store.readOnly else {
+            store.notice = VaultStore.readOnlyNotice
+            return
+        }
         Task {
             await store.flushEditors()
             guard let text = store.text(of: path), let out = await formattedForCommand(text, path: path) else { return }

@@ -1,3 +1,4 @@
+import AppKit
 import DaftarCore
 import Foundation
 import Observation
@@ -70,8 +71,31 @@ final class VaultStore {
     /// shows the conflicts.
     private(set) var conflictStops = 0
 
+    /// The vault is a read-only clone on this computer (`daftar.readonly`
+    /// in the clone's own git config): the app pulls and never writes.
+    private(set) var readOnly = false
+    /// What the vault says about itself in its `.daftar.toml`.
+    private(set) var vaultSettings = VaultSettings()
+    /// Nothing here sends a note's text to a model: the vault refuses
+    /// agents in a read-only clone (`agents.read_only_clones = false`).
+    var refusesAgents: Bool { vaultSettings.refusesAgents(readOnly: readOnly) }
+    static let agentsRefused = "This vault is not open to agents in a read-only clone (agents.read_only_clones in .daftar.toml)."
+    static let readOnlyNotice = "This vault is read-only."
+    /// The remote refused the last push because this computer's key cannot
+    /// write: the notice and the sync menu offer to make the vault read-only.
+    private(set) var pushRefused = false
+
     /// A message the window shows once, then clears: an edit that failed.
-    var notice: String?
+    var notice: String? {
+        didSet { if notice == nil { noticeOffer = nil } }
+    }
+    /// What the notice offers to do, beside saying something.
+    var noticeOffer: NoticeOffer?
+
+    enum NoticeOffer: Equatable {
+        /// After a push the remote refused for a read-only key.
+        case makeReadOnly
+    }
 
     /// The open vault's full-text search, made anew for each vault opened:
     /// an index still being built for the one before fills its own, which
@@ -101,6 +125,56 @@ final class VaultStore {
         self.settings = settings
         checks.store = self
         if openVault, let path = settings.vaultPath { open(URL(filePath: path)) }
+        // `git config daftar.readonly` in a shell changes no file of the
+        // vault: the switch is read again when the app comes to the front.
+        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) {
+            [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshReadOnly() }
+        }
+    }
+
+    @ObservationIgnored private var activation: (any NSObjectProtocol)?
+
+    /// The vault's git, with the vault's own author for a clone that names none.
+    private func clone(_ root: URL) -> Git { Git(root: root, author: settings.vaultAuthor) }
+
+    /// Reads the vault's `.daftar.toml`: what it says about itself, and the
+    /// app's settings it carries, which win over the computer's.
+    private func readVaultSettings(_ root: URL) {
+        vaultSettings = VaultSettings.read(root: root)
+        vaultFolds = vaultSettings.folded
+        settings.follow(vault: vaultSettings.text, root: root)
+    }
+
+    /// Whether the clone is read-only now, as its git config says. The
+    /// answer is kept until that file changes, so asking is cheap.
+    func refreshReadOnly() {
+        let now = root.map { isRepository && VaultEdits.isReadOnly($0) } ?? false
+        if now != readOnly { readOnly = now }
+        if now, pushRefused { pushRefused = false }
+    }
+
+    /// Throws `VaultEdits.Failure.readOnly` in a read-only clone, before
+    /// anything is read or written. Every write of the store asks first.
+    func refuseReadOnly() throws {
+        guard let root else { return }
+        do {
+            try VaultEdits.refuseReadOnly(root)
+        } catch {
+            if !readOnly { readOnly = true }
+            throw error
+        }
+    }
+
+    /// False, with the notice, in a read-only clone.
+    private func writable() -> Bool {
+        do {
+            try refuseReadOnly()
+            return true
+        } catch {
+            notice = Self.readOnlyNotice
+            return false
+        }
     }
 
     var name: String { root?.lastPathComponent ?? "Daftar" }
@@ -121,7 +195,10 @@ final class VaultStore {
         // Only a new vault is written: the file may say `~/org` for this one.
         if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
-        vaultFolds = VaultSettings.read(root: url).folded
+        // Before the hidden files and everything else that reads a setting.
+        readVaultSettings(url)
+        readOnly = false
+        pushRefused = false
         loadHidden(url)
         bookmarks = Bookmarks.load(url)
         periodic = PeriodicNotes(DailyNotes.read(root: url))
@@ -150,12 +227,17 @@ final class VaultStore {
         }
         Task {
             isRepository = await Git(root: url).isRepository()
-            guard isRepository else { return }
-            // A rebase left open, by Daftar or in a terminal, is shown, not pulled over.
-            if (try? await Git(root: url).openStop()) != nil {
+            guard isRepository, root == url else { return }
+            refreshReadOnly()
+            if readOnly {
+                // A read-only clone only fast-forwards; what another tool
+                // left open in it is the person's to mend in a shell.
+                if settings.pullOnLaunch { await run { _ = try await self.clone(url).pullOnly() } }
+            } else if (try? await Git(root: url).openStop()) != nil {
+                // A rebase left open, by Daftar or in a terminal, is shown, not pulled over.
                 await refreshConflicts(show: true)
             } else if settings.pullOnLaunch {
-                await run { try await Git(root: url).pull() }
+                await run { try await self.clone(url).pull() }
             }
             await refreshStatus()
             scheduleAutoSync()
@@ -213,11 +295,12 @@ final class VaultStore {
         periodic = PeriodicNotes(DailyNotes.read(root: url))
         templates = Templates.read(root: url)
         beautitab = Beautitab.read(root: url)
-        vaultFolds = VaultSettings.read(root: url).folded
+        readVaultSettings(url)
         places.load(root: url, directory: settings.stateDirectory)
         search = SearchIndex()
         index = Vault.index(url, search: search)
         isRepository = FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
+        refreshReadOnly()
         revision += 1
     }
 
@@ -245,7 +328,7 @@ final class VaultStore {
         if paths.contains(FileWatcher.dailyNotes) { periodic = PeriodicNotes(DailyNotes.read(root: root)) }
         if paths.contains(FileWatcher.templates) { templates = Templates.read(root: root) }
         if paths.contains(FileWatcher.app) { loadHidden(root) }
-        if paths.contains(FileWatcher.vault) { vaultFolds = VaultSettings.read(root: root).folded }
+        if paths.contains(FileWatcher.vault) { readVaultSettings(root) }
         revision += 1
     }
 
@@ -361,27 +444,14 @@ final class VaultStore {
 
     /// [path] inside [root], or nil for an absolute path, a `.` or `..`
     /// part, or a symlink that points out of the vault.
-    nonisolated static func file(_ path: String, in root: URL) -> URL? {
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        guard !parts.isEmpty, !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else { return nil }
-        let base = root.standardizedFileURL.resolvingSymlinksInPath()
-        let file = base.appending(path: path)
-        // A file that is not there yet: its nearest folder that is.
-        var existing = file
-        while !FileManager.default.fileExists(atPath: existing.path), existing.path.count > base.path.count {
-            existing = existing.deletingLastPathComponent()
-        }
-        let resolved = existing.resolvingSymlinksInPath().path
-        guard resolved == base.path || resolved.hasPrefix(base.path + "/") else { return nil }
-        let target = file.resolvingSymlinksInPath().path
-        return target.hasPrefix(base.path + "/") ? file : nil
-    }
+    nonisolated static func file(_ path: String, in root: URL) -> URL? { Vault.file(path, in: root) }
 
     // MARK: Edits
 
     /// Writes a note the editor holds, whole. The index and the reader follow
     /// through the file watcher, as they do for any other change.
     func write(_ text: String, to path: String) throws {
+        try refuseReadOnly()
         // A note that moved or went is not written again at its old path.
         guard let file = url(of: path), index.files.contains(path) else { throw StoreError.gone(path) }
         // A file the app could not read was never shown: what would be
@@ -404,6 +474,8 @@ final class VaultStore {
     /// what a false answer would have said.
     @discardableResult
     private func afterEditors(_ work: @escaping () -> Bool, otherwise: (() -> Void)? = nil) -> Bool {
+        // A read-only vault is not read for the edit, and no editor has anything to save.
+        guard writable() else { return false }
         guard !flushers.isEmpty else { return work() }
         Task {
             await flushEditors()
@@ -524,7 +596,7 @@ final class VaultStore {
     /// Gives [path] an icon -- a Lucide name or an emoji -- and a colour, in
     /// Iconic's own file; with both nil, takes them away.
     func setIcon(_ path: String, icon: String?, color: String?) {
-        guard let root else { return }
+        guard let root, writable() else { return }
         let file = iconicFile(root)
         do {
             let data = try Iconic.setting(path, icon: icon, color: color, in: try? Data(contentsOf: file))
@@ -540,7 +612,7 @@ final class VaultStore {
 
     /// Bookmarks the file, or takes the bookmark away.
     func toggleBookmark(_ path: String) {
-        guard let root else { return }
+        guard let root, writable() else { return }
         readBookmarks(root)
         bookmarks.toggle(path)
         saveBookmarks(root)
@@ -575,6 +647,7 @@ final class VaultStore {
     /// A new, empty note named [name] in [folder]; its vault path.
     func createNote(named name: String, in folder: String, text: String = "") throws -> String {
         guard let root else { throw VaultMoves.Failure.badName(name) }
+        try refuseReadOnly()
         guard VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
         let path = (folder.isEmpty ? "" : folder + "/") + VaultMoves.noteName(name)
         guard !index.files.contains(where: { Slugs.fold($0) == Slugs.fold(path) }) else { throw VaultMoves.Failure.exists(path) }
@@ -643,6 +716,7 @@ final class VaultStore {
 
     /// A new folder named [name] in [parent]; its vault path.
     func createFolder(named name: String, in parent: String) throws -> String {
+        try refuseReadOnly()
         guard let root, VaultMoves.isValidName(name) else { throw VaultMoves.Failure.badName(name) }
         let path = (parent.isEmpty ? "" : parent + "/") + name.trimmingCharacters(in: .whitespaces)
         guard let url = Self.file(path, in: root) else { throw StoreError.outside(path) }
@@ -659,6 +733,7 @@ final class VaultStore {
     /// Returns where each file went.
     func move(_ from: String, to: String) async throws -> [String: String] {
         guard let root else { return [:] }
+        try refuseReadOnly()
         guard Self.file(from, in: root) != nil, Self.file(to, in: root) != nil else { throw StoreError.outside(to) }
         await flushEditors()
         let moves = try VaultMoves.plan(from, to: to, files: index.files)
@@ -699,6 +774,7 @@ final class VaultStore {
 
     /// Moves a file or a folder to the Trash, where it can be taken back.
     func delete(_ path: String) async throws {
+        try refuseReadOnly()
         guard let root, let file = Self.file(path, in: root) else { return }
         await flushEditors()
         try FileManager.default.trashItem(at: file, resultingItemURL: nil)
@@ -893,7 +969,7 @@ final class VaultStore {
         // Not through `afterEditors`: its callers need the answer at once
         // (the link is copied only when the id went in), and the one that
         // can meet an editor saves the editors itself first.
-        guard let root, url(of: path) != nil, index.files.contains(path) else { return false }
+        guard writable(), let root, url(of: path) != nil, index.files.contains(path) else { return false }
         do {
             try ownEdit(path, in: root) { try BlockRefs.addId(id, toBlockAt: line, expected: text, in: $0) }
         } catch {
@@ -925,7 +1001,7 @@ final class VaultStore {
     /// The rename itself, on the files as they are.
     @discardableResult
     func writeTagRename(_ old: String, to new: String) -> Int {
-        guard let root, TagRename.isValid(old), TagRename.isValid(new) else { return 0 }
+        guard let root, TagRename.isValid(old), TagRename.isValid(new), writable() else { return 0 }
         var written: Set<String> = []
         // The notes are read, renamed and written several at a time.
         let paths = notes(tagged: old).filter { url(of: $0) != nil }
@@ -1019,22 +1095,36 @@ final class VaultStore {
 
     // MARK: Git
 
-    /// Commit, pull and push now. With a conflict open, the conflicts show instead.
-    func sync() async {
+    /// Commit, pull and push now. With a conflict open, the conflicts show
+    /// instead. In a read-only clone the sync is a pull that only
+    /// fast-forwards, and when the person asked for it ([quiet] false) the
+    /// notice says "Pulled" or "Up to date".
+    func sync(quiet: Bool = false) async {
         guard let root else { return }
+        refreshReadOnly()
+        if readOnly { return await pullOnly(root, quiet: quiet) }
         if rebasing { return conflictStops += 1 }
         // What the editors hold is committed with the rest, and a pull
         // that changes the open note meets no unsaved text to lose to.
         await flushEditors()
-        await run { try await Git(root: root).sync(message: Git.message()) }
+        await run { try await self.clone(root).sync(message: Git.message()) }
     }
 
     /// Pull only: nothing is committed or pushed.
     func pull() async {
         guard let root else { return }
+        refreshReadOnly()
+        if readOnly { return await pullOnly(root, quiet: false) }
         if rebasing { return conflictStops += 1 }
         await flushEditors()
-        await run { try await Git(root: root).pull() }
+        await run { try await self.clone(root).pull() }
+    }
+
+    /// A read-only clone's sync: `git pull --ff-only`, no commit and no push.
+    private func pullOnly(_ root: URL, quiet: Bool) async {
+        var brought: Bool?
+        await run { brought = try await self.clone(root).pullOnly() }
+        if let brought, !quiet { notice = brought ? "Pulled" : "Up to date" }
     }
 
     private func run(_ work: () async throws -> Void) async {
@@ -1045,12 +1135,25 @@ final class VaultStore {
             try await work()
             lastSync = Date()
             syncError = nil
+            pushRefused = false
         } catch let stopped as Git.Stopped {
             rebasing = true
             unstashing = stopped.unstashed
             conflicts = stopped.conflicts
             conflictStops += 1
             syncError = stopped.description
+        } catch let failure as Git.SyncFailure {
+            syncError = failure.description
+            switch failure {
+            case .readOnlyDiverged:
+                notice = failure.description
+            case .pushRefusedReadOnly:
+                // The key cannot write: the commits stay, and the person
+                // may make the vault read-only, so Daftar stops committing.
+                pushRefused = true
+                notice = "This computer's key cannot write to the vault, so nothing was pushed. Your commits are kept."
+                noticeOffer = .makeReadOnly
+            }
         } catch {
             syncError = String(describing: error)
             // A hook's refusal is the person's to mend (a lint, an audit):
@@ -1060,7 +1163,70 @@ final class VaultStore {
                 notice = "The \(hook) hook stopped the commit, so nothing was synced" + (last.isEmpty ? "." : ": " + last)
             }
         }
+        // The vault's own settings may have come with the pull.
+        if let root { readVaultSettings(root) }
         await refreshStatus()
+    }
+
+    // MARK: The clone's own settings
+
+    /// What Settings › Vault › Git shows: the clone's own git config.
+    struct CloneSettings: Equatable {
+        var readOnly = false
+        var address = ""
+        var name = ""
+        var email = ""
+        /// `core.sshCommand` as the clone has it.
+        var ssh = ""
+    }
+
+    /// The clone's own settings, read from its git config; nil outside a repository.
+    func cloneSettings() async -> CloneSettings? {
+        guard let root, isRepository else { return nil }
+        let git = clone(root)
+        return CloneSettings(
+            readOnly: await git.isReadOnly(), address: await git.address() ?? "", name: await git.localConfig("user.name") ?? "",
+            email: await git.localConfig("user.email") ?? "", ssh: await git.localConfig("core.sshCommand") ?? "")
+    }
+
+    /// Turns read-only on or off: only `daftar.readonly` changes. What the
+    /// editors hold is saved first, while the vault may still be written.
+    func setReadOnly(_ on: Bool) async {
+        guard let root, isRepository else { return }
+        if on { await flushEditors() }
+        do {
+            try await clone(root).setReadOnly(on)
+        } catch {
+            notice = "The vault's git config could not be written: \(error)"
+        }
+        refreshReadOnly()
+        if readOnly { syncSoon?.cancel() }
+        await refreshStatus()
+    }
+
+    /// Writes one key of the clone's own git config (`user.name`,
+    /// `user.email`, `core.sshCommand`); an emptied field unsets it.
+    /// What went wrong, or nil.
+    func setCloneConfig(_ key: String, _ value: String) async -> String? {
+        guard let root, isRepository else { return nil }
+        do {
+            try await clone(root).setLocalConfig(key, value)
+            return nil
+        } catch {
+            return String(describing: error)
+        }
+    }
+
+    /// Sets the vault's address. Nothing is fetched until the next sync,
+    /// which says so when the address does not answer. What went wrong, or nil.
+    func setAddress(_ address: String) async -> String? {
+        guard let root, isRepository else { return nil }
+        do {
+            try await clone(root).setAddress(address)
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
     }
 
     // MARK: Conflicts
@@ -1087,10 +1253,10 @@ final class VaultStore {
     /// Returns false when the next replayed commit stopped on a conflict too,
     /// or something failed; `conflicts` then holds what is open.
     func finishConflicts(_ resolutions: [(Git.Conflicted, Git.Resolution)]) async -> Bool {
-        guard let root, rebasing, !syncing else { return false }
+        guard let root, rebasing, !syncing, writable() else { return false }
         syncing = true
         defer { syncing = false }
-        let git = Git(root: root)
+        let git = clone(root)
         do {
             let open = unstashing ? try await git.finishUnstash(resolutions) : try await git.finishRebase(resolutions)
             changed(Set(resolutions.map(\.0.path)))
@@ -1117,7 +1283,7 @@ final class VaultStore {
     /// the next sync pulls again. What the person wrote in other notes
     /// while the conflict was open stays (`Git.abortRebase`).
     func abortConflicts() async {
-        guard let root, rebasing, !unstashing, !syncing else { return }
+        guard let root, rebasing, !unstashing, !syncing, writable() else { return }
         // What the editors hold is on disk before the tree is reset.
         await flushEditors()
         syncing = true
@@ -1135,18 +1301,19 @@ final class VaultStore {
 
     func refreshStatus() async {
         guard let root, isRepository else { return }
+        refreshReadOnly()
         gitStatus = try? await Git(root: root).status()
     }
 
     /// After an edit: a sync a little later, when automatic sync is on, so
     /// that several ticks in a row make one commit.
     private func requestSync() {
-        guard settings.syncInterval > 0, !rebasing else { return }
+        guard settings.syncInterval > 0, !rebasing, !readOnly else { return }
         syncSoon?.cancel()
         syncSoon = Task {
             try? await Task.sleep(for: .seconds(20))
             guard !Task.isCancelled, !rebasing else { return }
-            await sync()
+            await sync(quiet: true)
         }
     }
 
@@ -1157,7 +1324,7 @@ final class VaultStore {
         autoSync = Task {
             while !Task.isCancelled {
                 // Automatic sync waits while a conflict is open.
-                if !rebasing { await sync() }
+                if !rebasing { await sync(quiet: true) }
                 try? await Task.sleep(for: .seconds(Double(minutes) * 60))
             }
         }
@@ -1308,11 +1475,13 @@ final class VaultStore {
             items.reserveCapacity(index.files.count)
             for path in index.files {
                 let aliases = index.notes[path]?.parsed.aliases ?? []
+                let deprecated = index.concept(of: path)?.isDeprecated == true
                 let entry: Entry
-                if let known = entries[path], known.aliases == aliases {
+                if let known = entries[path], known.aliases == aliases, known.candidate.deprecated == deprecated {
                     entry = known
                 } else {
-                    entry = Entry(aliases: aliases, hidden: excluded.contains(path), candidate: QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: aliases))
+                    entry = Entry(aliases: aliases, hidden: excluded.contains(path),
+                        candidate: QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: aliases, deprecated: deprecated))
                 }
                 fresh[path] = entry
                 if !entry.hidden { items.append(entry.candidate) }

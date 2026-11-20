@@ -87,6 +87,11 @@ final class QuickCaptureController {
     }
 
     func show() {
+        // Capture writes a note: off in a read-only vault, and it says why.
+        if let store, store.readOnly {
+            store.notice = VaultStore.readOnlyNotice
+            return
+        }
         let panel = self.panel ?? CapturePanel()
         if self.panel == nil {
             let view = CaptureView(model: model, add: { [weak self] task in self?.add(task: task) }, close: { [weak self] in self?.hide() })
@@ -258,16 +263,20 @@ struct CaptureSettings: View {
         Form {
             Section {
                 TextField("Shortcut", text: $settings.captureHotkey, prompt: Text("Off"))
+                    .fromVault("capture.hotkey", settings)
                 LabeledContent("Keys") {
                     Text(spec?.symbols ?? "Off").foregroundStyle(problem == nil ? .secondary : Palette.red)
                 }
                 TextField("Note", text: $settings.captureTarget, prompt: Text("daily"))
+                    .fromVault("capture.target", settings)
                 TextField("Under the heading", text: $settings.captureHeading, prompt: Text("The end of the note"))
+                    .fromVault("capture.heading", settings)
             } footer: {
                 Text(problem ?? "The shortcut opens the capture panel from any app; it is written as ctrl+opt+n, cmd+shift+space or f13, and empty turns it off. “daily” is today's note, as ⌘3 opens it; a path such as Inbox.md names one note. The heading may hold the day, ## {{date:YYYY-MM-DD}}, so one note gets a section for each day. Return adds the line, ⌘↩ adds it as a task.")
             }
             Section {
                 TextField("Scratchpad note", text: $settings.scratchpadNote, prompt: Text("Scratchpad.md"))
+                    .fromVault("scratchpad.note", settings)
             } footer: {
                 Text("⌥⌘S opens the scratchpad, one inbox note, in the editor, and makes it empty when it is not there yet. To capture into it, name it as the note above.")
             }

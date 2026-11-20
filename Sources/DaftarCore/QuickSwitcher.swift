@@ -25,9 +25,12 @@ public enum QuickSwitcher {
         let foldersASCII: Bool
         /// The path's length, which breaks a tie, counted once.
         let length: Int
+        /// A deprecated OKF concept: listed after the others of the same rank.
+        public var deprecated: Bool
 
-        public init(path: String, title: String, aliases: [String] = []) {
+        public init(path: String, title: String, aliases: [String] = [], deprecated: Bool = false) {
             self.path = path
+            self.deprecated = deprecated
             self.title = Slugs.matching(title)
             self.aliases = aliases.map(Slugs.matching)
             folders = Slugs.matching(QuickSwitcher.folder(of: path))
@@ -65,7 +68,7 @@ public enum QuickSwitcher {
         let recency = Dictionary(recent.enumerated().map { ($1, $0) }) { a, _ in a }
         let prepared = words.map(Word.init)
         let needleASCII = Fuzzy.plainASCII(needle)
-        var scored: [(path: String, score: Int, match: Int, close: Bool, length: Int)] = []
+        var scored: [(path: String, score: Int, match: Int, close: Bool, length: Int, deprecated: Bool)] = []
         scored.reserveCapacity(64)
         for candidate in candidates {
             guard let (match, close) = score(prepared, candidate) else { continue }
@@ -76,7 +79,7 @@ public enum QuickSwitcher {
             if candidate.note { score += 8 }
             // A note opened lately wins a close race, not a clear one.
             if let at = recency[candidate.path] { score += max(1, 12 - at) }
-            scored.append((candidate.path, score, match, close, candidate.length))
+            scored.append((candidate.path, score, match, close, candidate.length, candidate.deprecated))
         }
         // Once one file holds every word closely, the files that only hold
         // the letters are noise: "car insurance" is not "Cards … Reinsurance".
@@ -91,6 +94,8 @@ public enum QuickSwitcher {
         scored.removeAll { !($0.match == best || $0.match * 2 >= best) }
         scored.sort { a, b in
             if a.score != b.score { return a.score > b.score }
+            // A deprecated concept comes after the others of its rank.
+            if a.deprecated != b.deprecated { return !a.deprecated }
             if a.length != b.length { return a.length < b.length }
             return a.path < b.path
         }

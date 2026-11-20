@@ -54,7 +54,7 @@ struct WeeklyReviewSheet: View {
                 Button(saving ? "Saving…" : "Save to \(WeeklyReview.folder)/") { save() }
                     .keyboardShortcut("s")
                     .buttonStyle(.glassProminent).tint(Palette.accent)
-                    .disabled(markdown == nil || saving)
+                    .disabled(markdown == nil || saving || store.readOnly)
                     .help("Makes \(preview.path) with daftar-cli review --write, as the weekly CI does")
             }
             .padding(16)
@@ -112,7 +112,7 @@ struct WeeklyReviewSheet: View {
 
     /// `--write`, which never writes over a note, then the note.
     private func save() {
-        guard let root = store.root, !saving else { return }
+        guard let root = store.root, !saving, !store.readOnly else { return }
         saving = true
         error = nil
         Task {

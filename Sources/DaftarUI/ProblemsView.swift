@@ -11,7 +11,7 @@ struct ProblemsCommands: Commands {
         CommandGroup(after: .textEditing) {
             Button("Format Note") { window?.formatNote(store: store) }
                 .keyboardShortcut("f", modifiers: [.command, .option, .shift])
-                .disabled(window?.canFormat != true)
+                .disabled(window?.canFormat != true || store.readOnly)
         }
         CommandGroup(after: .sidebar) {
             Button(window?.problems == true ? "Hide Problems" : "Show Problems") { window?.toggleProblems(store: store) }
@@ -152,7 +152,7 @@ struct ProblemsPanel: View {
             .fixedSize()
             .accessibilityLabel("Show")
             Button("Fix All") { checks.fixAll() }
-                .disabled(checks.fixing || !checks.problems.contains(where: \.fixable))
+                .disabled(checks.fixing || store.readOnly || !checks.problems.contains(where: \.fixable))
                 .help("Mend what has one answer in the whole vault, as just fix does: lint --fix, check --fix, fmt")
             Button { checks.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless)
@@ -211,6 +211,7 @@ struct ProblemsPanel: View {
             Spacer()
             if note.fixable {
                 Button("Fix All") { checks.fixAll(note.path) }
+                    .disabled(store.readOnly)
                     .controlSize(.small)
                     .disabled(checks.fixing)
                     .help("Mend what has one answer in this note")
@@ -241,6 +242,7 @@ struct ProblemsPanel: View {
             .accessibilityLabel(spoken(problem))
             if problem.fixable {
                 Button("Fix") { checks.fix(problem) }
+                    .disabled(store.readOnly)
                     .controlSize(.small)
                     .disabled(checks.fixing)
                     .help("Mend it with daftar-cli \(problem.tool == .fmt ? "fmt" : "\(problem.tool.rawValue) --fix")")

@@ -49,6 +49,14 @@ final class NoteAssistant {
         return "\(what)\(cut ? " Only the first part of the note is given." : "")\n\nThe note is called “\(title)”.\n\n\(body)"
     }
 
+    /// Says why nothing is asked, and asks nothing.
+    func refuse(_ reason: String) {
+        job?.cancel()
+        output = ""
+        working = false
+        failure = reason
+    }
+
     func run(_ ask: Ask, title: String, text: String) {
         job?.cancel()
         output = ""
@@ -200,6 +208,8 @@ struct AssistantSheet: View {
     private func ask(_ ask: NoteAssistant.Ask) {
         guard let path = model.path else { return }
         last = ask
+        // The vault refuses agents in a read-only clone: no note's text goes to a model there.
+        guard !store.refusesAgents else { return assistant.refuse(VaultStore.agentsRefused) }
         Task {
             // What is typed in the editor is part of the note.
             await store.flushEditors()

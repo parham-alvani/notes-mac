@@ -12,9 +12,13 @@ public struct ParsedNote: Sendable, Equatable {
     /// The text without front matter, comments and markup, for search.
     public var plain: String
     public var rtl: Bool
+    /// What the front matter says of the note as an OKF concept: nil with
+    /// no `type`. A note named `index.md` or `log.md` is never one, which
+    /// the index says (`VaultIndex.concept(of:)`), since a text has no name.
+    public var concept: OKF.Concept? = nil
 
     public static func == (a: ParsedNote, b: ParsedNote) -> Bool {
-        a.aliases == b.aliases && a.tags == b.tags && a.headings == b.headings && a.links == b.links
+        a.concept == b.concept && a.aliases == b.aliases && a.tags == b.tags && a.headings == b.headings && a.links == b.links
             && a.tasks == b.tasks && a.plain == b.plain && a.rtl == b.rtl
             && a.properties.map(\.key) == b.properties.map(\.key) && a.properties.map(\.values) == b.properties.map(\.values)
     }
@@ -33,6 +37,9 @@ public struct Link: Sendable, Equatable, Hashable {
     public var anchor: String?
     public var embed: Bool
     public var line: Int
+    /// A Markdown link, `[text](target)`, which resolves as OKF says: from
+    /// the note's folder, or from the bundle root for a `/` path.
+    public var markdown = false
 }
 
 public struct ParsedTask: Sendable, Equatable, Hashable {
@@ -88,7 +95,7 @@ public enum NoteParser {
     /// anchor. Nil for a web address, a `mailto:` and a bare `#anchor`.
     /// An address in `<…>` is as written; any other is percent-decoded.
     static func destination(_ url: String, bracketed: Bool) -> (target: String, anchor: String?)? {
-        guard !url.contains("://"), !url.hasPrefix("mailto:"), !url.hasPrefix("#") else { return nil }
+        guard !url.contains("://"), !OKF.hasScheme(url), !url.hasPrefix("#") else { return nil }
         let decoded = bracketed ? url : url.removingPercentEncoding ?? url
         guard let hash = decoded.firstIndex(of: "#") else { return (decoded, nil) }
         return (String(decoded[..<hash]), String(decoded[decoded.index(after: hash)...]))
@@ -113,6 +120,10 @@ public enum NoteParser {
             properties: front.properties, aliases: front.values("aliases") + front.values("alias"),
             tags: front.values("tags") + front.values("tag"), headings: [], links: [], tasks: [], plain: "", rtl: false)
         note.tags = note.tags.map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+        // A concept is read only from a front matter that has a `type` line.
+        if front.lineCount > 2, lines[1..<(front.lineCount - 1)].contains(where: { $0.hasPrefix("type:") || $0.hasPrefix("\"type\":") || $0.hasPrefix("'type':") }) {
+            note.concept = OKF.concept(frontMatter: lines[1..<(front.lineCount - 1)].joined(separator: "\n"))
+        }
 
         // A link in a property, `up: "[[Parent]]"`, is a link as Obsidian counts them.
         for index in 1..<max(1, front.lineCount - 1) where lines[index].hasMark("[[") {
@@ -158,7 +169,7 @@ public enum NoteParser {
             }
             for match in code.hasMark("](") ? code.matches(of: markdownLink) : [] {
                 guard let (target, anchor) = destination(String(match.3), bracketed: !match.2.isEmpty) else { continue }
-                note.links.append(Link(target: target, anchor: anchor, embed: match.1.hasPrefix("!"), line: index))
+                note.links.append(Link(target: target, anchor: anchor, embed: match.1.hasPrefix("!"), line: index, markdown: true))
             }
             for match in code.mayHoldTag ? code.matches(of: tag) : [] where !match.1.allSatisfy({ $0.isNumber || $0 == "/" || $0 == "-" }) {
                 note.tags.append(String(match.1))
