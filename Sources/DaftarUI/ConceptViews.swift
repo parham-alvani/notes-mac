@@ -41,7 +41,8 @@ struct ConceptChips: View {
 
     var body: some View {
         let tier = concept.tier
-        HStack(spacing: 6) {
+        // One under the other: the inspector is narrow, and a chip cut short says nothing.
+        VStack(alignment: .leading, spacing: 4) {
             chip(tier.title, symbol: Self.symbol(tier), color: Self.color(tier)).help(Self.tooltip(concept))
             if let status = concept.status.title {
                 chip(status, symbol: concept.isDeprecated ? "archivebox" : "pencil.line", color: concept.isDeprecated ? Palette.red : Palette.yellow)
