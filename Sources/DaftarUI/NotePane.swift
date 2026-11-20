@@ -273,6 +273,12 @@ struct NotePaneView: View {
         if pane.request != nil {
             ZStack {
                 reader(paused: editing)
+                    // One line above a deprecated or stale concept's text, in the reader only.
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if !covered, let path = pane.path {
+                            ConceptLine(path: path) { model.open($0, in: pane, store: store) }
+                        }
+                    }
                     .opacity(covered ? 0 : 1)
                     .allowsHitTesting(!covered)
                     .accessibilityHidden(covered)

@@ -33,6 +33,14 @@ struct VaultSettingsTab: View {
                 git(clone)
             }
             Section {
+                TextField("Verify as", text: $settings.okfActor, prompt: Text("The name of your git email"))
+                    .help("okf.actor: Mark as Verified signs a concept as human:<this name>")
+            } header: {
+                Text("Concepts")
+            } footer: {
+                Text("A note with a type in its properties is a concept, as the Open Knowledge Format has it: the inspector shows who confirmed it and whether it is stale, and Mark as Verified adds your name and the time.")
+            }
+            Section {
                 Toggle("Use the settings the vault carries", isOn: $settings.followsVault)
                     .help("vault_settings in the settings file. Off, no setting of the app is read from any vault.")
                 if !settings.declinedKeys.isEmpty {

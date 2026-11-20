@@ -505,7 +505,7 @@ struct ReaderView: NSViewRepresentable {
                 }
                 // A markdown link, `[x](Notes/a.md)`, names its note by path.
                 let target = body["target"] as? String ?? ""
-                if path.isEmpty, let from = shown?.path, let found = parent.store.index.resolve(target, from: from) {
+                if path.isEmpty, let from = shown?.path, let found = parent.store.index.resolve(markdown: target, from: from) {
                     open(found)
                 } else if path.isEmpty {
                     if let onCreate = parent.onCreate, let from = shown?.path, !target.isEmpty {

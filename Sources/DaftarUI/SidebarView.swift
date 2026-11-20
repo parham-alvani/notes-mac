@@ -416,9 +416,11 @@ struct SearchResults: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
+                            // A deprecated concept is dimmed, and said so.
+                            .opacity(store.isDeprecated(path) ? 0.5 : 1)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(Vault.title(of: path))
+                        .accessibilityLabel(Vault.title(of: path) + (store.isDeprecated(path) ? ", deprecated" : ""))
                         .accessibilityValue(path.split(separator: "/").dropLast().joined(separator: ", "))
                         .contextMenu { FileMenu(path: path, model: model) }
                     }
@@ -441,6 +443,7 @@ struct SearchResults: View {
                         .padding(.vertical, 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
+                        .opacity(store.isDeprecated(hit.path) ? 0.5 : 1)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Vault.title(of: hit.path))
@@ -595,7 +598,7 @@ struct InspectorView: View {
         var seen = Set<String>()
         return note.parsed.links.compactMap { link in
             guard !link.target.isEmpty, seen.insert(link.target).inserted else { return nil }
-            let found = index.resolve(link.target, from: path)
+            let found = index.resolve(link, from: path)
             guard found != path else { return nil }
             return OutgoingLink(target: link.target, path: found, embed: link.embed)
         }
@@ -609,6 +612,10 @@ struct InspectorView: View {
             // list, so a note gone back to has it already and is not asked about again.
             let related = cache.related(to: path)
             InspectorList {
+                // A concept (a note with a `type`): its kind, its trust and whether it is stale.
+                if let concept = store.index.concept(of: path) {
+                    ConceptSection(model: model, path: path, concept: concept)
+                }
                 if !note.parsed.headings.isEmpty {
                     OutlineSection(model: model, path: path, headings: note.parsed.headings)
                 }
@@ -1011,6 +1018,8 @@ struct QuickOpenView: View {
                                     Spacer()
                                 }
                                 .foregroundStyle(index == selected ? .white : .primary)
+                                // A deprecated concept is dimmed; it comes after the others of its rank.
+                                .opacity(!chosen && store.isDeprecated(row.path) ? 0.5 : 1)
                                 .padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(
                                     index == selected
@@ -1019,7 +1028,7 @@ struct QuickOpenView: View {
                                     in: RoundedRectangle(cornerRadius: 8))
                                 .contentShape(Rectangle())
                                 .onTapGesture { selected = index; choose(results) }
-                                .accessibilityRow(folder.isEmpty ? title : "\(title), \(folder)", selected: chosen) {
+                                .accessibilityRow((folder.isEmpty ? title : "\(title), \(folder)") + (store.isDeprecated(row.path) ? ", deprecated" : ""), selected: chosen) {
                                     selected = index
                                     choose(results)
                                 }

@@ -1475,11 +1475,13 @@ final class VaultStore {
             items.reserveCapacity(index.files.count)
             for path in index.files {
                 let aliases = index.notes[path]?.parsed.aliases ?? []
+                let deprecated = index.concept(of: path)?.isDeprecated == true
                 let entry: Entry
-                if let known = entries[path], known.aliases == aliases {
+                if let known = entries[path], known.aliases == aliases, known.candidate.deprecated == deprecated {
                     entry = known
                 } else {
-                    entry = Entry(aliases: aliases, hidden: excluded.contains(path), candidate: QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: aliases))
+                    entry = Entry(aliases: aliases, hidden: excluded.contains(path),
+                        candidate: QuickSwitcher.Candidate(path: path, title: Vault.title(of: path), aliases: aliases, deprecated: deprecated))
                 }
                 fresh[path] = entry
                 if !entry.hidden { items.append(entry.candidate) }

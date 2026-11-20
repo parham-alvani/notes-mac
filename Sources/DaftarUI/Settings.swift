@@ -128,6 +128,9 @@ final class AppSettings {
     /// The hidden and the excluded files show in the lists anyway.
     var showHidden: Bool { didSet { write("files.show_hidden", .bool(showHidden)) } }
 
+    /// Who Mark as Verified signs an OKF concept as (`human:<actor>`); empty is the git email's name.
+    var okfActor: String { didSet { write("okf.actor", .string(okfActor)) } }
+
     static let defaultHiddenNames = ["CLAUDE.md", "AGENTS.md", "GEMINI.md", "CLAUDE.local.md"]
 
     enum CursorEffect: String, CaseIterable, Identifiable {
@@ -222,6 +225,7 @@ final class AppSettings {
         newTab = .home
         hiddenNames = Self.defaultHiddenNames
         showHidden = false
+        okfActor = ""
         load()
         watch()
     }
@@ -317,6 +321,8 @@ final class AppSettings {
         newTab = resolved.string("home.new_tab").flatMap(NewTab.init(rawValue:)) ?? .home
         hiddenNames = resolved.strings("files.hidden") ?? Self.defaultHiddenNames
         showHidden = resolved.bool("files.show_hidden") ?? false
+        // The computer's own: a vault does not say who its reader is.
+        okfActor = file.string("okf.actor") ?? ""
     }
 
     private func write(_ path: String, _ value: ConfigFile.Value) {

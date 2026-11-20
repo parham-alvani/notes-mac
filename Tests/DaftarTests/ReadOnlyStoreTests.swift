@@ -305,3 +305,59 @@ import Testing
         #expect(!store.refusesAgents)
     }
 }
+
+/// An OKF concept through the store: Mark as Verified, and the deprecated
+/// concept after the others in quick open.
+@MainActor
+@Suite(.serialized) struct ConceptStoreTests {
+    let root: URL
+    let store: VaultStore
+
+    init() throws {
+        root = FileManager.default.temporaryDirectory.appending(path: "daftar-concept-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: "Metrics"), withIntermediateDirectories: true)
+        try "---\ntype: Metric\nowner: data\nverified: { by: \"process:nightly\", at: \"2026-06-25T03:00:00Z\" }\n---\n# Revenue\n".write(
+            to: root.appending(path: "Metrics/Revenue.md"), atomically: true, encoding: .utf8)
+        try "---\ntype: Metric\nstatus: deprecated\nsuperseded_by: Revenue.md\n---\n# Revenue old\n".write(
+            to: root.appending(path: "Metrics/Revenue old.md"), atomically: true, encoding: .utf8)
+        try "---\ntype: Metric\nstale_after: 2020-01-01\n---\n# Revenue net\n".write(to: root.appending(path: "Metrics/Revenue net.md"), atomically: true, encoding: .utf8)
+        try "# Plain\n".write(to: root.appending(path: "Plain.md"), atomically: true, encoding: .utf8)
+        store = VaultStore(settings: AppSettings(url: root.appending(path: "config/config.toml")), openVault: false)
+        store.openSynchronously(root)
+    }
+
+    func text(_ path: String) throws -> String { try String(contentsOf: root.appending(path: path), encoding: .utf8) }
+
+    @Test func markAsVerifiedWritesOneEventThroughTheStore() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Nobody to sign as: the command says to set it, and writes nothing.
+        let before = try text("Metrics/Revenue.md")
+        #expect(await !store.markVerified("Metrics/Revenue.md"))
+        #expect(store.notice?.contains("okf.actor") == true)
+        #expect(try text("Metrics/Revenue.md") == before)
+        store.settings.okfActor = "parham"
+        #expect(try String(contentsOf: store.settings.url, encoding: .utf8).contains("actor = \"parham\""))
+        let now = ISO8601DateFormatter().date(from: "2026-06-30T14:00:05Z")!
+        #expect(await store.markVerified("Metrics/Revenue.md", at: now))
+        #expect(try text("Metrics/Revenue.md")
+            == "---\ntype: Metric\nowner: data\nverified:\n  - { by: \"process:nightly\", at: \"2026-06-25T03:00:00Z\" }\n  - { by: \"human:parham\", at: \"2026-06-30T14:00:05Z\" }\n---\n# Revenue\n")
+        #expect(await store.markVerified("Metrics/Revenue.md", at: now.addingTimeInterval(60)))
+        #expect(OKF.concept(note: try text("Metrics/Revenue.md"))?.verified.map(\.by) == ["process:nightly", "human:parham"])
+        // Offered on a concept only.
+        #expect(await !store.markVerified("Plain.md"))
+        #expect(try text("Plain.md") == "# Plain\n")
+        // The lists know the concepts: the deprecated one is dimmed and comes after its like.
+        #expect(store.isDeprecated("Metrics/Revenue old.md") && !store.isDeprecated("Metrics/Revenue.md") && !store.isDeprecated("Plain.md"))
+        #expect(store.index.superseding("Metrics/Revenue old.md") == "Metrics/Revenue.md")
+        #expect(ConceptLine.text(store.index.concept(of: "Metrics/Revenue old.md")!) == "Deprecated.")
+        #expect(ConceptLine.text(store.index.concept(of: "Metrics/Revenue net.md")!) == "Stale since 2020-01-01: check it again.")
+        #expect(ConceptLine.text(OKF.concept(frontMatter: "type: Metric")!) == nil)
+        let found = store.quickOpen("revenue", recent: [])
+        #expect(found.last == "Metrics/Revenue old.md" && found.count == 3)
+        let alike = [
+            QuickSwitcher.Candidate(path: "A/Old plan.md", title: "Old plan", deprecated: true),
+            QuickSwitcher.Candidate(path: "B/Old plan.md", title: "Old plan"),
+        ]
+        #expect(QuickSwitcher.rank("old plan", in: alike) == ["B/Old plan.md", "A/Old plan.md"])
+    }
+}
