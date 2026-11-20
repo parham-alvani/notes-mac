@@ -124,6 +124,7 @@ final class VaultStore {
     init(settings: AppSettings = .shared, openVault: Bool = true) {
         self.settings = settings
         checks.store = self
+        settings.vaultWriter = { [weak self] key, value in self?.writeVaultSetting(key, value) }
         if openVault, let path = settings.vaultPath { open(URL(filePath: path)) }
         // `git config daftar.readonly` in a shell changes no file of the
         // vault: the switch is read again when the app comes to the front.
@@ -143,6 +144,7 @@ final class VaultStore {
     private func readVaultSettings(_ root: URL) {
         vaultSettings = VaultSettings.read(root: root)
         vaultFolds = vaultSettings.folded
+        tellWritable()
         settings.follow(vault: vaultSettings.text, root: root)
     }
 
@@ -152,6 +154,47 @@ final class VaultStore {
         let now = root.map { isRepository && VaultEdits.isReadOnly($0) } ?? false
         if now != readOnly { readOnly = now }
         if now, pushRefused { pushRefused = false }
+        tellWritable()
+    }
+
+    /// Whether a setting changed in the app may go to the vault's
+    /// `.daftar.toml`: not in a read-only clone, and only in a repository
+    /// or a folder that has the file already.
+    private func tellWritable() {
+        let writable = root.map { root in
+            !readOnly && !VaultEdits.isReadOnly(root)
+                && (isRepository || FileManager.default.fileExists(atPath: root.appending(path: VaultSettings.file).path))
+        } ?? false
+        if settings.vaultWritable != writable { settings.vaultWritable = writable }
+    }
+
+    /// One key of the vault's `.daftar.toml` set to [value], on its own
+    /// line: the file is read again first, every other line stays byte for
+    /// byte, and the write is the store's own, so the watcher and the next
+    /// sync see it. The file's new text; nil when it was not written (a
+    /// read-only clone, a file that does not read as text).
+    func writeVaultSetting(_ key: String, _ value: ConfigFile.Value) -> String? {
+        guard let root else { return nil }
+        do {
+            try refuseReadOnly()
+            let file = root.appending(path: VaultSettings.file)
+            var config = ConfigFile(text: "")
+            if FileManager.default.fileExists(atPath: file.path) {
+                // A file that is there and is not text is never written over.
+                guard let disk = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+                config = ConfigFile(text: disk)
+            }
+            config.set(key, value)
+            try Data(config.text.utf8).write(to: file, options: .atomic)
+            // What it says about itself is read from the same text.
+            vaultSettings = VaultSettings(text: config.text)
+            vaultFolds = vaultSettings.folded
+            tellWritable()
+            requestSync()
+            return config.text
+        } catch {
+            return nil
+        }
     }
 
     /// Throws `VaultEdits.Failure.readOnly` in a read-only clone, before
@@ -354,6 +397,7 @@ final class VaultStore {
             let repository = await Git(root: url).isRepository()
             guard root == url else { return }
             isRepository = repository
+            tellWritable()
             guard isRepository else { return }
             refreshReadOnly()
             if readOnly {

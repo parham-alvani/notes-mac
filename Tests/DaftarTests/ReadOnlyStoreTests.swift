@@ -255,10 +255,10 @@ import Testing
         // Opening the vault wrote nothing of the vault's values into the computer's file.
         let config = try String(contentsOf: settings.url, encoding: .utf8)
         #expect(config.contains("text_size = 14") && !config.contains("dark"))
-        // A change in the app writes config.toml, and leaves .daftar.toml byte for byte.
+        // A change of a key the device keeps writes config.toml, and leaves .daftar.toml byte for byte.
         let bytes = try Data(contentsOf: second.root.appending(path: ".daftar.toml"))
-        settings.textSize = 18
-        #expect(try String(contentsOf: settings.url, encoding: .utf8).contains("text_size = 18"))
+        settings.shell = "/bin/bash"
+        #expect(try String(contentsOf: settings.url, encoding: .utf8).contains("shell = \"/bin/bash\""))
         #expect(try Data(contentsOf: second.root.appending(path: ".daftar.toml")) == bytes)
         #expect(try await second.run(["status", "--porcelain"]) == "?? .daftar.toml")
         // The vault's file changed: read again, as after a pull.
@@ -270,7 +270,7 @@ import Testing
         // A computer can decline: one key, or all of them.
         settings.followsVault = false
         #expect(try String(contentsOf: settings.url, encoding: .utf8).contains("vault_settings = false"))
-        #expect(settings.textSize == 18)
+        #expect(settings.textSize == 14)
         #expect(settings.fromVault.isEmpty)
         settings.followsVault = true
         #expect(settings.textSize == 20)

@@ -96,7 +96,18 @@ The aim is to replace Obsidian on the Mac. It has the reader, the daily tool and
 
 Every setting is in one file, `~/.config/daftar/config.toml`. The app makes it on the first start, with a comment on each setting. Edit it in any editor and the app follows the change at once, or use the Settings window, which writes back only the value that you change. The file is safe to keep in your dotfiles.
 
-A vault may carry settings of the app too, so a new computer is set up by its first pull: the `.daftar.toml` at the vault's root may hold the same sections and keys as `config.toml`, and its value wins over the computer's. In Settings such a setting shows "From the vault" and its control is off; a change in the app is written to `config.toml`, never to the vault. `git.name` and `git.email` there are the author of commits in a clone that names none. A vault never sets a key that names a program (`terminal.shell`, the Neovim keys), sends something out (`wakatime`), or leaves the vault (a picture's path must be in it), and it can turn pictures from the web off but not on. `vault_settings = false` at the top of `config.toml` reads no setting from any vault, and a list, as `vault_settings = ["appearance.theme"]`, declines only those keys. A vault can also keep agents out of every read-only clone, with `read_only_clones = false` under `[agents]`: Apple Intelligence then reads no note there.
+The settings are kept in the vault, so a change on one device reaches the others. The `.daftar.toml` at the vault's root may hold the same sections and keys as `config.toml`, and its value wins over the computer's. **A setting changed in the app, in Settings, by the zoom or in the export panel, is written to the vault's `.daftar.toml`**, on the line of that key alone, and the next sync commits it. In Settings such a setting shows "From the vault". Right-click a setting for Keep on This Device, which keeps this Mac's own value in `config.toml` (the key joins `vault_settings`), and Follow the Vault, which gives it back.
+
+The file may hold a table for each platform, `[macos]`, `[linux]` and `[android]`, with the same sections under it, and each app reads its own table over the shared sections. The Mac writes to `[macos]` the settings that differ by platform (`appearance.font`, `appearance.code_font`, `terminal.font_size`, `capture.hotkey`), a key that table has already, and the settings only the Mac has:
+
+| Section | Keys only the Mac has, kept in `[macos]` |
+| --- | --- |
+| `[macos.appearance]` | `dock_badge`, `spotlight`, `hide_menu_bar` |
+| `[macos.editor]` | `properties_form`, `typewriter`, `focus`, `spell_check`, `animate_cursor`, `cursor_trail`, `cursor_effect`, `option_as_meta`, `blur_panels` |
+| `[macos.meaning]` | `search`, `refresh_minutes` |
+| `[macos.home]` | `new_tab` |
+
+A change stays in this Mac's `config.toml` when a repository may never hold it: a key that names a program (`terminal.shell`, `editor.vim_mode`, `editor.nvim`, `editor.nvim_config`), sends something out (`wakatime`), says who you are (`okf.actor`) or which vaults this Mac has (`vault`, `vaults`, `vault_settings`); a value a vault may not hold (pictures from the web turned on, a picture outside the vault); a key this Mac keeps; and every change in a read-only clone, or in a folder that is no repository and has no `.daftar.toml`. `git.name` and `git.email` in the vault's file are the author of commits in a clone that names none. `vault_settings = false` at the top of `config.toml` reads no setting from any vault and writes none to it, and a list, as `vault_settings = ["appearance.theme"]`, keeps only those keys on this Mac. A vault can also keep agents out of every read-only clone, with `read_only_clones = false` under `[agents]`: Apple Intelligence then reads no note there.
 
 ## Build
 
