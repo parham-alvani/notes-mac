@@ -46,6 +46,8 @@ final class AppSettings {
     }
 
     var vaultPath: String? { didSet { writeVault() } }
+    /// Every vault this computer knows (`vaults`), the one in use among them.
+    private(set) var vaults = Vaults(config: "")
     var appearance: Appearance { didSet { write("appearance.theme", .string(appearance.rawValue)); applyAppearance() } }
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
     var font: String { didSet { write("appearance.font", .string(font)) } }
@@ -269,6 +271,8 @@ final class AppSettings {
         if resolved.author != vaultAuthor { vaultAuthor = resolved.author }
         followsVault = file["vault_settings"] != .bool(false)
         declinedKeys = file.strings("vault_settings") ?? []
+        let list = Vaults(config: text)
+        if list != vaults { vaults = list }
         let vault = file.string("vault") ?? ""
         vaultPath = vault.isEmpty ? nil : (vault as NSString).expandingTildeInPath
         appearance = resolved.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
@@ -354,10 +358,31 @@ final class AppSettings {
     /// home folder with `~`, so the file is the same on every Mac. A path
     /// the file already names, by either spelling, is not written again.
     private func writeVault() {
+        guard !loading else { return }
         let now = vaultPath ?? ""
-        let written = file.string("vault") ?? ""
-        if (written as NSString).expandingTildeInPath == now { return }
-        write("vault", .string((now as NSString).abbreviatingWithTildeInPath))
+        guard !now.isEmpty else { return write("vault", .string("")) }
+        // The vault in use from now on, and in the list once: a vault the
+        // list has keeps the text it was written with, and nothing moves.
+        var list = Vaults(config: file.text)
+        list.open(now)
+        apply(list)
+    }
+
+    /// Writes `vault` and `vaults` as [list] has them, each only when the file says otherwise.
+    private func apply(_ list: Vaults) {
+        let changed = list.applied(to: file)
+        for key in ["vault", "vaults"] {
+            if let value = changed[key], value != file[key] { write(key, value) }
+        }
+        vaults = Vaults(config: file.text)
+    }
+
+    /// Forget Vault: [folder] leaves the list, and no file is touched. The
+    /// vault in use is refused.
+    func forgetVault(_ folder: String) throws {
+        var list = Vaults(config: file.text)
+        try list.forget(folder)
+        apply(list)
     }
 
     private static func shown(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }

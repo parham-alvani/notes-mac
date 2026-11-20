@@ -81,6 +81,7 @@ struct EditorView: NSViewRepresentable {
         coordinator.formatOnLeave(left, at: .closed)
         coordinator.animator.stop()
         coordinator.store.flushers[ObjectIdentifier(coordinator)] = nil
+        coordinator.store.unsaved[ObjectIdentifier(coordinator)] = nil
         coordinator.store.followers[ObjectIdentifier(coordinator)] = nil
         coordinator.store.checks.editors[ObjectIdentifier(coordinator)] = nil
     }
@@ -225,6 +226,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         self.store = store
         super.init()
         store.flushers[ObjectIdentifier(self)] = { [weak self] in await self?.flush() }
+        store.unsaved[ObjectIdentifier(self)] = { [weak self] in self?.hasUnsaved ?? false }
         store.followers[ObjectIdentifier(self)] = { [weak self] in self?.follow($0) }
         store.checks.editors[ObjectIdentifier(self)] = { [weak self] in self?.leaving }
     }
@@ -702,6 +704,13 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
             guard !Task.isCancelled else { return }
             self?.saveNow()
         }
+    }
+
+    /// The plain editor holds text that is not on disk: typed since the
+    /// last save, or a save that failed.
+    var hasUnsaved: Bool {
+        guard owner == .plain, path != nil, let view else { return false }
+        return view.string != saved
     }
 
     func saveNow() {

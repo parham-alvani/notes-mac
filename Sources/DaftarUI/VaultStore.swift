@@ -179,25 +179,143 @@ final class VaultStore {
 
     var name: String { root?.lastPathComponent ?? "Daftar" }
 
-    /// Opens the vault at [url]. What the editors hold is saved first, to
-    /// the vault it belongs to.
+    /// Opens the vault at [url]: at a start at once, and from another
+    /// vault by the one path of a change (`change(to:)`).
     func open(_ url: URL) {
-        guard root != nil, !flushers.isEmpty else { return switchTo(url) }
-        Task {
-            await flushEditors()
-            switchTo(url)
+        guard root != nil else { return switchTo(url) }
+        Task { await change(to: url) }
+    }
+
+    /// Each plain editor's word on whether it holds text that is not on disk.
+    @ObservationIgnored var unsaved: [ObjectIdentifier: () -> Bool] = [:]
+    /// The windows whose tabs a change of vault keeps and opens again; a test gives its own.
+    @ObservationIgnored var windows: () -> [WindowTabs] = { WindowTabs.all }
+    /// A change of vault is under way; a second one waits its turn by being refused.
+    private(set) var changing = false
+
+    /// The vaults of the list as they are shown: the name, the folder, the
+    /// one in use, and whether the folder is there.
+    struct ListedVault: Identifiable, Equatable {
+        var id: String { path }
+        var name: String
+        /// As the list writes it.
+        var folder: String
+        var path: String
+        var inUse: Bool
+        var missing: Bool
+    }
+
+    var listedVaults: [ListedVault] {
+        let list = settings.vaults
+        return list.folders.map { folder in
+            let path = list.path(of: folder)
+            var isDirectory: ObjCBool = false
+            let there = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+            return ListedVault(name: list.name(of: folder), folder: folder, path: path, inUse: root?.path == path, missing: !there)
         }
+    }
+
+    /// Changes to the vault at [url], in the running app: a vault of the
+    /// list, or a new one, by one path. The editors save first, and a save
+    /// that fails stops the change. A sync that runs finishes first. The
+    /// tabs of the vault being left are kept and the new vault's are
+    /// opened again. Everything is read again for the new folder, and
+    /// nothing of the vault before is left. False, with a notice, when the
+    /// vault stays.
+    @discardableResult
+    func change(to url: URL) async -> Bool {
+        let url = url.standardizedFileURL
+        if url.path == root?.path { return true }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            notice = "\(url.lastPathComponent) is not there: \((url.path as NSString).abbreviatingWithTildeInPath). The vault was not changed."
+            return false
+        }
+        guard !changing else { return false }
+        changing = true
+        defer { changing = false }
+        // 1. The editors save first: what could not be saved stays in its editor, and the vault stays.
+        await flushEditors()
+        if unsaved.values.contains(where: { $0() }) {
+            notice = "A note could not be saved, so the vault was not changed. Save it, or copy its text, first."
+            return false
+        }
+        // A note typed in is formatted as when it is left, while its vault is still open.
+        await checks.formatOpenNotes()
+        // 2. A sync that is running finishes first.
+        while syncing { try? await Task.sleep(for: .milliseconds(50)) }
+        guard let old = root else {
+            switchTo(url)
+            return true
+        }
+        // 3. The tabs of the vault being left are kept.
+        let windows = windows()
+        VaultTabs.write(windows.map(\.kept), of: old, in: settings.stateDirectory)
+        // 4, 5 and 6. Everything is read again, `vault` is written, and nothing of the vault before is left.
+        switchTo(url)
+        // The tabs the new vault had, each at its reading place; the home page the first time.
+        let kept = VaultTabs.read(url, in: settings.stateDirectory)
+        for (place, window) in windows.enumerated() { window.show(place < kept.count ? kept[place] : nil, store: self) }
+        return true
+    }
+
+    /// Forget Vault: [folder] leaves the list, no file is touched. The vault in use is refused.
+    func forgetVault(_ folder: String) {
+        do {
+            try settings.forgetVault(folder)
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
+    /// What the vault before left in the store: its index and search, its
+    /// git state, its findings, its caches. A change of vault starts clean.
+    private func leave() {
+        flush?.cancel()
+        flush = nil
+        pending = []
+        autoSync?.cancel()
+        autoSync = nil
+        syncSoon?.cancel()
+        syncSoon = nil
+        prewarming?.cancel()
+        Logo.shared.forget(index.files)
+        index = VaultIndex()
+        TaskStatuses.current = index.statuses
+        lastChanged = []
+        textual = [:]
+        logos = ([], [:])
+        treed = nil
+        candidates = nil
+        folded = FoldedCandidates()
+        calendarMemo = nil
+        taskGroupsMemo = nil
+        isRepository = false
+        gitStatus = nil
+        rebasing = false
+        unstashing = false
+        conflicts = []
+        syncError = nil
+        lastSync = nil
+        readOnly = false
+        pushRefused = false
+        noticeOffer = nil
+        rescanAgain = false
+        checks.left()
+        revision += 1
     }
 
     private func switchTo(_ url: URL) {
         let url = url.standardizedFileURL
+        if root != nil { leave() }
         root = url
         // Only a new vault is written: the file may say `~/org` for this one.
         if settings.vaultPath.map({ URL(filePath: $0).standardizedFileURL.path }) != url.path { settings.vaultPath = url.path }
         iconic = Iconic.load(url)
         // Before the hidden files and everything else that reads a setting.
         readVaultSettings(url)
-        readOnly = false
+        // Known at once, not after git answers: the answer is kept for the clone's config file.
+        readOnly = VaultEdits.isReadOnly(url)
         pushRefused = false
         loadHidden(url)
         bookmarks = Bookmarks.load(url)
@@ -226,19 +344,27 @@ final class VaultStore {
             }
         }
         Task {
-            isRepository = await Git(root: url).isRepository()
-            guard isRepository, root == url else { return }
+            // The answer is of this vault: after a change of vault it is not the open one's.
+            let repository = await Git(root: url).isRepository()
+            guard root == url else { return }
+            isRepository = repository
+            guard isRepository else { return }
             refreshReadOnly()
             if readOnly {
                 // A read-only clone only fast-forwards; what another tool
                 // left open in it is the person's to mend in a shell.
                 if settings.pullOnLaunch { await run { _ = try await self.clone(url).pullOnly() } }
-            } else if (try? await Git(root: url).openStop()) != nil {
-                // A rebase left open, by Daftar or in a terminal, is shown, not pulled over.
-                await refreshConflicts(show: true)
-            } else if settings.pullOnLaunch {
-                await run { try await self.clone(url).pull() }
+            } else {
+                let stop = try? await Git(root: url).openStop()
+                guard root == url else { return }
+                if stop != nil {
+                    // A rebase left open, by Daftar or in a terminal, is shown, not pulled over.
+                    await refreshConflicts(show: true)
+                } else if settings.pullOnLaunch {
+                    await run { try await self.clone(url).pull() }
+                }
             }
+            guard root == url else { return }
             await refreshStatus()
             scheduleAutoSync()
         }
@@ -1242,9 +1368,12 @@ final class VaultStore {
 
     private func readStop(_ git: Git) async {
         let stop = try? await git.openStop()
+        let found = stop != nil ? ((try? await git.conflicts()) ?? []) : []
+        // Of the vault that was open when it was asked.
+        guard root?.path == git.root.path else { return }
         rebasing = stop != nil
         unstashing = stop == .unstash
-        conflicts = rebasing ? ((try? await git.conflicts()) ?? []) : []
+        conflicts = found
     }
 
     /// Resolves every file as chosen, goes on with the rebase and pushes;
@@ -1302,7 +1431,10 @@ final class VaultStore {
     func refreshStatus() async {
         guard let root, isRepository else { return }
         refreshReadOnly()
-        gitStatus = try? await Git(root: root).status()
+        let status = try? await Git(root: root).status()
+        // Asked of the vault that was open: not shown for the one open now.
+        guard self.root == root else { return }
+        gitStatus = status
     }
 
     /// After an edit: a sync a little later, when automatic sync is on, so

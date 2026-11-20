@@ -115,6 +115,24 @@ final class WindowTabs {
         tabs.insert(tab, at: to)
     }
 
+    /// [made] in the place of every tab the window has, [front] in front:
+    /// a change of vault. The tabs that go are given back.
+    func replace(with made: [WindowModel], front: WindowModel) {
+        let old = tabs
+        if let window {
+            window.makeFirstResponder(nil)
+        }
+        tabs = made
+        if ActiveWindow.shared.model.map({ model in old.contains { $0 === model } }) ?? false { ActiveWindow.shared.model = front }
+        current = front
+        chrome = front
+        for tab in old {
+            release(tab)
+            tab.tabs = nil
+            tab.responder = nil
+        }
+    }
+
     /// Every tab is given back, when the window goes.
     func releaseAll() { tabs.forEach(release) }
 
