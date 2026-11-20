@@ -13,15 +13,69 @@ public struct Git: Sendable {
     /// keeps every later one from starting.
     public var limit: TimeInterval
 
-    public init(root: URL, executable: URL? = nil, limit: TimeInterval = 300) {
+    /// Variables every git of this value runs with, over the app's own: a
+    /// test's `GIT_CONFIG_GLOBAL`, so no test reads the person's config.
+    public var environment: [String: String]
+
+    /// The vault's own author (`git.name` and `git.email` in its
+    /// `.daftar.toml`), for a commit in a clone that names none of its own.
+    public var author: Author
+
+    public init(root: URL, executable: URL? = nil, limit: TimeInterval = 300, environment: [String: String] = [:], author: Author = Author()) {
         self.root = root
         self.executable = executable ?? Git.locate()
         self.limit = limit
+        self.environment = environment
+        self.author = author
     }
 
-    /// The `ssh` git uses when the person set none: it never asks, gives
-    /// up on a host that does not answer, and notices a connection that died.
-    public static let ssh = "ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+    /// The `ssh` git uses when neither the person nor the clone set one: it
+    /// never asks, gives up on a host that does not answer, and notices a
+    /// connection that died.
+    public static let ssh = sshCommand(configured: nil, environment: nil)
+
+    /// The app's own `ssh` options, by name and value.
+    public static let sshOptions: [(name: String, value: String)] = [
+        ("BatchMode", "yes"), ("ConnectTimeout", "20"), ("ServerAliveInterval", "15"), ("ServerAliveCountMax", "3"),
+    ]
+
+    /// The `GIT_SSH_COMMAND` of every git the app runs. `GIT_SSH_COMMAND`
+    /// of the [environment], when it says something, is used as it is: the
+    /// person asked for it. Else the clone's `core.sshCommand`
+    /// ([configured]), which carries the clone's key, else `ssh`, with the
+    /// app's options after it: each one only when the command does not name
+    /// that option already, in any case of letters. Git puts the variable
+    /// above `core.sshCommand`, so setting it without reading the config
+    /// first made git ignore a key set for the clone.
+    public static func sshCommand(configured: String?, environment: String?) -> String {
+        func said(_ text: String?) -> String? {
+            guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+        if let asked = said(environment) { return asked }
+        var command = said(configured) ?? "ssh"
+        let named = command.lowercased()
+        for option in sshOptions where !named.contains(option.name.lowercased()) {
+            command += " -o \(option.name)=\(option.value)"
+        }
+        return command
+    }
+
+    /// The commands of git that reach a remote, and so start `ssh`.
+    private static let remoteCommands: Set<String> = ["pull", "push", "fetch", "clone", "ls-remote", "remote", "submodule"]
+
+    /// Whether git with [arguments] may start `ssh`: only then is the
+    /// clone's `core.sshCommand` read, one more git for each of them.
+    static func reachesRemote(_ arguments: [String]) -> Bool {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "-c" || argument == "-C" { index += 2; continue }
+            if argument.hasPrefix("-") { index += 1; continue }
+            return remoteCommands.contains(argument)
+        }
+        return false
+    }
 
     public struct Failure: Error, CustomStringConvertible {
         public var arguments: [String]
@@ -49,12 +103,20 @@ public struct Git: Sendable {
     /// that needs a password fails and says so instead of waiting for ever.
     @discardableResult
     public func run(_ arguments: [String], trimmed: Bool = true, environment extra: [String: String] = [:]) async throws -> String {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["-C", root.path] + arguments
+        var extra = environment.merging(extra) { $1 }
+        // The clone's own `ssh`, with its key, is read only for a command
+        // that may start one; for the others the variable is never used.
+        let asked = extra["GIT_SSH_COMMAND"] ?? ProcessInfo.processInfo.environment["GIT_SSH_COMMAND"]
+        let configured = Self.reachesRemote(arguments) ? try? await launch(["config", "--get", "core.sshCommand"], environment: extra) : nil
+        extra["GIT_SSH_COMMAND"] = Self.sshCommand(configured: configured, environment: asked)
+        return try await launch(arguments, trimmed: trimmed, environment: extra)
+    }
+
+    /// The process environment of every git: no prompt, a limit on a slow
+    /// HTTPS connection, and Homebrew on the `PATH`.
+    private func processEnvironment(_ extra: [String: String]) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_TERMINAL_PROMPT"] = "0"
-        environment["GIT_SSH_COMMAND"] = environment["GIT_SSH_COMMAND"] ?? Self.ssh
         // Over HTTPS: under 1000 bytes a second for 30 seconds is a dead connection.
         environment["GIT_HTTP_LOW_SPEED_LIMIT"] = environment["GIT_HTTP_LOW_SPEED_LIMIT"] ?? "1000"
         environment["GIT_HTTP_LOW_SPEED_TIME"] = environment["GIT_HTTP_LOW_SPEED_TIME"] ?? "30"
@@ -63,6 +125,34 @@ public struct Git: Sendable {
         let path = environment["PATH"] ?? "/usr/bin:/bin"
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
         environment.merge(extra) { $1 }
+        return environment
+    }
+
+    /// Git run at once, on the caller's thread, for a short question about
+    /// the clone's config (`VaultEdits.isReadOnly`): its exit status and
+    /// what it printed. No run loop turns while it waits.
+    func ask(_ arguments: [String]) -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["-C", root.path] + arguments
+        process.environment = processEnvironment(environment)
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        process.standardInput = FileHandle.nullDevice
+        let ended = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in ended.signal() }
+        do { try process.run() } catch { return (-1, "") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        ended.wait()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func launch(_ arguments: [String], trimmed: Bool = true, environment extra: [String: String] = [:]) async throws -> String {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["-C", root.path] + arguments
+        let environment = processEnvironment(extra)
         process.environment = environment
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -128,6 +218,8 @@ public struct Git: Sendable {
     /// rebase that stops on a conflict stays open and throws `Stopped`, and
     /// so do local changes that do not fit on what the pull brought.
     public func pull() async throws {
+        // A read-only clone only fast-forwards: nothing is kept aside or rebased.
+        if await isReadOnly() { return _ = try await pullOnly() }
         try await refuseOpenOperation()
         try await pullRebase()
     }
@@ -170,7 +262,7 @@ public struct Git: Sendable {
 
     private func pullRebase() async throws {
         do {
-            try await run(["pull", "--rebase", "--autostash"])
+            try await run(identity() + ["pull", "--rebase", "--autostash"])
         } catch {
             guard try await rebaseInProgress() else { throw error }
             throw Stopped(conflicts: try await conflicts())
@@ -232,15 +324,18 @@ public struct Git: Sendable {
     /// A rebase open on a conflict is never committed over: it throws
     /// `Stopped`, and the person resolves it first. Nor is a merge, a
     /// cherry-pick or a revert left open, or a file still in conflict.
+    /// In a read-only clone (`daftar.readonly`) the sync is a pull that
+    /// only fast-forwards: no commit before it and no push after.
     @discardableResult
     public func sync(message: String) async throws -> Bool {
+        if await isReadOnly() { return try await pullOnly() }
         try await refuseOpenOperation()
         try await refuseNoBranch()
         var changed = false
         if try await !changes().isEmpty {
             try await run(["add", "-A"])
             do {
-                try await run(["commit", "-m", message])
+                try await run(identity() + ["commit", "-m", message])
             } catch var failure as Failure {
                 // A hook's refusal reads as its own words, a lint report
                 // perhaps: say whose they are.
@@ -263,7 +358,12 @@ public struct Git: Sendable {
         guard let branch = try? await run(["symbolic-ref", "-q", "--short", "HEAD"]), !branch.isEmpty else {
             throw Failure(arguments: ["sync"], status: -1, output: "HEAD is detached: check out a branch first (git switch <branch>)")
         }
-        guard (try? await run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])) != nil else {
+        // An upstream set as config and not fetched yet (an address just
+        // given in the app) is one: the pull that follows fetches it.
+        let fetched = (try? await run(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])) != nil
+        let merge = await localConfig("branch.\(branch).merge"), remote = await localConfig("branch.\(branch).remote")
+        let configured = merge != nil && remote != nil
+        guard fetched || configured else {
             throw Failure(
                 arguments: ["sync"], status: -1,
                 output: "the branch \(branch) has no upstream to pull from and push to: set it once (git push -u origin \(branch))")
@@ -284,7 +384,14 @@ public struct Git: Sendable {
     @discardableResult
     public func pushIfAhead() async throws -> Bool {
         guard try await !run(["rev-list", "@{upstream}..HEAD"]).isEmpty else { return false }
-        try await run(["push"])
+        do {
+            try await run(["push"])
+        } catch let failure as Failure {
+            // A deploy key without write access: the commits stay, and the
+            // person is told the key cannot write.
+            if let refused = Git.refusedPush(failure.output) { throw refused }
+            throw failure
+        }
         return true
     }
 
@@ -411,7 +518,7 @@ public struct Git: Sendable {
             // replayed, which is theirs.
             try await run(["add", "-A"])
             do {
-                try await run(["rebase", "--continue"], environment: ["GIT_EDITOR": "true"])
+                try await run(identity() + ["rebase", "--continue"], environment: ["GIT_EDITOR": "true"])
             } catch {
                 // A stop on the next commit's conflict is not a failure.
                 guard try await rebaseInProgress(), try await !conflicts().isEmpty else { throw error }

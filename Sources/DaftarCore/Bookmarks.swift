@@ -60,6 +60,7 @@ public struct Bookmarks: Sendable, Equatable {
     /// Written as Obsidian writes it: two spaces, the keys in their order.
     public func save(_ root: URL) throws {
         guard !unreadable else { throw Failure.unreadable }
+        try VaultEdits.refuseReadOnly(root)
         try FileManager.default.createDirectory(at: Self.url(root).deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(self.root.text.utf8).write(to: Self.url(root), options: .atomic)
     }

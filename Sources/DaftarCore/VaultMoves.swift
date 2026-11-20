@@ -214,6 +214,7 @@ public enum VaultMoves {
     /// Returns every vault path that changed, old and new.
     @discardableResult
     public static func perform(_ from: String, to: String, index: VaultIndex, root: URL) throws -> Set<String> {
+        try VaultEdits.refuseReadOnly(root)
         let moves = try plan(from, to: to, files: index.files)
         let manager = FileManager.default
         let source = root.appending(path: from), destination = root.appending(path: to)

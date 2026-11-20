@@ -10,6 +10,22 @@ public enum VaultEdits {
         /// The text to change is no longer where it was found.
         case textMoved
         case unreadable
+        /// The vault is a read-only clone (`daftar.readonly` in its git
+        /// config): the app writes no file of it.
+        case readOnly
+    }
+
+    /// Whether the vault at [root] is a read-only clone. Asked before every
+    /// write, so the answer is kept for the clone's config file as it is
+    /// now (its date, size and inode) and git runs again only when that
+    /// file changed: a `git config daftar.readonly true` in a shell holds
+    /// for the app's next write.
+    public static func isReadOnly(_ root: URL) -> Bool { ReadOnlyClones.shared.isReadOnly(root) }
+
+    /// Throws `Failure.readOnly` for a read-only clone, before anything of
+    /// the vault is read or written. Every write of the app comes through here.
+    public static func refuseReadOnly(_ root: URL) throws {
+        if isReadOnly(root) { throw Failure.readOnly }
     }
 
     /// Ticks or opens the task on [line] of [text]. [status] is what the view
@@ -60,6 +76,7 @@ public enum VaultEdits {
     /// rename can write thousands of notes. For each path, in order, whether
     /// its text changed, or what stopped it.
     public static func apply(_ paths: [String], in root: URL, _ edit: @Sendable (String) throws -> String) -> [Result<Bool, any Error>] {
+        if isReadOnly(root) { return paths.map { _ in .failure(Failure.readOnly) } }
         nonisolated(unsafe) let results = UnsafeMutableBufferPointer<Result<Bool, any Error>>.allocate(capacity: paths.count)
         defer { results.deallocate() }
         DispatchQueue.concurrentPerform(iterations: paths.count) { index in
@@ -80,6 +97,7 @@ public enum VaultEdits {
     }
 
     public static func apply(_ path: String, in root: URL, _ edit: (String) throws -> String) throws {
+        try refuseReadOnly(root)
         let url = root.appending(path: path)
         guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8) else {
             throw Failure.unreadable
@@ -87,5 +105,74 @@ public enum VaultEdits {
         let result = try edit(text)
         guard result != text else { return }
         try Data(result.utf8).write(to: url, options: .atomic)
+    }
+}
+
+extension VaultEdits.Failure: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .taskMoved: "The note changed before the click."
+        case .textMoved: "The note changed since it was shown."
+        case .unreadable: "The note could not be read."
+        case .readOnly: "This vault is read-only."
+        }
+    }
+}
+
+/// The answer to "is this clone read-only", kept for each vault until its
+/// git config file changes.
+final class ReadOnlyClones: @unchecked Sendable {
+    static let shared = ReadOnlyClones()
+
+    private struct Stamp: Equatable {
+        var date: Date?
+        var size: Int?
+        var inode: UInt64?
+    }
+
+    private struct Entry {
+        /// The clone's config file.
+        var config: String
+        var stamp: Stamp
+        var readOnly: Bool
+    }
+
+    private let lock = NSLock()
+    private var known: [String: Entry] = [:]
+
+    func isReadOnly(_ root: URL) -> Bool {
+        let key = root.standardizedFileURL.path
+        let entry = lock.withLock { known[key] }
+        if let entry, Self.stamp(entry.config) == entry.stamp { return entry.readOnly }
+        // No `.git` in the folder or above it: no repository, and no git to ask.
+        guard Self.inRepository(root) else {
+            lock.withLock { known[key] = nil }
+            return false
+        }
+        let git = Git(root: root)
+        let found = git.ask(["rev-parse", "--path-format=absolute", "--git-path", "config"])
+        guard found.status == 0, !found.output.isEmpty else { return false }
+        // The stamp is taken first: a change while git answers is asked about again.
+        let stamp = Self.stamp(found.output)
+        let readOnly = git.readsReadOnly()
+        lock.withLock { known[key] = Entry(config: found.output, stamp: stamp, readOnly: readOnly) }
+        return readOnly
+    }
+
+    private static func inRepository(_ root: URL) -> Bool {
+        var folder = root.standardizedFileURL.path
+        while true {
+            if FileManager.default.fileExists(atPath: folder + "/.git") { return true }
+            let parent = (folder as NSString).deletingLastPathComponent
+            if parent == folder || parent.isEmpty { return false }
+            folder = parent
+        }
+    }
+
+    private static func stamp(_ path: String) -> Stamp {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return Stamp(
+            date: attributes?[.modificationDate] as? Date, size: (attributes?[.size] as? NSNumber)?.intValue,
+            inode: (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value)
     }
 }
