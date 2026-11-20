@@ -451,10 +451,13 @@ private struct GeneralSettings: View {
             .help("Shown on Today, the home page and the day picker, each opening its note when the vault has one by that name.")
             .fromVault("calendar.place", settings)
             Toggle("Count today's tasks on the Dock icon", isOn: $settings.dockBadge)
+                .fromVault("appearance.dock_badge", settings)
             Toggle("Show notes in Spotlight", isOn: $settings.spotlight)
                 .help("The index is on this Mac only. Excluded files are left out.")
+                .fromVault("appearance.spotlight", settings)
             Toggle("Hide the menu bar", isOn: $settings.hideMenuBar)
                 .help("The menu bar comes back when the pointer reaches the top of the screen.")
+                .fromVault("appearance.hide_menu_bar", settings)
             Section {
                 HiddenNamesField(settings: settings)
                     .fromVault("files.hidden", settings)
@@ -465,9 +468,11 @@ private struct GeneralSettings: View {
             }
             Section {
                 Toggle("Search by meaning", isOn: $settings.meaningSearch)
+                    .fromVault("meaning.search", settings)
                 Stepper(settings.meaningRefresh == 0 ? "Keep the index fresh: never" : "Keep the index fresh: \(settings.meaningRefresh) min after a change",
                     value: $settings.meaningRefresh, in: 0...240, step: 5)
                     .disabled(!settings.meaningSearch)
+                    .fromVault("meaning.refresh_minutes", settings)
             } footer: {
                 Text("“By meaning” under the search and “Related notes” in the inspector, with daftar-cli's model on this Mac. The model (531 MB) is downloaded once, when you ask.")
             }
@@ -620,9 +625,13 @@ private struct EditorSettings: View {
                 Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
                     .fromVault("editor.live_preview", settings)
                 Toggle("Show the front matter as properties", isOn: $settings.propertiesForm)
+                    .fromVault("editor.properties_form", settings)
                 Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)
+                    .fromVault("editor.typewriter", settings)
                 Toggle("Dim all but the cursor's paragraph (focus)", isOn: $settings.focusMode)
+                    .fromVault("editor.focus", settings)
                 Toggle("Check spelling as you type", isOn: $settings.spellCheck)
+                    .fromVault("editor.spell_check", settings)
                 Toggle("Format the note when you leave the editor", isOn: $settings.formatOnSave)
                     .help("daftar-cli fmt, with the vault's .prettierrc: never while you type")
                     .fromVault("editor.format_on_save", settings)
@@ -644,18 +653,23 @@ private struct EditorSettings: View {
             }
             Section {
                 Toggle("Slide the cursor", isOn: $settings.animateCursor)
+                    .fromVault("editor.animate_cursor", settings)
                 Toggle("Leave a trail behind it", isOn: $settings.cursorTrail)
                     .disabled(!settings.animateCursor)
+                    .fromVault("editor.cursor_trail", settings)
                 Picker("Cursor effect", selection: $settings.cursorEffect) {
                     ForEach(AppSettings.CursorEffect.allCases) { Text($0.title).tag($0) }
                 }
+                .fromVault("editor.cursor_effect", settings)
                 Picker("Option key as Meta", selection: $settings.optionAsMeta) {
                     Text("Neither").tag(VimKeys.OptionKey.none)
                     Text("Left").tag(VimKeys.OptionKey.left)
                     Text("Right").tag(VimKeys.OptionKey.right)
                     Text("Both").tag(VimKeys.OptionKey.both)
                 }
+                .fromVault("editor.option_as_meta", settings)
                 Toggle("Blur the note behind the menu and the command line", isOn: $settings.blurPanels)
+                    .fromVault("editor.blur_panels", settings)
             } header: {
                 Text("Neovim")
             } footer: {

@@ -78,6 +78,36 @@ public struct ResolvedSettings: Sendable, Equatable {
         "files.show_hidden": .bool,
     ]
 
+    /// The settings only the Mac has, which a vault holds in its `[macos]`
+    /// table and nowhere else: none names a program, a path outside the
+    /// vault, or what leaves the Mac.
+    static let platformOnly: [String: Kind] = [
+        "appearance.dock_badge": .bool,
+        "appearance.spotlight": .bool,
+        "appearance.hide_menu_bar": .bool,
+        "editor.properties_form": .bool,
+        "editor.typewriter": .bool,
+        "editor.focus": .bool,
+        "editor.spell_check": .bool,
+        "editor.animate_cursor": .bool,
+        "editor.cursor_trail": .bool,
+        "editor.cursor_effect": .choice(["none", "railgun", "torpedo", "pixiedust", "sonicboom", "ripple"]),
+        "editor.option_as_meta": .choice(["none", "left", "right", "both"]),
+        "editor.blur_panels": .bool,
+        "meaning.search": .bool,
+        "meaning.refresh_minutes": .int(0...1_440),
+        "home.new_tab": .choice(["home", "note"]),
+    ]
+
+    /// The keys that differ by platform by nature: a change of one is
+    /// written to the platform's table, never to the shared section.
+    /// `capture.hotkey` is on the shared list and is the Mac's own: a global shortcut of this platform.
+    static let byPlatform: Set<String> = ["appearance.font", "appearance.code_font", "terminal.font_size", "capture.hotkey"]
+
+    /// This app's table in a vault's file, and the other apps' tables, which it never reads.
+    public static let platform = "macos"
+    static let platforms = ["linux", "macos", "android"]
+
     /// Sections a vault may set whole (`notifications.*`, `scratchpad.*`,
     /// `capture.*`): a key there the app does not know is left alone.
     static let open: Set<String> = ["notifications", "scratchpad", "capture"]
@@ -96,6 +126,11 @@ public struct ResolvedSettings: Sendable, Equatable {
     static let defaults = ConfigFile(text: ConfigFile.template)
 
     private var vault: [String: ConfigFile.Value] = [:]
+    /// The keys the vault's file has in this platform's table, whatever their value.
+    public private(set) var inPlatformTable: Set<String> = []
+    /// The keys this computer declines, and whether it declines every one.
+    private var declined: Set<String> = []
+    private var follows = true
     private var computer = ConfigFile(text: "")
     /// The keys of the vault's file the list refuses, in the file's order.
     public private(set) var refused: [String] = []
@@ -106,29 +141,79 @@ public struct ResolvedSettings: Sendable, Equatable {
     /// computer whose `config.toml` is [computer]. [root] is the vault's
     /// folder, for the rule that a path from the vault stays in it once
     /// its links are resolved; with none, only the path's text is judged.
-    public static func resolved(vault: String, computer: String, root: URL? = nil) -> ResolvedSettings {
+    public static func resolved(vault: String, computer: String, root: URL? = nil, platform: String = ResolvedSettings.platform) -> ResolvedSettings {
         var resolved = ResolvedSettings()
         resolved.computer = ConfigFile(text: computer)
         let file = ConfigFile(text: vault)
-        var declined: Set<String> = []
-        var follows = true
         switch resolved.computer["vault_settings"] {
-        case .bool(false): follows = false
-        case .strings(let keys): declined = Set(keys)
+        case .bool(false): resolved.follows = false
+        case .strings(let keys): resolved.declined = Set(keys)
         default: break
         }
+        // The shared sections first, then the platform's own table over them.
+        var shared: [String: ConfigFile.Value] = [:], own: [String: ConfigFile.Value] = [:]
         var seen: Set<String> = []
         for key in file.keys where seen.insert(key).inserted {
-            guard let kind = allowed[key] else {
-                let section = key.lastIndex(of: ".").map { String(key[..<$0]) } ?? ""
-                if section.isEmpty ? top.contains(key) : (sections.contains(section) && !open.contains(section)) { resolved.refused.append(key) }
+            var name = key
+            var table = false
+            if key.hasPrefix(platform + ".") {
+                name = String(key.dropFirst(platform.count + 1))
+                table = true
+            } else if platforms.contains(where: { key.hasPrefix($0 + ".") }) {
+                // Another platform's table: never read here.
                 continue
             }
-            guard follows, !declined.contains(key), let value = file[key], accepts(value, as: kind, root: root) else { continue }
-            resolved.vault[key] = value
+            // What only this platform has is the platform table's to hold.
+            guard let kind = allowed[name] ?? (table && platform == Self.platform ? platformOnly[name] : nil) else {
+                let section = name.lastIndex(of: ".").map { String(name[..<$0]) } ?? ""
+                if section.isEmpty ? (!table && top.contains(name)) : (sections.contains(section) && !open.contains(section)) { resolved.refused.append(key) }
+                continue
+            }
+            if table { resolved.inPlatformTable.insert(name) }
+            guard resolved.follows, !resolved.declined.contains(name), let value = file[key], accepts(value, as: kind, root: root) else { continue }
+            if table { own[name] = value } else { shared[name] = value }
         }
+        resolved.vault = shared.merging(own) { $1 }
         return resolved
     }
+
+    /// Where a change made in the app is written.
+    public enum Destination: Sendable, Equatable {
+        /// The computer's `config.toml`.
+        case device
+        /// The platform's table in the vault's `.daftar.toml` (`[macos.…]`).
+        case platform
+        /// The vault's shared section.
+        case shared
+    }
+
+    /// Where the change of [key] to [value] is written, the first that
+    /// applies. The device: a key a vault may never hold, a key this
+    /// computer declines, a vault that cannot be written ([writable] false:
+    /// a read-only clone, a folder that is no repository and has no
+    /// `.daftar.toml`), or a value a vault may not hold. The platform's
+    /// table: a key that is there already, one that differs by platform by
+    /// nature, and a setting only this platform has. Else the shared section.
+    public func destination(of key: String, value: ConfigFile.Value, root: URL? = nil, writable: Bool) -> Destination {
+        let only = Self.platformOnly[key]
+        guard writable, follows, !declined.contains(key), let kind = Self.allowed[key] ?? only,
+            Self.accepts(value, as: kind, root: root)
+        else { return .device }
+        // The author is the vault's own to write by hand, not a setting of the app.
+        if only != nil || Self.byPlatform.contains(key) || inPlatformTable.contains(key) { return .platform }
+        return .shared
+    }
+
+    /// [key] as the vault's file names it at [destination]: under the platform's table, or as it is.
+    public static func written(_ key: String, at destination: Destination) -> String {
+        destination == .platform ? platform + "." + key : key
+    }
+
+    /// A key a vault may hold on this platform: it has Keep on This Device and Follow the Vault.
+    public static func mayBeInVault(_ key: String) -> Bool { allowed[key] != nil || platformOnly[key] != nil }
+
+    /// This computer declines [key] (`vault_settings` as a list), or every key.
+    public func declines(_ key: String) -> Bool { !follows || declined.contains(key) }
 
     static func accepts(_ value: ConfigFile.Value, as kind: Kind, root: URL?) -> Bool {
         func line(_ text: String) -> Bool { !text.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) } }

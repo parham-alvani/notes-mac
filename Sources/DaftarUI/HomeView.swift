@@ -381,6 +381,7 @@ struct HomeSettings: View {
                     Text("The home page").tag(AppSettings.NewTab.home)
                     Text("The same note").tag(AppSettings.NewTab.note)
                 }
+                .fromVault("home.new_tab", settings)
             } footer: {
                 Text("What ⌘T opens. Open in New Tab, from the sidebar or a link, always opens that note.")
             }

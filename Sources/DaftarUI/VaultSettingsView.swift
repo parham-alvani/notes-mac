@@ -280,24 +280,47 @@ private struct CommitField: View {
     }
 }
 
-/// A control whose setting the open vault sets in its `.daftar.toml`: off,
-/// with its value shown and "From the vault" under it.
+/// A control of a setting a vault may hold. When the open vault sets it,
+/// "From the vault" shows under it, and it works where the vault can be
+/// written: the change goes to the vault's `.daftar.toml`. In a read-only
+/// clone it is off. Its context menu keeps the setting on this Mac, or
+/// follows the vault again.
 private struct FromVault: ViewModifier {
     let key: String
     let settings: AppSettings
 
     func body(content: Content) -> some View {
-        if settings.isFromVault(key) {
-            VStack(alignment: .leading, spacing: 3) {
-                content.disabled(true)
+        let fromVault = settings.isFromVault(key)
+        let kept = settings.keepsOnDevice(key)
+        VStack(alignment: .leading, spacing: 3) {
+            content.disabled(fromVault && !settings.vaultWritable)
+            if fromVault {
                 Label("From the vault", systemImage: "books.vertical")
                     .font(.caption).foregroundStyle(.secondary)
+            } else if kept, settings.followsVault {
+                Label("Kept on this device", systemImage: "laptopcomputer")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            .help("The vault sets \(key) in its .daftar.toml. To keep this Mac's own value, add \"\(key)\" to vault_settings in the settings file, or set vault_settings = false.")
-            .accessibilityHint("From the vault. Change it in the vault's .daftar.toml.")
-        } else {
-            content
         }
+        .help(help(fromVault: fromVault, kept: kept))
+        .accessibilityHint(fromVault ? "From the vault." : "")
+        .contextMenu {
+            if settings.declinedKeys.contains(key) {
+                Button("Follow the Vault") { settings.followVault(key) }
+            } else {
+                Button("Keep on This Device") { settings.keepOnDevice(key) }
+                    .disabled(!settings.followsVault)
+            }
+        }
+    }
+
+    private func help(fromVault: Bool, kept: Bool) -> String {
+        if fromVault, !settings.vaultWritable {
+            return "The vault sets \(key) in its .daftar.toml, and this vault cannot be written here. To keep this Mac's own value, add \"\(key)\" to vault_settings in the settings file, or set vault_settings = false."
+        }
+        if fromVault { return "The vault sets \(key) in its .daftar.toml. A change here is written there, and the next sync takes it to your other devices. Right-click to keep it on this Mac." }
+        if kept { return "This Mac keeps \(key) for itself (vault_settings in the settings file). Right-click to follow the vault." }
+        return "A change here is written to the vault's .daftar.toml when the vault can be written, so your other devices get it. Right-click to keep it on this Mac."
     }
 }
 
