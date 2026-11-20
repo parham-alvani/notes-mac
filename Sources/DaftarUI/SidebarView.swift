@@ -708,6 +708,8 @@ struct InspectorView: View {
                     }
                 }
             }
+            // Another vault's note of the same path has facts of its own.
+            .onChange(of: store.root) { cache.reset() }
             .task(id: "\(path)\u{0}\(store.revision)") {
                 let revision = store.revision
                 // Found already, for the vault as it is: a tab shown again.
@@ -816,6 +818,14 @@ final class InspectorCache {
 
     private var queries: [String: MeaningQuery] = [:]
     private var asked: [String] = []
+
+    /// Nothing known: the vault changed.
+    func reset() {
+        entries = [:]
+        order = []
+        queries = [:]
+        asked = []
+    }
 
     /// The list of the notes related to [path], made when it is first asked for.
     func related(to path: String) -> MeaningQuery {

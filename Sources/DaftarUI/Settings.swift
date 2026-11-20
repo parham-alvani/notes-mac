@@ -26,6 +26,12 @@ final class AppSettings {
 
     @ObservationIgnored private var vaultText = ""
     @ObservationIgnored private var vaultRoot: URL?
+    /// The open vault can be written: not a read-only clone, and a
+    /// repository or a folder that has a `.daftar.toml` already. The store says.
+    var vaultWritable = false
+    /// Writes one key of the vault's `.daftar.toml` through the store's own
+    /// write, and gives the file's new text; nil when it could not.
+    @ObservationIgnored var vaultWriter: ((String, ConfigFile.Value) -> String?)?
     /// The keys the open vault's `.daftar.toml` sets on this computer.
     private(set) var fromVault: Set<String> = []
     /// The keys of the vault's file that a vault may not set (a program, a
@@ -40,12 +46,14 @@ final class AppSettings {
     var followsVault: Bool {
         didSet {
             guard !loading, followsVault != oldValue else { return }
-            write("vault_settings", .bool(followsVault))
+            writeDevice("vault_settings", .bool(followsVault))
             load()
         }
     }
 
     var vaultPath: String? { didSet { writeVault() } }
+    /// Every vault this computer knows (`vaults`), the one in use among them.
+    private(set) var vaults = Vaults(config: "")
     var appearance: Appearance { didSet { write("appearance.theme", .string(appearance.rawValue)); applyAppearance() } }
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
     var font: String { didSet { write("appearance.font", .string(font)) } }
@@ -269,6 +277,8 @@ final class AppSettings {
         if resolved.author != vaultAuthor { vaultAuthor = resolved.author }
         followsVault = file["vault_settings"] != .bool(false)
         declinedKeys = file.strings("vault_settings") ?? []
+        let list = Vaults(config: text)
+        if list != vaults { vaults = list }
         let vault = file.string("vault") ?? ""
         vaultPath = vault.isEmpty ? nil : (vault as NSString).expandingTildeInPath
         appearance = resolved.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
@@ -325,7 +335,65 @@ final class AppSettings {
         okfActor = file.string("okf.actor") ?? ""
     }
 
+    /// A setting changed in the app. It goes to the vault's `.daftar.toml`,
+    /// so the next sync takes it to the other devices: to the platform's
+    /// table (`[macos.…]`) for a key that is there already, a font, and
+    /// what only the Mac has, else to the shared section. It goes to this
+    /// Mac's `config.toml` when a vault may never hold the key or the
+    /// value, when the Mac declines the key, and when the vault cannot be
+    /// written (`ResolvedSettings.destination`).
     private func write(_ path: String, _ value: ConfigFile.Value) {
+        guard !loading else { return }
+        let resolved = ResolvedSettings.resolved(vault: vaultText, computer: file.text, root: vaultRoot)
+        let destination = resolved.destination(of: path, value: value, root: vaultRoot, writable: vaultWritable && vaultWriter != nil)
+        guard destination != .device else { return writeDevice(path, value) }
+        let key = ResolvedSettings.written(path, at: destination)
+        // Not a change: the value in use already, set again by a field that was only left.
+        guard resolved[path] != value else { return }
+        guard let text = vaultWriter?(key, value) else {
+            // The vault's file could not be written after all: the change is kept on this Mac.
+            return writeDevice(path, value)
+        }
+        // What the app wrote is what it holds: the watcher's news of the same text changes nothing.
+        vaultText = text
+        problem = nil
+        followVaultFacts()
+    }
+
+    /// The keys the vault sets, the ones it may not, and its author, for the vault's text as it is now.
+    private func followVaultFacts() {
+        let resolved = ResolvedSettings.resolved(vault: vaultText, computer: file.text, root: vaultRoot)
+        if resolved.fromVault != fromVault { fromVault = resolved.fromVault }
+        if resolved.refused != refusedByVault { refusedByVault = resolved.refused }
+        if resolved.author != vaultAuthor { vaultAuthor = resolved.author }
+    }
+
+    /// Keep on This Device: [key] joins the keys this Mac declines
+    /// (`vault_settings`), and its value now is written to `config.toml`.
+    /// The vault's line stays as it is.
+    func keepOnDevice(_ key: String) {
+        guard ResolvedSettings.mayBeInVault(key), !loading else { return }
+        let resolved = ResolvedSettings.resolved(vault: vaultText, computer: file.text, root: vaultRoot)
+        guard !resolved.declines(key) else { return }
+        if let value = resolved[key] { writeDevice(key, value) }
+        writeDevice("vault_settings", .strings(declinedKeys + [key]))
+        load()
+    }
+
+    /// Follow the Vault: [key] leaves the declined keys, and the vault's value is used again.
+    func followVault(_ key: String) {
+        guard declinedKeys.contains(key), !loading else { return }
+        let left = declinedKeys.filter { $0 != key }
+        // A list left empty stays a list: it follows the vault for every key, as `true` does.
+        writeDevice("vault_settings", .strings(left))
+        load()
+    }
+
+    /// This Mac keeps [key] for itself: it is on the declined list, or no vault's setting is read.
+    func keepsOnDevice(_ key: String) -> Bool { !followsVault || declinedKeys.contains(key) }
+
+    /// The computer's `config.toml`, one value on its own line.
+    private func writeDevice(_ path: String, _ value: ConfigFile.Value) {
         guard !loading, file[path] != value else { return }
         guard !unreadable else {
             // The file was never read: writing would put the template where the person's settings are.
@@ -354,10 +422,31 @@ final class AppSettings {
     /// home folder with `~`, so the file is the same on every Mac. A path
     /// the file already names, by either spelling, is not written again.
     private func writeVault() {
+        guard !loading else { return }
         let now = vaultPath ?? ""
-        let written = file.string("vault") ?? ""
-        if (written as NSString).expandingTildeInPath == now { return }
-        write("vault", .string((now as NSString).abbreviatingWithTildeInPath))
+        guard !now.isEmpty else { return writeDevice("vault", .string("")) }
+        // The vault in use from now on, and in the list once: a vault the
+        // list has keeps the text it was written with, and nothing moves.
+        var list = Vaults(config: file.text)
+        list.open(now)
+        apply(list)
+    }
+
+    /// Writes `vault` and `vaults` as [list] has them, each only when the file says otherwise.
+    private func apply(_ list: Vaults) {
+        let changed = list.applied(to: file)
+        for key in ["vault", "vaults"] {
+            if let value = changed[key], value != file[key] { writeDevice(key, value) }
+        }
+        vaults = Vaults(config: file.text)
+    }
+
+    /// Forget Vault: [folder] leaves the list, and no file is touched. The
+    /// vault in use is refused.
+    func forgetVault(_ folder: String) throws {
+        var list = Vaults(config: file.text)
+        try list.forget(folder)
+        apply(list)
     }
 
     private static func shown(_ url: URL) -> String { (url.path as NSString).abbreviatingWithTildeInPath }

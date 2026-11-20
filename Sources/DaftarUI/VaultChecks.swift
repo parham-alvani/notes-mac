@@ -100,6 +100,20 @@ final class VaultChecks {
     /// keeps `daftar-cli`'s settings (`.daftar.toml`, `.markdownlint.jsonc`,
     /// `.prettierrc`) is audited at once, in the background; any other only
     /// once the panel asks.
+    /// The vault is being left: its findings go at once, and no audit of it
+    /// reports into the next vault.
+    func left() {
+        soon?.cancel()
+        audit?.cancel()
+        audit = nil
+        running = false
+        again = false
+        root = nil
+        show([])
+        state = .idle
+        scope = .vault
+    }
+
     func opened(_ root: URL) {
         soon?.cancel()
         audit?.cancel()
@@ -427,9 +441,13 @@ final class VaultChecks {
             NoteFormat.formats(at: moment, setting: store.settings.formatOnSave, path: left.path, edited: true)
         else { return }
         let previous = formats[left.path]
+        // The vault the note was left in: after a change of vault the same
+        // path is another vault's note, which this format must not touch.
+        let vault = store.root
         let task = Task { [weak self] in
             await previous?.value
             await after?.value
+            guard self?.store?.root == vault else { return }
             await self?.formatFile(left)
         }
         formats[left.path] = task

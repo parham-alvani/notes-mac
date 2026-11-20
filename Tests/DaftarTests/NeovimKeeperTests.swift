@@ -107,6 +107,9 @@ import Testing
         let session = try await running()
         keys("Ax\u{1B}")
         #expect(await eventually { view.string == "first linex\nسلام دنیا\n" })
+        // The text comes before the news that Neovim is back in Normal mode, and
+        // only a Neovim in Normal mode is taken for the next note.
+        #expect(await eventually { session.reusable(with: store.settings, root: store.root ?? root) })
         controller.load("Other.md")
         #expect(controller.session === session)
         #expect(view.string == "other\n")

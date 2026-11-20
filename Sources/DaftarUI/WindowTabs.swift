@@ -115,6 +115,24 @@ final class WindowTabs {
         tabs.insert(tab, at: to)
     }
 
+    /// [made] in the place of every tab the window has, [front] in front:
+    /// a change of vault. The tabs that go are given back.
+    func replace(with made: [WindowModel], front: WindowModel) {
+        let old = tabs
+        if let window {
+            window.makeFirstResponder(nil)
+        }
+        tabs = made
+        if ActiveWindow.shared.model.map({ model in old.contains { $0 === model } }) ?? false { ActiveWindow.shared.model = front }
+        current = front
+        chrome = front
+        for tab in old {
+            release(tab)
+            tab.tabs = nil
+            tab.responder = nil
+        }
+    }
+
     /// Every tab is given back, when the window goes.
     func releaseAll() { tabs.forEach(release) }
 
@@ -204,6 +222,15 @@ final class WindowTabs {
     static func of(_ window: NSWindow?) -> WindowTabs? { window.flatMap { byWindow.object(forKey: $0) } }
 
     /// The tabs of every Daftar window that is open.
+    /// Every window's tabs for a change of vault, seen or not (a window in
+    /// the Dock changes too), the window the person is in first.
+    static var forChange: [WindowTabs] {
+        let windows = (byWindow.keyEnumerator().allObjects as? [NSWindow] ?? [])
+        let front = windows.first(where: \.isKeyWindow) ?? windows.first(where: \.isMainWindow)
+            ?? NSApp?.orderedWindows.first { window in windows.contains { $0 === window } }
+        return ((front.map { [$0] } ?? []) + windows.filter { $0 !== front }).compactMap { byWindow.object(forKey: $0) }
+    }
+
     static var all: [WindowTabs] {
         (byWindow.keyEnumerator().allObjects as? [NSWindow] ?? []).filter(\.isVisible).compactMap { byWindow.object(forKey: $0) }
     }

@@ -198,4 +198,90 @@ import Testing
         try await git.sync(message: "six")
         #expect(try await author() == "Work <work@example.com> Work <work@example.com>")
     }
+
+    @Test func aPlatformReadsItsOwnTable() {
+        let vault = "[appearance]\ntext_size = 14\n[macos.appearance]\ntext_size = 15\n[android.appearance]\ntext_size = 16\n"
+        func size(_ platform: String) -> Int? {
+            ResolvedSettings.resolved(vault: vault, computer: "[appearance]\ntext_size = 12\n", platform: platform).int("appearance.text_size")
+        }
+        #expect(size("macos") == 15)
+        #expect(size("android") == 16)
+        #expect(size("linux") == 14)
+        let mac = resolved(vault: vault, computer: "")
+        #expect(mac.source(of: "appearance.text_size") == .vault && mac.inPlatformTable == ["appearance.text_size"])
+        #expect(mac.refused.isEmpty)
+        // The allow-list, the ranges and the path rules hold in a platform table as in a shared section.
+        let shell = resolved(vault: "[macos.terminal]\nshell = \"/tmp/x\"\nfont_size = 15\n", computer: "[terminal]\nshell = \"/bin/zsh\"\n")
+        #expect(shell.refused == ["macos.terminal.shell"])
+        #expect(shell.string("terminal.shell") == "/bin/zsh" && shell.int("terminal.font_size") == 15)
+        #expect(resolved(vault: "[macos.appearance]\ntext_size = 99\n[appearance]\ntext_size = 16\n", computer: "").int("appearance.text_size") == 16)
+        #expect(resolved(vault: "[macos.home]\nimage = \"/etc/passwd\"\n", computer: "[home]\nimage = \"mine.png\"\n").string("home.image") == "mine.png")
+        #expect(resolved(vault: "[macos.appearance]\nremote_images = true\n", computer: "[appearance]\nremote_images = false\n").bool("appearance.remote_images") == false)
+        // What only the Mac has lives in its table, and nowhere else.
+        let own = resolved(vault: "[macos.appearance]\ndock_badge = false\n[macos.editor]\ncursor_effect = \"ripple\"\ntypewriter = true\n", computer: "")
+        #expect(own.bool("appearance.dock_badge") == false && own.string("editor.cursor_effect") == "ripple" && own.bool("editor.typewriter") == true)
+        #expect(own.refused.isEmpty)
+        #expect(resolved(vault: "[appearance]\ndock_badge = false\n", computer: "").refused == ["appearance.dock_badge"])
+        #expect(resolved(vault: "[macos.editor]\ncursor_effect = \"fireworks\"\n", computer: "").string("editor.cursor_effect") == "none")
+        // A computer that declines a key declines it in the platform's table too.
+        #expect(resolved(vault: vault, computer: "vault_settings = [\"appearance.text_size\"]\n[appearance]\ntext_size = 12\n").int("appearance.text_size") == 12)
+    }
+
+    /// Where a change is written: the pure rule of section 5.
+    @Test func whereAChangeIsWritten() {
+        let settings = resolved(vault: "[appearance]\ntheme = \"dark\"\n[macos.appearance]\ntext_size = 15\n", computer: "")
+        func where_(_ key: String, _ value: ConfigFile.Value, in settings: ResolvedSettings, writable: Bool = true) -> ResolvedSettings.Destination {
+            settings.destination(of: key, value: value, writable: writable)
+        }
+        // The shared section, for a key every platform reads the same.
+        #expect(where_("appearance.theme", .string("light"), in: settings) == .shared)
+        #expect(where_("notifications.digest", .bool(false), in: settings) == .shared)
+        // The platform's table: a key that is there already, a font, and what only the Mac has.
+        #expect(where_("appearance.text_size", .int(17), in: settings) == .platform)
+        #expect(where_("appearance.font", .string("SF Pro"), in: settings) == .platform)
+        #expect(where_("appearance.code_font", .string("SF Mono"), in: settings) == .platform)
+        #expect(where_("terminal.font_size", .int(13), in: settings) == .platform)
+        #expect(where_("capture.hotkey", .string("ctrl+opt+n"), in: settings) == .platform)
+        #expect(where_("capture.target", .string("daily"), in: settings) == .shared)
+        #expect(where_("appearance.dock_badge", .bool(false), in: settings) == .platform)
+        #expect(where_("editor.cursor_effect", .string("ripple"), in: settings) == .platform)
+        #expect(ResolvedSettings.written("appearance.font", at: .platform) == "macos.appearance.font")
+        #expect(ResolvedSettings.written("appearance.theme", at: .shared) == "appearance.theme")
+        // The device: what a vault may never hold, by key or by value.
+        for (key, value) in [
+            ("terminal.shell", ConfigFile.Value.string("/bin/zsh")), ("editor.vim_mode", .bool(true)), ("editor.nvim", .string("/x")),
+            ("wakatime.enabled", .bool(true)), ("okf.actor", .string("parham")), ("vault", .string("~/org")), ("vaults", .strings([])),
+            ("vault_settings", .bool(true)), ("appearance.remote_images", .bool(true)), ("home.image", .string("/Users/p/x.png")),
+            ("home.image", .string("~/x.png")), ("appearance.text_size", .int(99)),
+        ] {
+            #expect(where_(key, value, in: settings) == .device, "\(key)")
+        }
+        #expect(where_("appearance.remote_images", .bool(false), in: settings) == .shared)
+        #expect(where_("home.image", .string("uploads/home.webp"), in: settings) == .shared)
+        // A vault that cannot be written, and a computer that declines.
+        #expect(where_("appearance.theme", .string("light"), in: settings, writable: false) == .device)
+        #expect(where_("appearance.theme", .string("light"), in: resolved(vault: "", computer: "vault_settings = false\n")) == .device)
+        let declined = resolved(vault: "", computer: "vault_settings = [\"appearance.theme\"]\n")
+        #expect(where_("appearance.theme", .string("light"), in: declined) == .device)
+        #expect(where_("appearance.text_size", .int(16), in: declined) == .shared)
+        #expect(declined.declines("appearance.theme") && !declined.declines("appearance.text_size"))
+    }
+
+    /// Only the line of the key changes; a new key goes at the end of its
+    /// section, a new section at the end of the file after one blank line.
+    @Test func theVaultsFileIsWrittenALineAtATime() {
+        var file = ConfigFile(text: "# mine\n[appearance]\ntheme = \"dark\" # night\n")
+        file.set("appearance.text_size", .int(16))
+        #expect(file.text == "# mine\n[appearance]\ntheme = \"dark\" # night\ntext_size = 16\n")
+        file.set("appearance.theme", .string("light"))
+        #expect(file.text == "# mine\n[appearance]\ntheme = \"light\" # night\ntext_size = 16\n")
+        file.set("notifications.digest", .bool(false))
+        #expect(file.text == "# mine\n[appearance]\ntheme = \"light\" # night\ntext_size = 16\n\n[notifications]\ndigest = false\n")
+        file.set("macos.appearance.font", .string("SF Pro"))
+        #expect(file.text.hasSuffix("\n[notifications]\ndigest = false\n\n[macos.appearance]\nfont = \"SF Pro\"\n"))
+        // A file that was empty gets no blank line at its top.
+        var empty = ConfigFile(text: "")
+        empty.set("appearance.theme", .string("dark"))
+        #expect(empty.text == "[appearance]\ntheme = \"dark\"\n")
+    }
 }

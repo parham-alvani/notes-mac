@@ -124,7 +124,8 @@ public struct ConfigFile: Sendable, Equatable {
             lines.insert(entry, at: at + 1)
         } else {
             while lines.last?.isEmpty == true { lines.removeLast() }
-            lines += ["", "[\(section)]", entry]
+            // One blank line before a new section, and none at the top of an empty file.
+            lines += (lines.isEmpty ? [] : [""]) + ["[\(section)]", entry]
         }
         text = lines.joined(separator: "\n")
         if !text.hasSuffix("\n") { text += "\n" }
@@ -214,15 +215,21 @@ public struct ConfigFile: Sendable, Equatable {
         # this file again whenever it changes, and writes back only the value
         # that a change in its Settings window touches.
 
-        # The folder of the Obsidian vault.
+        # The folder of the Obsidian vault in use.
         vault = ""
-        # A vault may carry settings of the app in the .daftar.toml at its
-        # root, in the same sections and keys as here, and its value wins over
-        # this file's: a new computer is set up by its first pull. false reads
-        # no setting from any vault; a list, as ["appearance.theme",
-        # "git.sync_interval"], declines only those keys. A vault never sets
-        # the keys that name a program or send something out (the shell,
-        # Neovim, WakaTime) or the vault's folder.
+        # Every vault this computer knows, the one in use among them: what
+        # File › Switch Vault offers. Opening a vault adds it at the end; the
+        # order is yours. Forget Vault takes one out and touches no file.
+        vaults = []
+        # The settings are kept in the vault: the .daftar.toml at its root holds
+        # the same sections and keys as this file, its value wins over this
+        # file's, and a setting you change in the app is written there, so the
+        # next sync takes it to your other devices. false reads no setting from
+        # any vault and writes none to it; a list, as ["appearance.theme",
+        # "git.sync_interval"], keeps only those keys on this Mac (Keep on This
+        # Device, in a setting's context menu). What names a program or sends
+        # something out (the shell, Neovim, WakaTime) and the vault's folder
+        # are always this file's alone.
         vault_settings = true
 
         [appearance]

@@ -21,13 +21,15 @@ struct VaultSettingsTab: View {
         @Bindable var settings = store.settings
         Form {
             Section {
-                LabeledContent("Folder") {
-                    HStack {
-                        Text(store.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "None")
-                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        Button("Change…") { chooseVault(store) }
-                    }
+                ForEach(store.listedVaults) { vault in
+                    VaultRow(vault: vault)
                 }
+                Button("Open Vault…") { chooseVault(store) }
+                    .help("Opens a folder as the vault in use, and adds it to this list")
+            } header: {
+                Text("Vaults")
+            } footer: {
+                Text("One vault is open at a time. Switch changes to another in the running app: the notes you are editing are saved first, and each vault keeps its tabs and reading places. Forget takes a vault out of this list and touches no file.")
             }
             if store.isRepository, let clone {
                 git(clone)
@@ -182,6 +184,72 @@ struct VaultSettingsTab: View {
     }
 }
 
+/// One vault of the list: its name and folder, the one in use marked, a
+/// missing one said so, with Switch and Forget.
+private struct VaultRow: View {
+    let vault: VaultStore.ListedVault
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: vault.inUse ? "checkmark.circle.fill" : vault.missing ? "questionmark.folder" : "folder")
+                .foregroundStyle(vault.inUse ? Palette.green : .secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(vault.name)
+                Text(vault.missing ? "\(vault.folder) · missing" : vault.folder)
+                    .font(.caption).foregroundStyle(vault.missing ? Palette.red : .secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+            if vault.inUse {
+                Text("In use").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Button("Switch") { store.open(URL(filePath: vault.path)) }
+                    .disabled(vault.missing || store.changing)
+                    .help(vault.missing ? "The folder is not there now; it may be on a disk that is not connected" : "Change to this vault")
+                Button("Forget…") { askToForget(vault, store: store) }
+                    .help("Takes this vault out of the list. No file is touched.")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(vault.name), \(vault.inUse ? "in use" : vault.missing ? "missing" : vault.folder)")
+    }
+}
+
+/// Forget Vault, after a question. The vault in use is never offered.
+@MainActor
+func askToForget(_ vault: VaultStore.ListedVault, store: VaultStore) {
+    let alert = NSAlert()
+    alert.messageText = "Forget \(vault.name)?"
+    alert.informativeText = "Daftar takes \(vault.folder) out of its list of vaults. The folder and its notes are not touched, and Open Vault… adds it again."
+    alert.addButton(withTitle: "Forget")
+    alert.addButton(withTitle: "Cancel")
+    if alert.runModal() == .alertFirstButtonReturn { store.forgetVault(vault.path) }
+}
+
+extension PaletteCommands {
+    /// Switch Vault and Forget Vault: a command for each vault of the list
+    /// that is not in use, a missing one left out of Switch, then Open Vault….
+    static func vaults(store: VaultStore) -> [PaletteCommand] {
+        var out: [PaletteCommand] = []
+        let listed = store.listedVaults
+        for vault in listed where !vault.inUse && !vault.missing {
+            out.append(PaletteCommand(id: "switch-vault-" + vault.path, title: "Switch Vault: \(vault.name)", group: "Vault", symbol: "books.vertical.fill", color: Palette.blue) {
+                store.open(URL(filePath: vault.path))
+            })
+        }
+        out.append(PaletteCommand(id: "open-vault", title: "Switch Vault: Open Vault…", group: "Vault", symbol: "folder.badge.plus", color: Palette.yellow, shortcut: "⇧⌘O") {
+            chooseVault(store)
+        })
+        for vault in listed where !vault.inUse {
+            out.append(PaletteCommand(id: "forget-vault-" + vault.path, title: "Forget Vault: \(vault.name)", group: "Vault", symbol: "minus.circle.fill", color: Palette.red) {
+                askToForget(vault, store: store)
+            })
+        }
+        return out
+    }
+}
+
 /// A text field of the clone's git config: written when it is submitted or
 /// left, never at each key.
 private struct CommitField: View {
@@ -212,24 +280,47 @@ private struct CommitField: View {
     }
 }
 
-/// A control whose setting the open vault sets in its `.daftar.toml`: off,
-/// with its value shown and "From the vault" under it.
+/// A control of a setting a vault may hold. When the open vault sets it,
+/// "From the vault" shows under it, and it works where the vault can be
+/// written: the change goes to the vault's `.daftar.toml`. In a read-only
+/// clone it is off. Its context menu keeps the setting on this Mac, or
+/// follows the vault again.
 private struct FromVault: ViewModifier {
     let key: String
     let settings: AppSettings
 
     func body(content: Content) -> some View {
-        if settings.isFromVault(key) {
-            VStack(alignment: .leading, spacing: 3) {
-                content.disabled(true)
+        let fromVault = settings.isFromVault(key)
+        let kept = settings.keepsOnDevice(key)
+        VStack(alignment: .leading, spacing: 3) {
+            content.disabled(fromVault && !settings.vaultWritable)
+            if fromVault {
                 Label("From the vault", systemImage: "books.vertical")
                     .font(.caption).foregroundStyle(.secondary)
+            } else if kept, settings.followsVault {
+                Label("Kept on this device", systemImage: "laptopcomputer")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            .help("The vault sets \(key) in its .daftar.toml. To keep this Mac's own value, add \"\(key)\" to vault_settings in the settings file, or set vault_settings = false.")
-            .accessibilityHint("From the vault. Change it in the vault's .daftar.toml.")
-        } else {
-            content
         }
+        .help(help(fromVault: fromVault, kept: kept))
+        .accessibilityHint(fromVault ? "From the vault." : "")
+        .contextMenu {
+            if settings.declinedKeys.contains(key) {
+                Button("Follow the Vault") { settings.followVault(key) }
+            } else {
+                Button("Keep on This Device") { settings.keepOnDevice(key) }
+                    .disabled(!settings.followsVault)
+            }
+        }
+    }
+
+    private func help(fromVault: Bool, kept: Bool) -> String {
+        if fromVault, !settings.vaultWritable {
+            return "The vault sets \(key) in its .daftar.toml, and this vault cannot be written here. To keep this Mac's own value, add \"\(key)\" to vault_settings in the settings file, or set vault_settings = false."
+        }
+        if fromVault { return "The vault sets \(key) in its .daftar.toml. A change here is written there, and the next sync takes it to your other devices. Right-click to keep it on this Mac." }
+        if kept { return "This Mac keeps \(key) for itself (vault_settings in the settings file). Right-click to follow the vault." }
+        return "A change here is written to the vault's .daftar.toml when the vault can be written, so your other devices get it. Right-click to keep it on this Mac."
     }
 }
 
