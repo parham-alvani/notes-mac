@@ -188,8 +188,10 @@ final class VaultStore {
 
     /// Each plain editor's word on whether it holds text that is not on disk.
     @ObservationIgnored var unsaved: [ObjectIdentifier: () -> Bool] = [:]
-    /// The windows whose tabs a change of vault keeps and opens again; a test gives its own.
-    @ObservationIgnored var windows: () -> [WindowTabs] = { WindowTabs.all }
+    /// Every window, the one the person is in first: a change of vault
+    /// keeps and opens again that one's tabs, and the others show the home
+    /// page. A test gives its own.
+    @ObservationIgnored var windows: () -> [WindowTabs] = { WindowTabs.forChange }
     /// A change of vault is under way; a second one waits its turn by being refused.
     private(set) var changing = false
 
@@ -242,20 +244,24 @@ final class VaultStore {
         }
         // A note typed in is formatted as when it is left, while its vault is still open.
         await checks.formatOpenNotes()
-        // 2. A sync that is running finishes first.
+        // 2. A sync that is running finishes first, and the person is told the change waits for it.
+        if syncing { notice = "The vault changes when the sync is done." }
         while syncing { try? await Task.sleep(for: .milliseconds(50)) }
         guard let old = root else {
             switchTo(url)
             return true
         }
-        // 3. The tabs of the vault being left are kept.
+        // 3. The tabs of the vault being left are kept: those of the window the person is in.
         let windows = windows()
-        VaultTabs.write(windows.map(\.kept), of: old, in: settings.stateDirectory)
+        if let front = windows.first { VaultTabs.write(front.kept, of: old, in: settings.stateDirectory) }
+        // What is read aloud is the vault before's note.
+        ReadAloud.shared.stop()
         // 4, 5 and 6. Everything is read again, `vault` is written, and nothing of the vault before is left.
         switchTo(url)
         // The tabs the new vault had, each at its reading place; the home page the first time.
+        // Every window changes: the others show the home page in one tab.
         let kept = VaultTabs.read(url, in: settings.stateDirectory)
-        for (place, window) in windows.enumerated() { window.show(place < kept.count ? kept[place] : nil, store: self) }
+        for (place, window) in windows.enumerated() { window.show(place == 0 ? kept : nil, store: self) }
         return true
     }
 

@@ -16,13 +16,11 @@ public struct Vaults: Sendable, Equatable {
         case inUse(String)
         /// More than one listed vault has the name: each, as it is shown.
         case ambiguous(String, [String])
-        case unknown(String)
 
         public var errorDescription: String? {
             switch self {
             case .inUse(let name): "\(name) is the vault in use, so it cannot be forgotten. Switch to another vault first."
             case .ambiguous(let name, let shown): "More than one vault is named \(name): \(shown.joined(separator: ", ")). Give its folder."
-            case .unknown(let name): "No vault in the list is named \(name)."
             }
         }
     }
@@ -121,14 +119,15 @@ public struct Vaults: Sendable, Equatable {
 
     private static func last(_ path: String) -> String { path.split(separator: "/").last.map(String.init) ?? path }
 
-    /// The folder `--vault <name>` means: a listed vault's name, when
-    /// exactly one has it. A value with a `/` or a `~` is a folder, as before.
+    /// The folder `--vault <name>` means. A value with a `/` or a `~` is
+    /// a folder, as before; any other is looked for among the names of the
+    /// list: one vault of that name is it, more than one is refused with
+    /// each of them named, and none is the folder it always was.
     public func folder(named name: String) throws -> String {
         if name.contains("/") || name.hasPrefix("~") { return name }
         let found = folders.filter { Self.last(path(of: $0)) == name }
-        if found.count == 1 { return found[0] }
-        if found.isEmpty { throw Failure.unknown(name) }
-        throw Failure.ambiguous(name, found.map(self.name(of:)))
+        if found.count > 1 { throw Failure.ambiguous(name, found.map(self.name(of:))) }
+        return found.first ?? name
     }
 
     /// [config] with `vault` and `vaults` as they are here. A file whose

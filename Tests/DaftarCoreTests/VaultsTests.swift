@@ -76,7 +76,8 @@ import Testing
         #expect(try list.folder(named: "notes") == "~/notes")
         #expect(try list.folder(named: "~/work/org") == "~/work/org")
         #expect(try list.folder(named: "/tmp/elsewhere") == "/tmp/elsewhere")
-        #expect(throws: Vaults.Failure.unknown("diary")) { try list.folder(named: "diary") }
+        // A name no vault has is the folder it always was.
+        #expect(try list.folder(named: "diary") == "diary")
     }
 
     @Test func theVaultCannotNameVaults() {

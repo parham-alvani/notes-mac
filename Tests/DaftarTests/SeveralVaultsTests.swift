@@ -127,8 +127,13 @@ import Testing
         defer { try? FileManager.default.removeItem(at: base) }
         let tabs = WindowTabs()
         tabs.adopt = { [store] tab in tab.places = store.places }
-        store.windows = { [tabs] }
+        // A second window, which the person is not in.
+        let other = WindowTabs()
+        other.adopt = tabs.adopt
+        store.windows = { [tabs, other] }
         await start(a)
+        other.current.open("A2.md", store: store)
+        other.add { $0.open("Alpha.md", store: self.store) }
         // `A` shows Alpha and A2 in two tabs, Alpha in front, each read to a line.
         tabs.current.open("Alpha.md", store: store)
         tabs.add { $0.open("A2.md", store: self.store) }
@@ -142,6 +147,8 @@ import Testing
         #expect(await change(b))
         #expect(tabs.tabs.count == 1 && tabs.current.path == nil && tabs.current.showsHome)
         #expect(alphaTab.tabs == nil)
+        // Every window changes: the other one shows the home page in one tab, not a note of `A`.
+        #expect(other.tabs.count == 1 && other.current.path == nil)
         tabs.current.open("Beta.md", store: store)
 
         // Back in `A`: its two tabs, the same one in front, each at its reading place.
@@ -149,6 +156,8 @@ import Testing
         #expect(tabs.tabs.map(\.path) == ["Alpha.md", "A2.md"])
         #expect(tabs.current.path == "Alpha.md" && tabs.chrome === tabs.current)
         #expect(tabs.tabs.map { $0.request?.line } == [4, 2])
+        // Only the window the person is in keeps the vault's tabs.
+        #expect(other.tabs.count == 1 && other.current.path == nil)
 
         // And `B`, opened again, shows Beta.
         #expect(await change(b))

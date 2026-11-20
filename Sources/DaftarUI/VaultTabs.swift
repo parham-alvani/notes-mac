@@ -30,13 +30,14 @@ enum VaultTabs {
 
     static func file(of root: URL, in directory: URL) -> URL { directory.appending(path: "tabs-\(hash(of: root)).json") }
 
-    /// The windows the vault at [root] had; none for a vault never left.
-    static func read(_ root: URL, in directory: URL) -> [Window] {
-        guard let data = try? Data(contentsOf: file(of: root, in: directory)) else { return [] }
-        return (try? JSONDecoder().decode([Window].self, from: data)) ?? []
+    /// The tabs the vault at [root] had in the window the person was in;
+    /// nil for a vault never left.
+    static func read(_ root: URL, in directory: URL) -> Window? {
+        guard let data = try? Data(contentsOf: file(of: root, in: directory)) else { return nil }
+        return try? JSONDecoder().decode(Window.self, from: data)
     }
 
-    static func write(_ windows: [Window], of root: URL, in directory: URL) {
+    static func write(_ windows: Window, of root: URL, in directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

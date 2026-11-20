@@ -467,8 +467,10 @@ struct ReaderView: NSViewRepresentable {
                 saidReadOnly = nil
                 return false
             }
-            if saidReadOnly != path {
-                saidReadOnly = path
+            // Once for each note of each vault: another vault's note of the same path says it again.
+            let said = (parent.store.root?.path ?? "") + "\u{0}" + path
+            if saidReadOnly != said {
+                saidReadOnly = said
                 parent.store.notice = VaultStore.readOnlyNotice
             }
             return true
