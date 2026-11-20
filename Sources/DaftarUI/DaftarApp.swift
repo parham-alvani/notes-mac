@@ -115,8 +115,18 @@ struct AppCommands: Commands {
                 .disabled(window == nil || store.root == nil)
         }
         CommandGroup(after: .newItem) {
-            Button("Open Vault…") { chooseVault(store) }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
+            // The vaults this Mac knows, the one in use marked, a missing one off, then Open Vault….
+            Menu("Switch Vault") {
+                ForEach(store.listedVaults) { vault in
+                    Toggle(vault.missing ? "\(vault.name) (missing)" : vault.name, isOn: Binding { vault.inUse } set: { _ in
+                        store.open(URL(filePath: vault.path))
+                    })
+                    .disabled(vault.missing || vault.inUse)
+                }
+                Divider()
+                Button("Open Vault…") { chooseVault(store) }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+            }
             Divider()
             Button("Quick Open…") { window?.openSwitcher() }
                 .keyboardShortcut("p")

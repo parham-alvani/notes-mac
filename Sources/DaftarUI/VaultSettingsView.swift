@@ -21,13 +21,15 @@ struct VaultSettingsTab: View {
         @Bindable var settings = store.settings
         Form {
             Section {
-                LabeledContent("Folder") {
-                    HStack {
-                        Text(store.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "None")
-                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        Button("Change…") { chooseVault(store) }
-                    }
+                ForEach(store.listedVaults) { vault in
+                    VaultRow(vault: vault)
                 }
+                Button("Open Vault…") { chooseVault(store) }
+                    .help("Opens a folder as the vault in use, and adds it to this list")
+            } header: {
+                Text("Vaults")
+            } footer: {
+                Text("One vault is open at a time. Switch changes to another in the running app: the notes you are editing are saved first, and each vault keeps its tabs and reading places. Forget takes a vault out of this list and touches no file.")
             }
             if store.isRepository, let clone {
                 git(clone)
@@ -179,6 +181,72 @@ struct VaultSettingsTab: View {
             }
             await load()
         }
+    }
+}
+
+/// One vault of the list: its name and folder, the one in use marked, a
+/// missing one said so, with Switch and Forget.
+private struct VaultRow: View {
+    let vault: VaultStore.ListedVault
+    @Environment(VaultStore.self) private var store
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: vault.inUse ? "checkmark.circle.fill" : vault.missing ? "questionmark.folder" : "folder")
+                .foregroundStyle(vault.inUse ? Palette.green : .secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(vault.name)
+                Text(vault.missing ? "\(vault.folder) · missing" : vault.folder)
+                    .font(.caption).foregroundStyle(vault.missing ? Palette.red : .secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+            if vault.inUse {
+                Text("In use").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Button("Switch") { store.open(URL(filePath: vault.path)) }
+                    .disabled(vault.missing || store.changing)
+                    .help(vault.missing ? "The folder is not there now; it may be on a disk that is not connected" : "Change to this vault")
+                Button("Forget…") { askToForget(vault, store: store) }
+                    .help("Takes this vault out of the list. No file is touched.")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(vault.name), \(vault.inUse ? "in use" : vault.missing ? "missing" : vault.folder)")
+    }
+}
+
+/// Forget Vault, after a question. The vault in use is never offered.
+@MainActor
+func askToForget(_ vault: VaultStore.ListedVault, store: VaultStore) {
+    let alert = NSAlert()
+    alert.messageText = "Forget \(vault.name)?"
+    alert.informativeText = "Daftar takes \(vault.folder) out of its list of vaults. The folder and its notes are not touched, and Open Vault… adds it again."
+    alert.addButton(withTitle: "Forget")
+    alert.addButton(withTitle: "Cancel")
+    if alert.runModal() == .alertFirstButtonReturn { store.forgetVault(vault.path) }
+}
+
+extension PaletteCommands {
+    /// Switch Vault and Forget Vault: a command for each vault of the list
+    /// that is not in use, a missing one left out of Switch, then Open Vault….
+    static func vaults(store: VaultStore) -> [PaletteCommand] {
+        var out: [PaletteCommand] = []
+        let listed = store.listedVaults
+        for vault in listed where !vault.inUse && !vault.missing {
+            out.append(PaletteCommand(id: "switch-vault-" + vault.path, title: "Switch Vault: \(vault.name)", group: "Vault", symbol: "books.vertical.fill", color: Palette.blue) {
+                store.open(URL(filePath: vault.path))
+            })
+        }
+        out.append(PaletteCommand(id: "open-vault", title: "Switch Vault: Open Vault…", group: "Vault", symbol: "folder.badge.plus", color: Palette.yellow, shortcut: "⇧⌘O") {
+            chooseVault(store)
+        })
+        for vault in listed where !vault.inUse {
+            out.append(PaletteCommand(id: "forget-vault-" + vault.path, title: "Forget Vault: \(vault.name)", group: "Vault", symbol: "minus.circle.fill", color: Palette.red) {
+                askToForget(vault, store: store)
+            })
+        }
+        return out
     }
 }
 

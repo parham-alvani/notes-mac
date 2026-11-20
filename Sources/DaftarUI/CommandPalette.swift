@@ -213,6 +213,7 @@ enum PaletteCommands {
         }
         out += editor(model: model, store: store)
         out += problems(model: model, store: store)
+        out += vaults(store: store)
         out += concept(model: model, store: store)
         if model.showsImage {
             out = out.filter { !Self.textOnly.contains($0.id) } + image(model: model, store: store)
