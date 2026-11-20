@@ -91,7 +91,7 @@ public struct ResolvedSettings: Sendable, Equatable {
     ]
 
     /// The keys at the top of `config.toml`, never the vault's to say.
-    static let top: Set<String> = ["vault", "vault_settings"]
+    static let top: Set<String> = ["vault", "vaults", "vault_settings"]
 
     static let defaults = ConfigFile(text: ConfigFile.template)
 

@@ -214,8 +214,12 @@ public struct ConfigFile: Sendable, Equatable {
         # this file again whenever it changes, and writes back only the value
         # that a change in its Settings window touches.
 
-        # The folder of the Obsidian vault.
+        # The folder of the Obsidian vault in use.
         vault = ""
+        # Every vault this computer knows, the one in use among them: what
+        # File › Switch Vault offers. Opening a vault adds it at the end; the
+        # order is yours. Forget Vault takes one out and touches no file.
+        vaults = []
         # A vault may carry settings of the app in the .daftar.toml at its
         # root, in the same sections and keys as here, and its value wins over
         # this file's: a new computer is set up by its first pull. false reads
