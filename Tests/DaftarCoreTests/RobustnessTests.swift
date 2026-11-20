@@ -579,6 +579,36 @@ import Testing
     /// What `daftar-cli` prints for search by meaning and the weekly review
     /// is read without a crash, whatever it is: a hit is in the vault, a
     /// step of a build is between 0 and 1, a failure says something.
+    /// The clone's `ssh`, a key's command and the vault's settings file
+    /// are text a person or a pull wrote.
+    @Test func cloneAndVaultSettingsFromAnyText() {
+        let texts = Self.samples(600, seed: 41, pieces: 12)
+        for (index, text) in texts.enumerated() {
+            let command = Git.sshCommand(configured: text, environment: nil)
+            #expect(Git.sshOptions.allSatisfy { command.lowercased().contains($0.name.lowercased()) })
+            // The app's options are added once: its own answer is left as it is.
+            #expect(Git.sshCommand(configured: command, environment: nil) == command)
+            #expect(Git.sshCommand(configured: command, environment: text) == (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? command : text.trimmingCharacters(in: .whitespacesAndNewlines)))
+            // A key's command reads back as the path it was written for, whatever the path.
+            #expect(SSHKey.key(in: SSHKey.command(key: text)) == text)
+            _ = SSHKey.key(in: text)
+            _ = Git.refusedPush(text)
+            _ = SSHKey.file(vault: text, directory: URL(filePath: "/tmp"))
+            // A vault's file never sets a key that is not on the list, whatever it holds.
+            let other = texts[(index * 7 + 3) % texts.count]
+            let vault = "vault = \"/tmp\"\n[terminal]\nshell = \"\(text)\"\n[appearance]\ntext_size = \(text)\ntheme = \"\(text)\"\n[home]\nimage = \"\(text)\"\n" + text
+            let settings = ResolvedSettings.resolved(vault: vault, computer: other)
+            #expect(settings.fromVault.allSatisfy { ResolvedSettings.allowed[$0] != nil })
+            #expect(settings.refused.allSatisfy { ResolvedSettings.allowed[$0] == nil })
+            #expect(!settings.fromVault.contains("terminal.shell") && !settings.fromVault.contains("vault"))
+            if settings.source(of: "home.image") == .vault, let image = settings.string("home.image") {
+                #expect(!image.hasPrefix("/") && !image.hasPrefix("~") && !image.components(separatedBy: "/").contains(".."))
+            }
+            if settings.source(of: "appearance.text_size") == .vault { #expect((10...28).contains(settings.int("appearance.text_size") ?? 0)) }
+            _ = VaultSettings(text: text).refusesAgents(readOnly: true)
+        }
+    }
+
     @Test func meaningAndReviewOutputReadsWhateverItIs() {
         for text in Self.samples(600, seed: 15) {
             if let hits = try? Meaning.hits(Data(text.utf8)) {
