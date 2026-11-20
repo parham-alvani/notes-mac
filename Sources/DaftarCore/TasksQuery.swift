@@ -644,7 +644,7 @@ public struct TaskQueryAnswer: Sendable {
         notUnderstood = query.notUnderstood
         rows = found.map { task in
             for link in NoteParser.parse(task.task.text).links where links[link.target] == nil {
-                if let target = index.resolve(link.target, from: task.path) { links[link.target] = target }
+                if let target = index.resolve(link, from: task.path) { links[link.target] = target }
             }
             let status = statuses.status(task.task.status)
             return Row(

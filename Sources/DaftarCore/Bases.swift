@@ -872,7 +872,7 @@ public final class BaseEngine {
             })
         case "hasLink", "linksTo":
             guard let target = target(of: first) else { return .bool(false) }
-            return .bool((index.notes[path]?.parsed.links ?? []).contains { index.resolve($0.target, from: path) == target })
+            return .bool((index.notes[path]?.parsed.links ?? []).contains { index.resolve($0, from: path) == target })
         case "asLink":
             return .link(target: path, path: path, display: values.isEmpty ? nil : display(first))
         case "asFile":

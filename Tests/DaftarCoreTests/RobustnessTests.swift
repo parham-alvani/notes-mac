@@ -609,6 +609,33 @@ import Testing
         }
     }
 
+    /// OKF's front matter, times and links from any text, and Mark as
+    /// Verified, which changes only the front matter.
+    @Test func conceptsFromAnyFrontMatter() {
+        let files: Set<String> = ["Docs/index.md", "Docs/a.md", "Docs/sub/b.md", "x.md"]
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for text in Self.samples(600, seed: 43, pieces: 14) {
+            _ = OKF.concept(frontMatter: text)
+            _ = OKF.concept(frontMatter: "type: Metric\nverified: \(text)\ngenerated: \(text)\nstale_after: \(text)\nstatus: \(text)\ntags: \(text)")?.tier
+            if case .at(let date) = OKF.time(text) { #expect(OKF.time(OKF.stamp(date)) == .at(date)) }
+            _ = OKF.actor(configured: text, email: text)
+            // A link never names a file that is not in the vault's own list.
+            if let found = OKF.resolve(text, from: "Docs/sub/b.md", files: files, roots: ["Docs"]) { #expect(files.contains(found)) }
+            if let found = OKF.resolve("/" + text, from: "Docs/sub/b.md", files: files, roots: ["Docs"]) { #expect(found.hasPrefix("Docs/")) }
+            // Mark as Verified leaves the body as it is, to the byte, and the note a concept.
+            let body = "\n" + text
+            let note = "---\ntype: Metric\nowner: \"x\"\n---" + body
+            if let marked = try? OKF.markVerified(note, by: "human:test", at: now) {
+                #expect(marked.hasSuffix(body))
+                #expect(marked.hasPrefix("---\ntype: Metric\nowner: \"x\"\nverified:\n  - { by: \"human:test\", at: \"2027-01-15T08:00:00Z\" }\n---"))
+            } else {
+                Issue.record("not marked: \(text.debugDescription)")
+            }
+            // Whatever the front matter holds, marking never throws anything but its own failures.
+            do { _ = try OKF.markVerified("---\ntype: Metric\n" + text + "\n---\nbody", by: "human:test", at: now) } catch { #expect(error is OKF.Failure) }
+        }
+    }
+
     @Test func meaningAndReviewOutputReadsWhateverItIs() {
         for text in Self.samples(600, seed: 15) {
             if let hits = try? Meaning.hits(Data(text.utf8)) {

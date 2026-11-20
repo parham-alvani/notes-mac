@@ -393,6 +393,12 @@ public struct ConfigFile: Sendable, Equatable {
         # Empty finds wakatime-cli in ~/.wakatime or Homebrew.
         cli = ""
 
+        [okf]
+        # Mark as Verified signs a concept (a note with a type in its
+        # properties, as the Open Knowledge Format has it) as human:<actor>.
+        # Empty is the name before the @ of the vault's git user.email.
+        actor = ""
+
         [export]
         # `daftar-cli export`, which Export as PDF runs: an SVG or PNG at the
         # head of every PDF. A note in a folder that holds a logo.svg or
