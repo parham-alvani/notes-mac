@@ -297,7 +297,7 @@ import Testing
         controller.load("Notes/Long.md")
         let at = (view.string as NSString).range(of: "The last heading").location
         func size() -> CGFloat { (view.textStorage?.attribute(.font, at: at, effectiveRange: nil) as? NSFont)?.pointSize ?? 0 }
-        let heading = CGFloat(store.settings.textSize) * 1.75
+        let heading = CGFloat(store.settings.textSize) * 1.6
         // The first screens are styled at once; the end comes a moment later.
         #expect(abs(size() - heading) > 0.5)
         for _ in 0..<100 {

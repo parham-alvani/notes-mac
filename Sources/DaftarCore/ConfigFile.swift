@@ -235,8 +235,11 @@ public struct ConfigFile: Sendable, Equatable {
         [appearance]
         # "system", "light" (Daftar's Daylight palette) or "dark" (naz).
         theme = "system"
-        # 14, as the vault's Obsidian snippet sets it.
-        text_size = 14
+        # The dark theme's colours: "naz", or "naz-soft" (naz's hues with the
+        # colour strength capped, for long sessions).
+        dark_palette = "naz"
+        # The size of a note's text, in points.
+        text_size = 16
         # The font of notes, in the reader and the editor: a font family, or
         # "SF Pro" (Obsidian's Cupertino theme) and "New York" for Apple's
         # own. Persian always uses Vazirmatn.
@@ -244,8 +247,8 @@ public struct ConfigFile: Sendable, Equatable {
         # Code and the editor's markup; "SF Mono" is Obsidian's.
         code_font = "SF Mono"
         # The widest a line of text is, in the reader and the editor, in em
-        # of the text size: 46 is about 95 letters in SF Pro. 0 is the whole window.
-        text_width = 46
+        # of the text size: 35 is about 70 letters in SF Pro. 0 is the whole window.
+        text_width = 35
         # The reader's cursor marks the line being read in a paragraph of
         # many lines with a band: its strength, in percent of the accent
         # colour. 0 leaves it out, and j and k go a paragraph at a time.

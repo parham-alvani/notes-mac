@@ -297,7 +297,7 @@ extension EditorController {
     var base: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         // Obsidian's line height, 1.6.
-        paragraph.lineHeightMultiple = 1.6
+        paragraph.lineHeightMultiple = 1.65
         paragraph.paragraphSpacing = fontSize * 0.2
         // Each paragraph takes the direction of its first strong letter.
         paragraph.baseWritingDirection = .natural
@@ -413,9 +413,9 @@ extension EditorController {
             switch span.kind {
             case .heading(let level):
                 // Cupertino's sizes and weights: light large headings, medium small ones.
-                let scale: [CGFloat] = [1.75, 1.5, 1.25, 1.0, 1.0, 0.875]
+                let scale: [CGFloat] = [1.6, 1.35, 1.12, 1.0, 1.0, 0.875]
                 storage.addAttributes([
-                    .font: Fonts.text(size: fontSize * scale[min(level, 6) - 1], weight: level <= 3 ? .regular : .medium),
+                    .font: Fonts.text(size: fontSize * scale[min(level, 6) - 1], weight: .semibold),
                     .foregroundColor: NSPalette.heading(level),
                 ], range: r)
             case .markup, .blockId:
@@ -425,7 +425,7 @@ extension EditorController {
             case .bold:
                 storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.strong], range: r)
             case .italic:
-                storage.addAttributes([.font: Fonts.text(size: fontSize, italic: true), .foregroundColor: NSPalette.italic], range: r)
+                storage.addAttributes([.font: Fonts.text(size: fontSize, italic: true)], range: r)
             case .strike:
                 storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             case .highlight:

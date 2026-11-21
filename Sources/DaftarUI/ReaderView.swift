@@ -33,12 +33,13 @@ struct ReaderView: NSViewRepresentable {
         [
             "textSize": settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
             "readingLine": settings.readingLine, "textWidth": settings.textWidth, "remoteImages": settings.remoteImages,
+            "palette": settings.darkPalette == .soft ? "soft" : "naz",
         ]
     }
 
     /// The settings the note on screen was drawn with: a change to one draws it again.
     @MainActor static func shownKey(_ settings: AppSettings, folded: Bool = false) -> String {
-        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)|\(folded)"
+        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)|\(settings.darkPalette.rawValue)|\(folded)"
     }
 
     /// The reader's one page.

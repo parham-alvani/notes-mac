@@ -299,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
+            AppSettings.shared.applyPalette()
             AppSettings.shared.applyAppearance()
             AppSettings.shared.applyMenuBar()
             FullScreenEscape.install()
@@ -421,6 +422,10 @@ private struct GeneralSettings: View {
             }
             .pickerStyle(.segmented)
             .fromVault("appearance.theme", settings)
+            Picker("Dark palette", selection: $settings.darkPalette) {
+                ForEach(AppSettings.DarkPalette.allCases) { Text($0.title).tag($0) }
+            }
+            .fromVault("appearance.dark_palette", settings)
             Stepper("Text size: \(settings.textSize) pt", value: $settings.textSize, in: 10...28)
                 .fromVault("appearance.text_size", settings)
             Picker("Font", selection: $settings.font) {
