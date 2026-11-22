@@ -126,12 +126,11 @@ import Testing
         window.contentView = view
         defer { window.contentView = nil }
         end()
-        view.insertText("Notes /", replacementRange: view.selectedRange())
-        let slash = (view.string as NSString).length - 1
-        let menu = view.slashMenu(at: slash)
-        #expect(menu.items.contains { $0.title == "Code block" && $0.image != nil })
-        let snippet = try #require(EditorCommands.slashCommands(today: Day(year: 2026, month: 10, day: 25), time: "09:00").first { $0.id == "code" })
-        view.applySlash(snippet, slashAt: slash)
+        view.insertText("Notes ", replacementRange: view.selectedRange())
+        // The `/` opens the bar, the letters filter it, and Return puts the row in their place.
+        for key in ["/", "c", "o", "d"] { view.insertText(key, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        #expect(view.extras.slash?.choice?.id == "code")
+        view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         #expect(view.string == "# Plan\n- [ ] first\nNotes \n```\n\n```")
         #expect(view.selectedRange().location == (view.string as NSString).length - 4)
         // In a test the typing and the snippet are one undo group; in the

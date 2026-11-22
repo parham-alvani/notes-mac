@@ -76,6 +76,8 @@ final class NoteTextView: NSTextView {
 
     override func doCommand(by selector: Selector) {
         if vimActive || commandAtCursors(selector) { return }
+        // The slash bar never has the keys: the text gives it the ones it uses.
+        if extras.slash != nil, slashKey(selector) { return }
         super.doCommand(by: selector)
     }
 
@@ -96,6 +98,7 @@ final class NoteTextView: NSTextView {
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         if resigned {
+            closeSlashBar()
             fitCaret()
             controller?.checkHeadings()
             controller?.saveNow()

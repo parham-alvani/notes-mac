@@ -2,8 +2,8 @@ import AppKit
 import DaftarCore
 
 /// The plain editor's keys: lists and tables, moving and copying lines,
-/// the shortcuts, pairs, the slash menu, completion, and what is dropped
-/// or pasted. The rules are `EditorCommands` and `MarkdownTable` (core).
+/// the shortcuts, pairs, completion, and what is dropped or pasted (the
+/// slash bar is `EditorSlashBar.swift`). The rules are `EditorCommands` and `MarkdownTable` (core).
 extension NoteTextView {
     // MARK: Lines
 
@@ -267,12 +267,7 @@ extension NoteTextView {
         if insertAtCursors(string) { return }
         if let typed = string as? String, handlePair(typed, replacementRange: replacementRange) { return }
         super.insertText(string, replacementRange: replacementRange)
-        if let typed = string as? String, typed == "/", EditorCommands.opensSlashMenu(in: ns, at: selectedRange().location) {
-            let slash = selectedRange().location - 1
-            // After the key is handled, so the slash is on screen under the menu.
-            DispatchQueue.main.async { [weak self] in self?.showSlashMenu(at: slash) }
-            return
-        }
+        if let typed = string as? String, typed == "/" { openSlashBar() }
         if let typed = string as? String { completeAfterTyping(typed) }
         guard let typed = string as? String, typed == "[" else { return }
         let at = selectedRange().location
@@ -349,51 +344,6 @@ extension NoteTextView {
         super.deleteBackward(sender)
     }
 
-    // MARK: Slash commands
-
-    /// The snippets under the `/` at [slash], each with its icon in its colour.
-    func slashMenu(at slash: Int) -> NSMenu {
-        let menu = NSMenu()
-        let time = Date().formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-        var group = ""
-        for snippet in EditorCommands.slashCommands(today: .today(), time: time) {
-            if snippet.group != group {
-                menu.addItem(NSMenuItem.sectionHeader(title: snippet.group))
-                group = snippet.group
-            }
-            let item = NSMenuItem(title: snippet.title, action: #selector(chooseSlash(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = SlashChoice(snippet: snippet, slash: slash)
-            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
-                .applying(.init(paletteColors: [NSPalette.named(snippet.color)]))
-            item.image = NSImage(systemSymbolName: snippet.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    private func showSlashMenu(at slash: Int) {
-        guard slash < ns.length, ns.character(at: slash) == 0x2F, window != nil else { return }
-        let rect = firstRect(forCharacterRange: NSRange(location: slash, length: 1), actualRange: nil)
-        slashMenu(at: slash).popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.minY - 4), in: nil)
-    }
-
-    @objc private func chooseSlash(_ item: NSMenuItem) {
-        guard let choice = item.representedObject as? SlashChoice else { return }
-        applySlash(choice.snippet, slashAt: choice.slash)
-    }
-
-    /// Puts [snippet] in place of the `/` at [slash], as one step to undo.
-    func applySlash(_ snippet: Snippet, slashAt slash: Int) {
-        guard slash < ns.length, ns.character(at: slash) == 0x2F else { return }
-        let edit = EditorCommands.apply(snippet, slashAt: slash, in: ns)
-        guard shouldChangeText(in: edit.range, replacementString: edit.text) else { return }
-        textStorage?.replaceCharacters(in: edit.range, with: edit.text)
-        didChangeText()
-        setSelectedRange(NSRange(location: edit.cursor, length: 0))
-        if snippet.id == "link" || snippet.id == "embed" { complete(nil) }
-    }
-
     override var rangeForUserCompletion: NSRange {
         completionRange() ?? super.rangeForUserCompletion
     }
@@ -461,15 +411,5 @@ extension NoteTextView {
         else { return super.paste(sender) }
         guard let name = controller.savePastedImage(png) else { return }
         if vimActive { vim?.paste("![[\(name)]]") } else { insertText("![[\(name)]]", replacementRange: selectedRange()) }
-    }
-}
-
-/// A slash menu item's snippet and the slash it replaces.
-final class SlashChoice: NSObject {
-    let snippet: Snippet
-    let slash: Int
-    init(snippet: Snippet, slash: Int) {
-        self.snippet = snippet
-        self.slash = slash
     }
 }

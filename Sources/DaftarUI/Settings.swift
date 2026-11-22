@@ -101,6 +101,8 @@ final class AppSettings {
     var livePreview: Bool { didSet { write("editor.live_preview", .bool(livePreview)) } }
     /// The format bar shows over a selection in the editor.
     var formatBar: Bool { didSet { write("editor.format_bar", .bool(formatBar)) } }
+    /// A `/` typed at the start of a word shows the slash bar.
+    var slashMenu: Bool { didSet { write("editor.slash_menu", .bool(slashMenu)) } }
     /// The front matter shows as a form of properties above the editor, not as YAML.
     var propertiesForm: Bool { didSet { write("editor.properties_form", .bool(propertiesForm)) } }
     /// The cursor's line stays in the middle of the editor while you type.
@@ -229,6 +231,7 @@ final class AppSettings {
         vimMode = false
         livePreview = true
         formatBar = true
+        slashMenu = true
         propertiesForm = true
         typewriter = false
         focusMode = false
@@ -330,6 +333,7 @@ final class AppSettings {
         vimMode = resolved.bool("editor.vim_mode") ?? false
         livePreview = resolved.bool("editor.live_preview") ?? true
         formatBar = resolved.bool("editor.format_bar") ?? true
+        slashMenu = resolved.bool("editor.slash_menu") ?? true
         propertiesForm = resolved.bool("editor.properties_form") ?? true
         typewriter = resolved.bool("editor.typewriter") ?? false
         focusMode = resolved.bool("editor.focus") ?? false

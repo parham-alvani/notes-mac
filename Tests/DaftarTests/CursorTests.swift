@@ -153,27 +153,14 @@ import Testing
         store.settings.focusMode = true
         view.setSelectedRange(r(2))
         controller.followCursor()
-        let layout = try #require(view.textLayoutManager)
-        var dimmed: [NSRange] = []
-        let content = try #require(layout.textContentManager)
-        layout.enumerateRenderingAttributes(from: content.documentRange.location, reverse: false) { _, attributes, range in
-            if attributes[.foregroundColor] != nil {
-                dimmed.append(NSRange(location: content.offset(from: content.documentRange.location, to: range.location),
-                    length: content.offset(from: range.location, to: range.endLocation)))
-            }
-            return true
-        }
-        #expect(dimmed.map { NSMaxRange($0) }.max() == (view.string as NSString).length)
-        #expect(dimmed.allSatisfy { $0.location >= 28 })
+        // The first paragraph is bright, and the dim is a view over the text: no attribute of the text or of its layout.
+        #expect(view.extras.focused?.ranges == [r(0, 28)])
+        #expect(view.extras.dim?.bands.count == 1)
+        #expect(try painted().isEmpty)
         #expect(view.textStorage?.isEqual(to: before) == true)
         store.settings.focusMode = false
         controller.followWritingModes()
-        var left = 0
-        layout.enumerateRenderingAttributes(from: content.documentRange.location, reverse: false) { _, attributes, _ in
-            if attributes[.foregroundColor] != nil { left += 1 }
-            return true
-        }
-        #expect(left == 0)
+        #expect(view.extras.focused == nil && view.extras.dim == nil)
     }
 
     /// The text's ranges that have a rendering colour, and the colour.
@@ -203,7 +190,7 @@ import Testing
         // To the next letter: the first one has its own colour again.
         view.invertLetter(r(5, 1))
         #expect(try self.painted().map(\.0) == [r(5, 1)])
-        // Focus mode dims the other paragraphs and keeps the letter.
+        // Focus mode dims the other paragraphs over the text, and the letter keeps its colour.
         try "First paragraph\nstill first\n\nSecond one\n".write(to: root.appending(path: "Notes/Cats.md"), atomically: true, encoding: .utf8)
         controller.load("Notes/Cats.md")
         store.settings.focusMode = true
@@ -211,15 +198,15 @@ import Testing
         view.invertLetter(r(2, 1))
         controller.followCursor()
         painted = try self.painted()
-        #expect(painted.contains { $0.0 == r(2, 1) && $0.1 == NSPalette.background })
-        #expect(painted.contains { $0.0.location >= 28 && $0.1 != NSPalette.background })
+        #expect(painted.count == 1 && painted[0].0 == r(2, 1) && painted[0].1 == NSPalette.background)
+        #expect(view.extras.dim != nil)
         // No block: no letter in the background's colour, and the dimming stays.
         view.invertLetter(nil)
-        painted = try self.painted()
-        #expect(!painted.contains { $0.1 == NSPalette.background })
-        #expect(painted.contains { $0.0.location >= 28 })
+        #expect(try self.painted().isEmpty)
+        #expect(view.extras.dim != nil)
         store.settings.focusMode = false
         controller.followWritingModes()
+        #expect(view.extras.dim == nil)
         #expect(try self.painted().isEmpty)
     }
 

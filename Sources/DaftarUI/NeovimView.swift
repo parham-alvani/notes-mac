@@ -76,6 +76,8 @@ extension NoteTextView {
             let entry = view.enclosingScrollView?.contentView.bounds.origin.y
             own(view, selector, controller)
             view.keepAnchor(from: entry)
+            // Focus mode's dim goes with its paragraphs.
+            if view.extras.dim != nil { view.placeDim(laidOut: false) }
             // Held after a far jump: the block goes with its line. Not
             // through an edit: the block is placed once Neovim says where.
             if view.vimActive, Date() < view.jumpHeldUntil { view.moveNeovimCursor() }

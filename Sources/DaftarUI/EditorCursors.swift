@@ -17,6 +17,9 @@ final class EditorExtras {
     var overlay: CaretOverlay?
     /// The format bar over a selection, once one was shown (`EditorFormatBar.swift`).
     var formatBar: FormatBar?
+    /// The slash bar while a typed `/` listens, and its list while it has rows (`EditorSlashBar.swift`).
+    var slash: SlashBar?
+    var slashList: SlashList?
     /// Neovim's completion menu while it shows (`NeovimMenu.swift`).
     var menu: NeovimMenu?
     /// Neovim mode's cursor, block or bar, that slides (`NeovimOverlays.swift`).
@@ -37,8 +40,10 @@ final class EditorExtras {
     var applyingEdit = false
     /// The keys sent to Neovim: whether one is held down and repeating.
     var keys = KeyRepeat()
-    /// The paragraph focus mode keeps bright, and the length of the text then.
-    var focused: (NSRange, Int)?
+    /// The paragraphs focus mode keeps bright, and the length of the text then.
+    var focused: (ranges: [NSRange], length: Int)?
+    /// Focus mode's dim over the other paragraphs, while it is on (`EditorModes.swift`).
+    var dim: FocusDim?
     /// The scroll view's own insets, before typewriter mode added room at the end.
     var insets: NSEdgeInsets?
 }

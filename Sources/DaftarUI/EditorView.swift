@@ -284,6 +284,9 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         images = [:]
         animator.reset()
         guard let view else { return }
+        // What was over the note before goes with it.
+        view.closeSlashBar()
+        if view.extras.focused != nil { view.focus(nil) }
         view.textStorage?.delegate = self
         view.delegate = self
         view.textLayoutManager?.delegate = self
@@ -728,6 +731,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
         view?.cursorLineMoved()
         view?.showFormatBar()
+        if view?.extras.slash != nil { view?.followSlashBar() }
         followCursor()
     }
 
