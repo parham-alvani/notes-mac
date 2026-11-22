@@ -261,6 +261,12 @@ public struct ConfigFile: Sendable, Equatable {
         # .daftar.toml), "always" or "never". A note whose sections you fold
         # or open yourself is kept as you left it.
         fold_sections = "vault"
+        # Resting the pointer on a link to a note shows the note's first
+        # lines in a small card.
+        link_preview = true
+        # The reader shows the heading path of the place being read in a bar
+        # at the top of the note, once that heading has left the view.
+        section_bar = true
         # The Solar Hijri date beside the Gregorian one (home, Today), and the
         # Jalali month in the day picker of a task's dates and a date property.
         persian_calendar = false
