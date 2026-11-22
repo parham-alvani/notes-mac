@@ -69,6 +69,10 @@ final class AppSettings {
     /// Whether a note opens with its sections folded: as the vault says
     /// (`reader.folded` in its `.daftar.toml`), always, or never.
     var foldSections: FoldSections { didSet { write("appearance.fold_sections", .string(foldSections.rawValue)) } }
+    /// Resting the pointer on a link to a note shows the note's first lines in a card.
+    var linkPreview: Bool { didSet { write("appearance.link_preview", .bool(linkPreview)) } }
+    /// The reader shows the heading path of the place being read, at the top of the note.
+    var sectionBar: Bool { didSet { write("appearance.section_bar", .bool(sectionBar)) } }
     /// The Jalali date beside the Gregorian one, and the Jalali month in the day picker.
     var persianCalendar: Bool { didSet { write("appearance.persian_calendar", .bool(persianCalendar)) } }
     /// `calendar.place` as the file has it: whose holidays and feasts are shown.
@@ -203,6 +207,8 @@ final class AppSettings {
         textWidth = 35
         remoteImages = true
         foldSections = .vault
+        linkPreview = true
+        sectionBar = true
         persianCalendar = false
         calendarPlace = ""
         dockBadge = true
@@ -303,6 +309,8 @@ final class AppSettings {
         // Anything but `false` shows them, as before the setting was there.
         remoteImages = resolved.bool("appearance.remote_images") ?? true
         foldSections = resolved.string("appearance.fold_sections").flatMap(FoldSections.init(rawValue:)) ?? .vault
+        linkPreview = resolved.bool("appearance.link_preview") ?? true
+        sectionBar = resolved.bool("appearance.section_bar") ?? true
         persianCalendar = resolved.bool("appearance.persian_calendar") ?? false
         calendarPlace = resolved.string("calendar.place") ?? ""
         dockBadge = resolved.bool("appearance.dock_badge") ?? true

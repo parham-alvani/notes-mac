@@ -34,12 +34,14 @@ struct ReaderView: NSViewRepresentable {
             "textSize": settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
             "readingLine": settings.readingLine, "textWidth": settings.textWidth, "remoteImages": settings.remoteImages,
             "palette": settings.darkPalette == .soft ? "soft" : "naz",
+            "linkPreview": settings.linkPreview, "sectionBar": settings.sectionBar,
         ]
     }
 
     /// The settings the note on screen was drawn with: a change to one draws it again.
     @MainActor static func shownKey(_ settings: AppSettings, folded: Bool = false) -> String {
         "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)|\(settings.darkPalette.rawValue)|\(folded)"
+            + "|\(settings.linkPreview)|\(settings.sectionBar)"
     }
 
     /// The reader's one page.
@@ -285,8 +287,11 @@ struct ReaderView: NSViewRepresentable {
                 "detected": detected.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             note.merge(ReaderView.appearance(store.settings)) { $1 }
-            // Text that is not the file's has no reading place to mark.
-            if request.text != nil { note["readingLine"] = 0 }
+            // Text that is not the file's has no reading place to mark, and no path of headings to show.
+            if request.text != nil {
+                note["readingLine"] = 0
+                note["sectionBar"] = false
+            }
             if !keepScroll {
                 if let heading = request.heading { note["heading"] = heading }
                 if let line = request.line { note["line"] = line }
@@ -480,6 +485,11 @@ struct ReaderView: NSViewRepresentable {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard hears(mainFrame: message.frameInfo.isMainFrame) else { return }
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
+            // The page names the note it has drawn. Once the app shows another, the page still has the
+            // one that leaves until it has drawn the new one, and a line, a link or a fold of it is not
+            // one of the note the app shows: a click on its task would tick that line of the wrong file.
+            // So what the page says of another note than the one shown is dropped, however late it comes.
+            if kind != "ready", let note = body["note"] as? String, note != shown?.path { return }
             switch kind {
             case "ready":
                 pageReady()
@@ -583,6 +593,10 @@ struct ReaderView: NSViewRepresentable {
                 guard let text = body["url"] as? String, let url = URL(string: text) else { return (nil, nil) }
                 return (remote.allow(url)?.absoluteString, nil)
             }
+            if message.name == "preview" {
+                // A link's card: the note's title and its first lines, never the whole note.
+                return (Self.preview(of: body["path"] as? String ?? "", anchor: body["anchor"] as? String ?? "", in: parent.store), nil)
+            }
             if message.name == "tasks" {
                 hasQuery = true
                 return (await runQuery(body["source"] as? String ?? "", in: body["path"] as? String ?? ""), nil)
@@ -606,6 +620,17 @@ struct ReaderView: NSViewRepresentable {
 }
 
 extension ReaderView.Coordinator {
+    /// What the card of a link to the note at [path] shows: the note's title
+    /// and its first lines (`LinkPreview.excerpt`), or those of the section
+    /// or the block [anchor] names, with the links those lines need. Nil for
+    /// a file that is no note of the vault.
+    static func preview(of path: String, anchor: String, in store: VaultStore) -> [String: Any]? {
+        guard Vault.isNote(path), store.index.files.contains(path), let text = store.text(of: path) else { return nil }
+        let title = Vault.title(of: path)
+        let lines = LinkPreview.excerpt(of: text, title: title, anchor: anchor.isEmpty ? nil : anchor)
+        return ["title": title, "text": lines, "links": store.index.resolvedLinks(in: NoteParser.parse(lines), from: path)]
+    }
+
     /// The query's result as the page draws it: each task with the groups it
     /// is under, its note, its line, and the links its text needs. The query
     /// runs off the main thread (`TaskQueryAnswer`): over every task of a
@@ -764,7 +789,7 @@ final class ReaderPages {
         let bridge = ReaderBridge()
         let controller = configuration.userContentController
         controller.add(bridge, name: "daftar")
-        for name in ["embed", "tasks", "base", "remoteImage"] {
+        for name in ["embed", "preview", "tasks", "base", "remoteImage"] {
             controller.addScriptMessageHandler(bridge, contentWorld: .page, name: name)
         }
         let view = WKWebView(frame: .zero, configuration: configuration)

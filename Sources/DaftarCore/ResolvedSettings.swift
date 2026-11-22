@@ -52,6 +52,8 @@ public struct ResolvedSettings: Sendable, Equatable {
         "appearance.text_width": .int(0...400),
         "appearance.reading_line": .int(0...100),
         "appearance.fold_sections": .choice(["vault", "always", "never"]),
+        "appearance.link_preview": .bool,
+        "appearance.section_bar": .bool,
         "appearance.persian_calendar": .bool,
         "appearance.remote_images": .onlyFalse,
         "calendar.place": .place,

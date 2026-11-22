@@ -443,6 +443,12 @@ private struct GeneralSettings: View {
             }
             .help("A note opens with its sections folded, each heading saying what is under it. A note whose sections you fold or open yourself stays as you left it. The vault says so with reader.folded in its .daftar.toml.")
             .fromVault("appearance.fold_sections", settings)
+            Toggle("Preview a link under the pointer", isOn: $settings.linkPreview)
+                .help("Resting the pointer on a link to a note shows the note's title and its first lines in a small card.")
+                .fromVault("appearance.link_preview", settings)
+            Toggle("Section bar in the reader", isOn: $settings.sectionBar)
+                .help("The heading path of the place being read, at the top of the note. A click on a heading goes to it.")
+                .fromVault("appearance.section_bar", settings)
             Toggle("Load pictures from the web", isOn: $settings.remoteImages)
                 .help("Off, a picture from another site is a placeholder until you click it, so opening a note tells no site.")
                 .fromVault("appearance.remote_images", settings)
