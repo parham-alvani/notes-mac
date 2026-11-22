@@ -485,6 +485,11 @@ struct ReaderView: NSViewRepresentable {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard hears(mainFrame: message.frameInfo.isMainFrame) else { return }
             guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
+            // The page names the note it has drawn. Once the app shows another, the page still has the
+            // one that leaves until it has drawn the new one, and a line, a link or a fold of it is not
+            // one of the note the app shows: a click on its task would tick that line of the wrong file.
+            // So what the page says of another note than the one shown is dropped, however late it comes.
+            if kind != "ready", let note = body["note"] as? String, note != shown?.path { return }
             switch kind {
             case "ready":
                 pageReady()

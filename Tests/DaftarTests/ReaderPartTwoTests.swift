@@ -393,6 +393,9 @@ import WebKit
         // the page still shows `One`, and the app already has `Two`, whose first line is a task too.
         // The test's window is not seen, and a page that is not seen makes no soft change: here it says it is seen.
         _ = try await run(web, "Object.defineProperty(document, 'visibilityState', { get: () => 'visible' }); 1")
+        // With Reduce Motion, which a CI runner may have on, the change is made at once, and the click would be
+        // on the new note, rightly ticking it: here the page says motion is wanted, so the change is soft.
+        _ = try await run(web, "(() => { const media = window.matchMedia.bind(window); window.matchMedia = (query) => (query.includes('prefers-reduced-motion') ? { matches: false } : media(query)); })(); 1")
         _ = try await run(web, "(() => { const show = window.daftar.show; window.daftar.show = function (note) { const done = show.call(this, note); if (note.path === 'Two.md' && !window.clicked) { window.clicked = document.querySelector('#note').textContent.includes('one') ? 'one' : 'two'; document.querySelector('#note input[type=checkbox]').click(); } return done; }; })(); 1")
         shown.request = ReaderRequest(path: "Two.md")
         #expect(try await until(web, "document.querySelector('#note .inline-title')?.textContent === 'Two'"))
@@ -409,6 +412,22 @@ import WebKit
             ticked = try String(contentsOf: root.appending(path: "Two.md"), encoding: .utf8).hasPrefix("- [x] two")
         }
         #expect(ticked)
+    }
+
+    @Test func aClickThePageMadeBeforeItHeardOfTheNextNoteTicksNothing() async throws {
+        let (web, window, shown) = try await page("One.md")
+        defer { window.orderOut(nil) }
+        // A page that is slow: it is busy while the app takes the next note, and the click it then makes on
+        // `One`'s box is made before it has run the app's `daftar.show` of `Two`. No gate in the page can
+        // know of it: the app drops what a page says of a note that is no longer the one it shows.
+        _ = try await run(web, "setTimeout(() => { const end = performance.now() + 700; while (performance.now() < end); window.clicked = document.querySelector('#note').textContent.includes('one') ? 'one' : 'two'; document.querySelector('#note input[type=checkbox]').click(); }, 0); 1")
+        try await Task.sleep(for: .milliseconds(150))
+        shown.request = ReaderRequest(path: "Two.md")
+        #expect(try await until(web, "document.querySelector('#note .inline-title')?.textContent === 'Two'"))
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(try await run(web, "window.clicked") == "one")
+        #expect(try String(contentsOf: root.appending(path: "One.md"), encoding: .utf8).hasPrefix("- [ ] one"))
+        #expect(try String(contentsOf: root.appending(path: "Two.md"), encoding: .utf8).hasPrefix("- [ ] two"))
     }
 
     @Test func anotherNoteIsDrawnAtItsPlaceAndTheKeysAreNotLost() async throws {
