@@ -15,6 +15,8 @@ final class EditorExtras {
     /// The cursors are being moved one by one: the scroll and the dimming wait.
     var moving = false
     var overlay: CaretOverlay?
+    /// The format bar over a selection, once one was shown (`EditorFormatBar.swift`).
+    var formatBar: FormatBar?
     /// Neovim's completion menu while it shows (`NeovimMenu.swift`).
     var menu: NeovimMenu?
     /// Neovim mode's cursor, block or bar, that slides (`NeovimOverlays.swift`).

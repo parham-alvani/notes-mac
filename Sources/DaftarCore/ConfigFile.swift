@@ -284,6 +284,9 @@ public struct ConfigFile: Sendable, Equatable {
         # Away from the cursor's line, the marks (**, ==, [[ ]], #, a link's
         # address) fade out, so the note reads as it will look.
         live_preview = true
+        # A bar of formats (bold, italic, highlight, code, strike, link)
+        # shows over the selected text.
+        format_bar = true
         # The front matter shows as a form of properties, as Obsidian's
         # Properties view; false shows the YAML.
         properties_form = true

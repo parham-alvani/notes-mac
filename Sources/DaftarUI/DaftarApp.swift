@@ -629,6 +629,8 @@ private struct EditorSettings: View {
             Section {
                 Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
                     .fromVault("editor.live_preview", settings)
+                Toggle("Show the format bar over a selection", isOn: $settings.formatBar)
+                    .fromVault("editor.format_bar", settings)
                 Toggle("Show the front matter as properties", isOn: $settings.propertiesForm)
                     .fromVault("editor.properties_form", settings)
                 Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)

@@ -56,6 +56,7 @@ public struct ResolvedSettings: Sendable, Equatable {
         "appearance.remote_images": .onlyFalse,
         "calendar.place": .place,
         "editor.live_preview": .bool,
+        "editor.format_bar": .bool,
         "editor.format_on_save": .bool,
         "git.sync_interval": .int(0...10_080),
         "git.pull_on_launch": .bool,
