@@ -118,6 +118,13 @@ enum DrawnPart: Equatable {
     }
 }
 
+extension String {
+    /// The line that holds UTF-16 [offset], with its line break.
+    fileprivate func lineRange(at offset: Int) -> NSRange {
+        (self as NSString).lineRange(for: NSRange(location: offset, length: 0))
+    }
+}
+
 extension NoteTextView {
     /// Where a drawn part is, and which (`DrawnPart.value`).
     static let part = NSAttributedString.Key("DaftarPart")
@@ -170,8 +177,10 @@ extension NoteTextView {
         let at = characterIndexForInsertion(at: point)
         // The marks have no width: the place is just before them, in them or just after.
         for offset in [at, at - 1, at + 1] where offset >= 0 && offset < storage.length {
+            // Asked first without its range: where there is no part, the longest range would be looked for far over the note at every move of the pointer.
+            guard storage.attribute(Self.part, at: offset, effectiveRange: nil) != nil else { continue }
             var range = NSRange()
-            guard let value = storage.attribute(Self.part, at: offset, longestEffectiveRange: &range, in: NSRange(location: 0, length: storage.length)) as? String,
+            guard let value = storage.attribute(Self.part, at: offset, longestEffectiveRange: &range, in: storage.string.lineRange(at: offset)) as? String,
                 case .box = DrawnPart(value), let rect = boxRect(for: range)
             else { continue }
             return rect.insetBy(dx: -2, dy: -2).contains(point) ? (range, rect) : nil
@@ -250,7 +259,8 @@ extension NoteTextView {
         if hit?.cover.location != hoveredBox {
             if let old = hoveredBox, let storage = textStorage, old < storage.length {
                 var range = NSRange()
-                if storage.attribute(Self.part, at: old, longestEffectiveRange: &range, in: NSRange(location: 0, length: storage.length)) != nil,
+                if storage.attribute(Self.part, at: old, effectiveRange: nil) != nil,
+                    storage.attribute(Self.part, at: old, longestEffectiveRange: &range, in: storage.string.lineRange(at: old)) != nil,
                     let rect = boxRect(for: range)
                 {
                     setNeedsDisplay(rect.insetBy(dx: -4, dy: -4))
