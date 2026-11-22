@@ -293,13 +293,17 @@ public struct ConfigFile: Sendable, Equatable {
         # A bar of formats (bold, italic, highlight, code, strike, link)
         # shows over the selected text.
         format_bar = true
+        # A / typed at the start of a word shows a small list of what to
+        # insert (a heading, a task, a callout, a table), filtered as you
+        # type. false: a / is only a /.
+        slash_menu = true
         # The front matter shows as a form of properties, as Obsidian's
         # Properties view; false shows the YAML.
         properties_form = true
         # Typewriter mode: the cursor's line stays in the middle of the
         # editor while you type.
         typewriter = false
-        # Focus mode: every paragraph but the cursor's dims.
+        # Focus mode: every paragraph but the cursor's dims to 45%.
         focus = false
         # Spelling as you type: English lines in English. macOS has no Persian
         # dictionary, so Persian lines are not marked. Code, links, tags and

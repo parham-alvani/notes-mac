@@ -573,6 +573,23 @@ import Testing
             let parts = Spelling.parts(in: string, range: NSRange(location: min(anchor, head), length: abs(anchor - head)))
             #expect(zip(parts, parts.dropFirst()).allSatisfy { NSMaxRange($0.range) <= $1.range.location })
             #expect(parts.allSatisfy { NSMaxRange($0.range) <= string.length && !string.substring(with: $0.range).contains("\n") })
+            // Focus mode's bright ranges are inside the text, in order and apart.
+            let bright = FocusParagraph.ranges(for: [NSRange(location: min(anchor, head), length: abs(anchor - head)), NSRange(location: head, length: 0)], in: string)
+            #expect(bright.allSatisfy { NSMaxRange($0) <= string.length })
+            #expect(zip(bright, bright.dropFirst()).allSatisfy { NSMaxRange($0) < $1.location })
+            // The slash bar and the link under a place take any text and any place.
+            if let bar = SlashBar(typedAt: head, in: string, items: EditorCommands.slashCommands(today: Day(year: 2026, month: 11, day: 22), time: "09:05")) {
+                #expect(string.character(at: bar.slash) == 0x2F)
+                if let next = bar.following(string, caret: anchor), let choice = next.choice {
+                    let edit = next.edit(choice, in: string)
+                    #expect(NSMaxRange(edit.range) <= string.length && edit.cursor <= string.length - edit.range.length + (edit.text as NSString).length)
+                }
+            }
+            let line = string.substring(with: string.lineRange(for: NSRange(location: head, length: 0))) as NSString
+            if let found = LinkCard.link(at: min(anchor, line.length), in: line) {
+                #expect(NSMaxRange(found.range) <= line.length)
+                _ = LinkCard(link: found.link, path: "A/B.md", text: text)
+            }
             let paragraph = FocusParagraph.range(at: head, in: string)
             #expect(NSMaxRange(paragraph) <= string.length && (string.length == 0 || NSLocationInRange(min(head, string.length - 1), paragraph) || head == string.length))
         }

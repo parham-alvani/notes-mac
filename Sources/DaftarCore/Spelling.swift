@@ -80,8 +80,32 @@ public enum Spelling {
 }
 
 /// Focus mode: the paragraph the cursor is in, the lines between two empty
-/// lines, stays bright and the rest dims.
+/// lines, stays bright and the rest dims (`docs/specs/look.md` in
+/// notes-linux, part 2).
 public enum FocusParagraph {
+    /// What dimmed text and drawings keep of their alpha.
+    public static let dimmed = 0.45
+    /// How long a paragraph takes to dim or brighten, in seconds.
+    public static let change = 0.12
+
+    /// What stays bright with [selections], the cursors and what they
+    /// select: every paragraph a selection touches, in order, with those
+    /// that meet as one range.
+    public static func ranges(for selections: [NSRange], in text: NSString) -> [NSRange] {
+        var out: [NSRange] = []
+        for selection in selections.sorted(by: { $0.location < $1.location }) {
+            let first = range(at: selection.location, in: text)
+            let last = selection.length == 0 ? first : range(at: NSMaxRange(selection), in: text)
+            let bright = NSRange(location: first.location, length: max(NSMaxRange(first), NSMaxRange(last)) - first.location)
+            if let before = out.last, bright.location <= NSMaxRange(before) {
+                out[out.count - 1].length = max(NSMaxRange(before), NSMaxRange(bright)) - before.location
+            } else {
+                out.append(bright)
+            }
+        }
+        return out
+    }
+
     public static func range(at location: Int, in text: NSString) -> NSRange {
         guard text.length > 0 else { return NSRange(location: 0, length: 0) }
         let at = min(max(0, location), text.length)
