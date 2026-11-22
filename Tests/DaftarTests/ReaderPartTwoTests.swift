@@ -201,6 +201,36 @@ import WebKit
         #expect(try String(contentsOf: root.appending(path: "Tables.md"), encoding: .utf8) == before.replacingOccurrences(of: "| A | 9 |", with: "| A | 900 |"))
     }
 
+    @Test func theReadingCursorKeepsItsRowInASortedTable() async throws {
+        let (web, window, _) = try await page("Tables.md")
+        defer { window.orderOut(nil) }
+        let before = try String(contentsOf: root.appending(path: "Tables.md"), encoding: .utf8)
+        let key = { (name: String) in "document.dispatchEvent(new KeyboardEvent('keydown', { key: '\(name)', bubbles: true })); 1" }
+        // The row the reading line is on: the one its middle is in. By its style: a page that is not seen runs no transition.
+        let row = "(() => { const band = document.getElementById('reading-line').style, y = parseFloat(band.top) + parseFloat(band.height) / 2 - window.scrollY; return [...\(Self.lastTable).rows].find((r) => { const b = r.getBoundingClientRect(); return b.top <= y && y < b.bottom; })?.cells[0].textContent ?? ''; })()"
+        // The end of the note is the small table's last row, `c`; one line up is `A`.
+        _ = try await run(web, key("G"))
+        #expect(try await until(web, "\(row) === 'c'"))
+        // The scroll to it ends first: a key during it starts from what is on screen.
+        #expect(try await until(web, "\(Self.lastTable).getBoundingClientRect().bottom < window.innerHeight"))
+        try await Task.sleep(for: .milliseconds(400))
+        _ = try await run(web, key("k"))
+        #expect(try await until(web, "\(row) === 'A'"))
+        // Sorted by size from large to small, the rows are c, b, A: the cursor is still on `A`, now the last row.
+        _ = try await run(web, "\(Self.lastTable).tHead.rows[0].cells[1].click(); \(Self.lastTable).tHead.rows[0].cells[1].click(); 1")
+        #expect(try await run(web, Self.words) == "c,b,A")
+        #expect(try await until(web, "\(row) === 'A'"))
+        // One line up is `b`, and it stays there when the note is drawn again after a change on disk.
+        _ = try await run(web, key("k"))
+        #expect(try await until(web, "\(row) === 'b'"))
+        try (before + "\nOne more line.\n").write(to: root.appending(path: "Tables.md"), atomically: true, encoding: .utf8)
+        store.noteChanged("Tables.md")
+        #expect(try await until(web, "document.querySelector('#note').textContent.includes('One more line.')"))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try await run(web, Self.words) == "c,b,A")
+        #expect(try await run(web, row) == "b")
+    }
+
     static let headOn = "!!document.querySelector('#table-head.is-on')"
 
     @Test func aTablesHeaderStaysWhileItsRowsAreRead() async throws {

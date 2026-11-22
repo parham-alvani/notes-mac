@@ -1162,10 +1162,15 @@ const tableSort = {
 
   /** A click on the header cell [cell] of [table]. */
   click(table, column) {
+    // The reading cursor stays on the row it is on, wherever the sort puts it.
+    const at = reading.block === table ? reading.line : null;
     this.apply(table, nextSort(table.sort, column));
     tableHead.forget();
-    reading.redraw();
+    if (at != null) reading.restore(at);
+    else reading.redraw();
     onScroll();
+    // The matches of a find are places in the rows that moved.
+    if (finder.bar?.classList.contains("is-open")) search(finder.input.value);
   },
 
   /** The sorts on the page, to put back when the same note is drawn again. */
@@ -2184,6 +2189,12 @@ const reading = {
     const y = (row.top + row.bottom) / 2 - window.scrollY;
     const caret = document.caretRangeFromPoint?.(x, y);
     if (!caret || !block.contains(caret.startContainer)) return null;
+    // A table's row is a line of the file: the header, the line of dashes,
+    // then each row. A sorted row has the line it has in the file.
+    if (block.tagName === "TABLE") {
+      const cells = caret.startContainer.parentElement?.closest("tr");
+      if (cells && cells.closest("table") === block) return line + (cells.parentElement.tagName === "THEAD" ? 0 : 2 + (cells.fileOrder ?? cells.sectionRowIndex));
+    }
     const before = document.createRange();
     before.setStart(block, 0);
     before.setEnd(caret.startContainer, caret.startOffset);
@@ -2272,8 +2283,11 @@ const reading = {
     this.line = block ? Number(block.dataset.line) : null;
     const rows = block ? this.rows(block) : [];
     if (rows.length > 1 && line > this.line) {
+      // A sorted table's rows are not in the file's order: every row is asked.
+      const sorted = block.tagName === "TABLE" && Boolean(block.sort);
       for (let index = 1; index < rows.length; index++) {
         const at = this.sourceLine(block, rows, index);
+        if (sorted && (at == null || at > line || at <= this.line)) continue;
         if (at == null || at > line) break;
         this.row = index;
         this.line = at;
