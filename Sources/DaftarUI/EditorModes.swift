@@ -219,10 +219,20 @@ final class FocusDim: NSView {
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    /// The dim's colour as the window's appearance has it, kept: a move asks for it at every paragraph.
+    private var colour: CGColor?
+
     /// The palette's colour, as the window's appearance has it now.
     override func updateLayer() {
         let colour = NSPalette.background.withAlphaComponent(1 - FocusParagraph.dimmed).cgColor
+        self.colour = colour
         for slice in slices { slice.backgroundColor = colour }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        colour = nil
+        needsDisplay = true
     }
 
     /// Everything dims but [bright]. With [fade], what was bright dims and
@@ -245,7 +255,8 @@ final class FocusDim: NSView {
             slices.append(slice)
         }
         while slices.count > edges.count - 1 { slices.removeLast().removeFromSuperlayer() }
-        let colour = effectiveAppearance.performAsCurrentDrawingAppearance { NSPalette.background.withAlphaComponent(1 - FocusParagraph.dimmed).cgColor }
+        let colour = self.colour ?? effectiveAppearance.performAsCurrentDrawingAppearance { NSPalette.background.withAlphaComponent(1 - FocusParagraph.dimmed).cgColor }
+        self.colour = colour
         for (slice, (top, bottom)) in zip(slices, zip(edges, edges.dropFirst())) {
             let middle = (top + bottom) / 2
             func dimmed(_ bands: [NSRect]) -> Float { bands.contains { $0.minY <= middle && middle < $0.maxY } ? 0 : 1 }
@@ -298,6 +309,8 @@ extension NoteTextView {
             extras.dim = dim
             return dim
         }()
+        // Typing in the paragraph: the layout the key brings places the dim (`placeDim`, from the viewport hook), so nothing is laid out here for it.
+        if let old, old.length != now.length, old.ranges.count == now.ranges.count, !dim.bands.isEmpty { return }
         let moved = old.map { $0.length == now.length } ?? false
         dim.show(brightBands(), fade: moved && !Motion.reduced && window?.isVisible == true)
     }
@@ -314,12 +327,11 @@ extension NoteTextView {
     /// its first line to the bottom of its last, as wide as the view.
     func brightBands(layingOut: Bool = true) -> [NSRect] {
         guard let focused = extras.focused else { return [] }
-        let shown = viewportOffsets()
         return focused.ranges.compactMap { range in
             var from = range.location, to = NSMaxRange(range)
             // A long paragraph is laid out only where it is on screen.
             if range.length > Self.laidOutWhole {
-                guard let shown else { return nil }
+                guard let shown = viewportOffsets() else { return nil }
                 from = max(from, shown.location)
                 to = min(to, NSMaxRange(shown))
                 guard from < to else { return nil }
