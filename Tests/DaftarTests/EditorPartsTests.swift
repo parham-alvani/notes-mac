@@ -130,6 +130,53 @@ private let picturePath = ProcessInfo.processInfo.environment["DAFTAR_PARTS_PICT
         #expect(part(at: "📅 2001-02-03") == .chip(colour: "red", closed: false))
     }
 
+    /// A chip is one piece on one line: where the line ends between the
+    /// emoji and its date, the whole chip goes to the next line, and the
+    /// text is as written.
+    @Test func aChipNeverWrapsBetweenItsEmojiAndItsDate() throws {
+        // Tasks of every length near the line's end, so some end between a chip's emoji and its date.
+        let filler = "word and word and word and word and word and word and word and"
+        let tasks = (0..<48).map { "- [ ] \(filler) \(String(repeating: "x", count: $0)) 📅 2999-12-01 ⏳ 2999-11-25" }
+        let note = "Top\n\n" + tasks.joined(separator: "\n") + "\n"
+        try open(note)
+        view.enclosingScrollView?.layoutSubtreeIfNeeded()
+        /// The chips whose first and last letters are on two lines, and the lines that wrap at all.
+        func broken() throws -> (chips: Int, wrapped: Int) {
+            var chips = 0, wrapped = 0
+            var from = 0
+            while true {
+                let found = text.range(of: "- [ ]", range: NSRange(location: from, length: text.length - from))
+                guard found.location != NSNotFound else { break }
+                let line = text.lineRange(for: found)
+                from = NSMaxRange(line)
+                let top = try #require(view.baseline(at: line.location + 6)), bottom = try #require(view.baseline(at: NSMaxRange(line) - 2))
+                if abs(top - bottom) > 1 { wrapped += 1 }
+                for emoji in ["📅", "⏳"] {
+                    let chip = text.range(of: emoji, range: line)
+                    #expect((attribute(.daftarNoBreak, at: emoji) as Bool?) == true)
+                    let start = try #require(view.baseline(at: chip.location)), end = try #require(view.baseline(at: chip.location + 12))
+                    if abs(start - end) > 1 { chips += 1 }
+                }
+            }
+            return (chips, wrapped)
+        }
+        var found = try broken()
+        // The lines do wrap, some of them at a chip, and no chip is in two pieces.
+        #expect(found.wrapped > 0 && found.chips == 0)
+        // Raw under the cursor it is one piece too, and so with live preview off.
+        caret(in: "2999-12-01", plus: 3)
+        #expect(try broken().chips == 0)
+        store.settings.livePreview = false
+        controller.restyle(all: true)
+        found = try broken()
+        #expect(found.wrapped > 0 && found.chips == 0)
+        store.settings.livePreview = true
+        // The space between two chips is a place to break, and the text never changed.
+        let between = text.range(of: " ⏳").location
+        #expect(view.textStorage?.attribute(.daftarNoBreak, at: between, effectiveRange: nil) == nil)
+        #expect(view.string == note)
+    }
+
     @Test func aClickOnTheBoxTicksTheTaskInOneUndoStep() throws {
         try open("Top line\n\n- [ ] Call ➕ 2026-11-20\nAfter\n")
         let today = Day.today().description
@@ -221,6 +268,55 @@ private let picturePath = ProcessInfo.processInfo.environment["DAFTAR_PARTS_PICT
         #expect(hidden("> the gap"))
     }
 
+    /// The `>` line between a callout's title and its body is the room under
+    /// the title, 0.4 em as the reader has it, not a line of text; under the
+    /// caret it is a line again.
+    @Test func theLineUnderACalloutsTitleIsShortAwayFromTheCaret() throws {
+        let note = "Top\n\n> [!warning] Mind\n>\n> the gap\n>\n> more\n\n> [!tip]\n> \n> body\n\n> plain\n>\n> quote\n"
+        try open(note)
+        view.enclosingScrollView?.layoutSubtreeIfNeeded()
+        let size = CGFloat(store.settings.textSize)
+        let separator = text.range(of: "Mind\n>").location + 5
+        /// How high the line of text at [offset] is, as it is laid out.
+        func height(at offset: Int) throws -> CGFloat {
+            let layout = try #require(view.textLayoutManager), content = try #require(layout.textContentManager)
+            let location = try #require(content.location(content.documentRange.location, offsetBy: offset))
+            layout.ensureLayout(for: content.documentRange)
+            return try #require(layout.textLayoutFragment(for: location)).layoutFragmentFrame.height
+        }
+        func paragraph(at offset: Int) -> NSParagraphStyle? { view.textStorage?.attribute(.paragraphStyle, at: offset, effectiveRange: nil) as? NSParagraphStyle }
+        #expect(Callout.roomUnderTitle == 0.4)
+        #expect(paragraph(at: separator)?.maximumLineHeight == size * 0.4)
+        let body = try height(at: text.range(of: "the gap").location)
+        #expect(try abs(height(at: separator) - size * 0.4) < 1)
+        #expect(body > size)
+        // It is still in the panel, with the panel's room at each side.
+        #expect((view.textStorage?.attribute(NoteTextView.calloutPanel, at: separator, effectiveRange: nil) as? String) == "orange")
+        #expect(paragraph(at: separator)?.headIndent == size)
+        // With a space after the `>`, and under a title that is only the kind's name.
+        let second = text.range(of: "[!tip]\n> \n").location + 7
+        #expect(try abs(height(at: second) - size * 0.4) < 1)
+        // An empty `>` line lower in the body is a line between two paragraphs, and a quote's is a quote's.
+        #expect(try height(at: text.range(of: "the gap\n>").location + 8) > size)
+        #expect(try height(at: text.range(of: "plain\n>").location + 6) > size)
+        // The caret on it: a whole line, with its `>` to be seen.
+        view.setSelectedRange(NSRange(location: separator, length: 0))
+        #expect(try height(at: separator) > size)
+        #expect((view.textStorage?.attribute(.foregroundColor, at: separator, effectiveRange: nil) as? NSColor) != .clear)
+        // Away again it is short again, and the text never changed.
+        caret(in: "Top")
+        #expect(try abs(height(at: separator) - size * 0.4) < 1)
+        // The title taken away, the line is a quote's line.
+        let head = text.range(of: "[!warning] ")
+        view.insertText("", replacementRange: head)
+        #expect(try height(at: text.range(of: "Mind\n>").location + 5) > size)
+        store.settings.livePreview = false
+        try open(note)
+        #expect(try height(at: separator) > size)
+        store.settings.livePreview = true
+        #expect(view.string == note)
+    }
+
     @Test func aKindTypedInAHeadColoursTheLinesUnderIt() throws {
         try open("Top\n\n> [!note] Title\n> one\n> two\n\nEnd\n")
         #expect((attribute(NoteTextView.calloutPanel, at: "> two") as String?) == "blue")
@@ -296,6 +392,7 @@ private let picturePath = ProcessInfo.processInfo.environment["DAFTAR_PARTS_PICT
                 - [ ] Nested task
             - [ ] کار فارسی 📅 2001-10-30 ⏳ 2999-12-01
             - [ ] Raw under the cursor 📅 2999-01-01
+            - [ ] A task as long as the line, so that its last chip goes down whole 📅 2999-12-01 ⏳ 2999-11-25
 
             > [!warning] Mind the gap
             > A callout's body, long enough to go around the measure of the editor, so the room at each side of the panel shows.
@@ -303,6 +400,10 @@ private let picturePath = ProcessInfo.processInfo.environment["DAFTAR_PARTS_PICT
 
             > [!tip]
             > A tip with no title.
+
+            > [!info] A title, then a line of `>` alone
+            >
+            > The body under it: the line between is the room under the title.
 
             > [!note]- Folded title
             > Body.

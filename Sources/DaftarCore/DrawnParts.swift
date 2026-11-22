@@ -206,6 +206,10 @@ public enum Callout {
         public var titled: Bool
     }
 
+    /// The room under the title, in em, as the reader has it (`.callout-content`'s
+    /// margin): the height of the `>` line that parts the title from the body.
+    public static let roomUnderTitle = 0.4
+
     /// Each kind's Lucide icon, with Obsidian's aliases (`calloutIcons` in web/build.mjs).
     static let table: [String: String] = {
         let groups: [([String], String)] = [

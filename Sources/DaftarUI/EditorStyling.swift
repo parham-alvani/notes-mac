@@ -507,6 +507,8 @@ extension EditorController {
                 storage.removeAttribute(.strikethroughStyle, range: whole)
                 storage.removeAttribute(.strikethroughColor, range: whole)
                 if span.kind == .taskReason { storage.addAttribute(.foregroundColor, value: NSPalette.muted, range: r) }
+                // A chip is one piece: the line never breaks between its emoji and its date (`shouldBreakLineBefore`).
+                if case .dateChip = span.kind { storage.addAttribute(.daftarNoBreak, value: true, range: r) }
             case .frontMatter:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.muted], range: r)
             case .link:
@@ -749,7 +751,21 @@ extension EditorController {
         let head = mark.hasPrefix("[!") ? Callout.head(of: text.substring(with: NSRange(location: line.location, length: contents - line.location))) : nil
         // A line of marks alone keeps their room, unseen: letters of no size would leave it no height.
         let alone = NSMaxRange(range) >= contents || head?.titled == false
-        if alone {
+        if alone, head == nil, line.location > 0, mark.hasPrefix(">"),
+            Callout.head(of: text.substring(with: text.lineRange(for: NSRange(location: line.location - 1, length: 0))).trimmingCharacters(in: .newlines)) != nil
+        {
+            // The `>` line that parts the title from the body is the room under the title, the reader's
+            // 0.4 em, not a line of text: a whole line there was a wide empty band.
+            storage.addAttributes(Self.hidden, range: range)
+            let paragraph = ((storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = fontSize * Callout.roomUnderTitle
+            paragraph.maximumLineHeight = fontSize * Callout.roomUnderTitle
+            paragraph.lineHeightMultiple = 0
+            paragraph.paragraphSpacing = 0
+            paragraph.paragraphSpacingBefore = 0
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: line)
+        } else if alone {
             storage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
         } else {
             storage.addAttributes(Self.hidden, range: range)
