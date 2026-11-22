@@ -35,14 +35,15 @@ extension NoteTextView {
     override func insertNewline(_ sender: Any?) {
         let line = currentLineRange()
         let cursor = selectedRange()
-        // Return in a table: the same cell of the row below.
-        if cursor.length == 0, tableEnter() { return }
+        // Return in a table: the same cell of the row below. A cell never holds a line break,
+        // so a selection in one cell does not become one.
+        if tableEnter() { return }
         // Return at the end of a row with no delimiter row under its header yet: a new row, the cursor in its first cell.
         if cursor.length == 0, cursor.location == NSMaxRange(line), let table = tableBlock(), !MarkdownTable.cells(ns.substring(with: line)).allSatisfy(\.isEmpty) {
             let rows = Array(table.lines[...table.row])
             let formatted = MarkdownTable.newRow(rows)
             let replaced = NSRange(location: table.range.location, length: NSMaxRange(line) - table.range.location)
-            let text = formatted.joined(separator: "\n")
+            let text = formatted.joined(separator: table.eol)
             let start = replaced.location + (text as NSString).length - (formatted.last! as NSString).length
             return replace(replaced, with: text, select: NSRange(location: start + MarkdownTable.cellStart(formatted.last!, column: 0), length: 0))
         }
@@ -75,9 +76,11 @@ extension NoteTextView {
 
     // MARK: Tables
 
-    /// The rows of the table the cursor is in: their range, their lines, and
-    /// which of them holds the cursor.
-    private func tableBlock() -> (range: NSRange, lines: [String], row: Int)? {
+    /// The rows of the table the cursor is in: their range, their lines
+    /// without their line breaks, which of them holds the cursor, and the
+    /// line break the note has there. Rows in a code block, the front
+    /// matter, math or a comment are not a table: their keys are the text's.
+    private func tableBlock() -> (range: NSRange, lines: [String], row: Int, eol: String)? {
         let line = currentLineRange()
         guard MarkdownTable.isRow(ns.substring(with: line)) else { return nil }
         let isRow = { (range: NSRange) in MarkdownTable.isRow(self.ns.substring(with: range)) }
@@ -91,14 +94,21 @@ extension NoteTextView {
         while next < ns.length {
             let below = ns.lineRange(for: NSRange(location: next, length: 0))
             guard isRow(below) else { break }
-            // The row without its newline.
-            end = NSMaxRange(below) - (ns.character(at: NSMaxRange(below) - 1) == 10 ? 1 : 0)
+            // The row without its line break.
+            end = NSMaxRange(below)
+            while end > below.location, [10, 13].contains(ns.character(at: end - 1)) { end -= 1 }
             next = NSMaxRange(below)
         }
+        if let controller, controller.blockStates.peek(before: start, in: ns) != .normal { return nil }
         let range = NSRange(location: start, length: end - start)
-        let lines = ns.substring(with: range).components(separatedBy: "\n")
-        let row = ns.substring(with: NSRange(location: start, length: line.location - start)).filter { $0 == "\n" }.count
-        return (range, lines, row)
+        let raw = ns.substring(with: range) as NSString
+        // A note from Windows keeps its line breaks.
+        let eol = raw.range(of: "\r\n").location != NSNotFound ? "\r\n" : "\n"
+        let lines = raw.components(separatedBy: eol)
+        // A table whose lines end in two ways is left to the text's own keys.
+        guard !lines.contains(where: { $0.contains("\n") || $0.contains("\r") }) else { return nil }
+        let row = (ns.substring(with: NSRange(location: start, length: line.location - start)) as NSString).components(separatedBy: eol).count - 1
+        return (range, lines, row, eol)
     }
 
     /// Tab in a table: the next cell, the columns lined up. One step to undo, with its formatting.
@@ -107,16 +117,16 @@ extension NoteTextView {
         let line = currentLineRange()
         let column = MarkdownTable.column(at: selectedRange().location - line.location, in: ns.substring(with: line))
         let moved = MarkdownTable.tab(table.lines, row: table.row, column: column, back: back)
-        putTable(moved.lines, in: table.range, row: moved.row, column: moved.column)
+        putTable(moved.lines, in: table.range, row: moved.row, column: moved.column, eol: table.eol)
         return true
     }
 
     /// The table's lines after a key, in place of [range], the cursor at the start of a cell's text.
-    private func putTable(_ lines: [String], in range: NSRange, row: Int, column: Int) {
+    private func putTable(_ lines: [String], in range: NSRange, row: Int, column: Int, eol: String) {
         var start = range.location
-        for line in lines[..<row] { start += (line as NSString).length + 1 }
+        for line in lines[..<row] { start += (line as NSString).length + (eol as NSString).length }
         breakUndoCoalescing()
-        replace(range, with: lines.joined(separator: "\n"), select: NSRange(location: start + MarkdownTable.cellStart(lines[row], column: column), length: 0))
+        replace(range, with: lines.joined(separator: eol), select: NSRange(location: start + MarkdownTable.cellStart(lines[row], column: column), length: 0))
         breakUndoCoalescing()
     }
 
@@ -126,13 +136,22 @@ extension NoteTextView {
     private func tableEnter() -> Bool {
         guard let table = tableBlock(), table.lines.count >= 2, MarkdownTable.isDelimiter(table.lines[1]) else { return false }
         let line = currentLineRange()
-        let column = MarkdownTable.column(at: selectedRange().location - line.location, in: ns.substring(with: line))
+        let selection = selectedRange()
+        if selection.length > 0 {
+            // A selection in one cell moves as its caret would, and stays in the text. One that
+            // reaches over a pipe or a line is raw text, and Return is the text's key.
+            let row = TableGrid.row(ns, line: line)
+            guard NSMaxRange(selection) <= NSMaxRange(line), let cell = row.cell(at: selection.location), cell == row.cell(at: NSMaxRange(selection)),
+                !row.pipes.contains(where: { $0 >= selection.location && $0 < NSMaxRange(selection) })
+            else { return false }
+        }
+        let column = MarkdownTable.column(at: selection.location - line.location, in: ns.substring(with: line))
         switch MarkdownTable.enter(table.lines, row: table.row, column: column) {
         case .moved(let lines, let row, let column):
-            putTable(lines, in: table.range, row: row, column: column)
+            putTable(lines, in: table.range, row: row, column: column, eol: table.eol)
         case .ended(let lines):
             // The empty row's line stays, empty, with the cursor on it.
-            let text = lines.joined(separator: "\n") + "\n"
+            let text = lines.joined(separator: table.eol) + table.eol
             breakUndoCoalescing()
             replace(table.range, with: text, select: NSRange(location: table.range.location + (text as NSString).length, length: 0))
             breakUndoCoalescing()
@@ -142,7 +161,7 @@ extension NoteTextView {
 
     /// ⌃↩ in a table is Return: a cell never holds a line break.
     override func insertLineBreak(_ sender: Any?) {
-        if selectedRange().length == 0, tableEnter() { return }
+        if tableEnter() { return }
         super.insertLineBreak(sender)
     }
 
@@ -332,6 +351,8 @@ extension NoteTextView {
 
     /// Backspace in an empty pair takes both.
     override func deleteBackward(_ sender: Any?) {
+        // At the start of a grid's cell there is nothing of the cell to take.
+        if deleteInCell(.back) { return }
         let at = selectedRange()
         if !vimActive, at.length == 0, at.location >= 1, at.location < ns.length, autoClosed == at.location,
             let close = Self.closing[ns.substring(with: NSRange(location: at.location - 1, length: 1))],

@@ -240,6 +240,90 @@ private let tablePicture = ProcessInfo.processInfo.environment["DAFTAR_TABLE_PIC
         #expect(view.string == "| A\n | B |\n\nEnd\n")
     }
 
+    @Test func aDeleteKeyTakesOnlyItsCellsText() throws {
+        let note = "| A | B |\n| --- | --- |\n| one two | 2 |\n\nEnd\n"
+        try open(note)
+        // Backspace at a cell's start takes nothing, however often: the padding and the pipe before it are not drawn.
+        caret(in: "2")
+        key { view.deleteBackward(nil) }
+        key { view.deleteBackward(nil) }
+        key { view.deleteWordBackward(nil) }
+        #expect(view.string == note && view.selectedRange().location == at("2"))
+        // Delete at a cell's end takes nothing.
+        caret(in: "two", plus: 3)
+        key { view.deleteForward(nil) }
+        key { view.deleteWordForward(nil) }
+        #expect(view.string == note)
+        // To the line's start and to its end are to the cell's start and end. One step to undo.
+        caret(in: "two")
+        key { view.deleteToBeginningOfLine(nil) }
+        #expect(view.string == "| A | B |\n| --- | --- |\n| two | 2 |\n\nEnd\n")
+        view.undoManager?.undo()
+        #expect(view.string == note)
+        caret(in: "one", plus: 3)
+        key { view.deleteToEndOfParagraph(nil) }
+        #expect(view.string == "| A | B |\n| --- | --- |\n| one | 2 |\n\nEnd\n")
+        view.undoManager?.undo()
+        #expect(view.string == note)
+        // A word back stops at the cell's start.
+        caret(in: "one", plus: 2)
+        key { view.deleteWordBackward(nil) }
+        #expect(view.string == "| A | B |\n| --- | --- |\n| e two | 2 |\n\nEnd\n")
+        view.undoManager?.undo()
+        // In the cell's text the keys are the text's.
+        caret(in: "two", plus: 3)
+        key { view.deleteBackward(nil) }
+        #expect(view.string == "| A | B |\n| --- | --- |\n| one tw | 2 |\n\nEnd\n")
+        view.undoManager?.undo()
+        // A pipe just typed is taken back by Backspace: the caret is where the key left it.
+        caret(in: "one", plus: 3)
+        key { view.insertText("|", replacementRange: view.selectedRange()) }
+        #expect(view.string == "| A | B |\n| --- | --- |\n| one| two | 2 |\n\nEnd\n")
+        key { view.deleteBackward(nil) }
+        #expect(view.string == note)
+        // An empty cell keeps its padding and its pipes.
+        let empty = "| A | B |\n| --- | --- |\n|  | 2 |\n\nEnd\n"
+        try open(empty)
+        view.setSelectedRange(NSRange(location: at("|  |") + 2, length: 0))
+        key { view.deleteBackward(nil) }
+        key { view.deleteForward(nil) }
+        key { view.deleteToBeginningOfLine(nil) }
+        #expect(view.string == empty)
+        // Raw, on the delimiter row, the keys are the text's.
+        try open(note)
+        caret(in: "---")
+        key { view.deleteBackward(nil) }
+        #expect(view.string == "| A | B |\n|--- | --- |\n| one two | 2 |\n\nEnd\n")
+    }
+
+    @Test func theTableKeysKeepToATableAndToItsLineBreaks() throws {
+        // Rows in a code block are code: Return breaks the line and Tab indents.
+        let code = "```\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n"
+        try open(code)
+        caret(in: "1", plus: 1)
+        key { view.insertNewline(nil) }
+        #expect(view.string == "```\n| a | b |\n| --- | --- |\n| 1\n | 2 |\n```\n")
+        view.undoManager?.undo()
+        #expect(view.string == code)
+        caret(in: "1", plus: 1)
+        key { view.insertTab(nil) }
+        #expect(view.string == "```\n| a | b |\n| --- | --- |\n| 1" + EditorCommands.indentUnit + " | 2 |\n```\n")
+        // A selection in one cell does not become a line break: Return moves, and the text stays.
+        try open("| A | B |\n| --- | --- |\n| 12 | 2 |\n\nEnd\n")
+        view.setSelectedRange(NSRange(location: at("12"), length: 1))
+        key { view.insertNewline(nil) }
+        #expect(view.string == "| A   | B   |\n| --- | --- |\n| 12  | 2   |\n|     |     |\n\nEnd\n")
+        // A note with Windows line breaks keeps them, and Return is the table's key there too.
+        try open("| A | B |\r\n| --- | --- |\r\n| 1 | 2 |\r\n")
+        caret(in: "1")
+        key { view.insertNewline(nil) }
+        #expect(view.string == "| A   | B   |\r\n| --- | --- |\r\n| 1   | 2   |\r\n|     |     |\r\n")
+        #expect(view.selectedRange() == NSRange(location: 47, length: 0))
+        key { view.insertBacktab(nil) }
+        #expect(view.string == "| A   | B   |\r\n| --- | --- |\r\n| 1   | 2   |\r\n|     |     |\r\n")
+        #expect(view.selectedRange() == NSRange(location: at("2"), length: 0))
+    }
+
     @Test func tabMovesBetweenCellsAndAddsARow() throws {
         try open("Top\n\n" + Self.table + "\n\nEnd\n")
         caret(in: "1")

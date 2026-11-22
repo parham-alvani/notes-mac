@@ -510,6 +510,95 @@ extension NoteTextView {
         return nil
     }
 
+    /// The text of the grid's cell the caret is in, its two ends counted.
+    /// Nil with a selection, with many cursors, in Neovim mode, on a line
+    /// that is no row of a drawn grid, and in a cell's padding, where an
+    /// edit left the caret (a space or a pipe just typed).
+    func caretCell() -> NSRange? {
+        guard !vimActive, !hasManyCursors, controller?.store.settings.livePreview == true, let storage = textStorage, storage.length > 0 else { return nil }
+        let selection = selectedRange()
+        guard selection.length == 0, selection.location <= storage.length else { return nil }
+        let text = storage.string as NSString
+        var start = 0, contents = 0
+        text.getLineStart(&start, end: nil, contentsEnd: &contents, for: NSRange(location: selection.location, length: 0))
+        guard start < contents, let value = storage.attribute(Self.tableRow, at: start, effectiveRange: nil) as? String, let drawn = TableRowPart(value),
+            drawn.role != .delimiter
+        else { return nil }
+        return TableGrid.row(text, line: NSRange(location: start, length: contents - start)).cells.first {
+            selection.location >= $0.location && selection.location <= NSMaxRange($0)
+        }
+    }
+
+    /// A key that deletes, with the caret in a grid's cell.
+    enum CellDelete {
+        case back, forward, wordBack, wordForward, toStart, toEnd
+    }
+
+    /// A delete key in a grid's cell takes that cell's text and no more: the
+    /// pipes and the padding beside it are not drawn, and a key never takes
+    /// what the person cannot see. So Backspace at a cell's start and Delete
+    /// at its end do nothing, and a word or a line is cut at the cell's
+    /// ends. True when the key is used. A pipe goes with a selection over
+    /// it, which shows the table raw.
+    func deleteInCell(_ kind: CellDelete) -> Bool {
+        guard let cell = caretCell(), let storage = textStorage else { return false }
+        let caret = selectedRange().location
+        let gone: NSRange
+        switch kind {
+        case .back:
+            return caret == cell.location
+        case .forward:
+            return caret == NSMaxRange(cell)
+        case .wordBack:
+            let from = caret > cell.location ? max(cell.location, storage.nextWord(from: caret, forward: false)) : caret
+            gone = NSRange(location: from, length: caret - from)
+        case .wordForward:
+            let to = caret < NSMaxRange(cell) ? min(NSMaxRange(cell), storage.nextWord(from: caret, forward: true)) : caret
+            gone = NSRange(location: caret, length: to - caret)
+        case .toStart:
+            gone = NSRange(location: cell.location, length: caret - cell.location)
+        case .toEnd:
+            gone = NSRange(location: caret, length: NSMaxRange(cell) - caret)
+        }
+        if gone.length > 0 { replace(gone, with: "", select: NSRange(location: gone.location, length: 0)) }
+        return true
+    }
+
+    override func deleteForward(_ sender: Any?) {
+        if deleteInCell(.forward) { return }
+        super.deleteForward(sender)
+    }
+
+    override func deleteWordBackward(_ sender: Any?) {
+        if deleteInCell(.wordBack) { return }
+        super.deleteWordBackward(sender)
+    }
+
+    override func deleteWordForward(_ sender: Any?) {
+        if deleteInCell(.wordForward) { return }
+        super.deleteWordForward(sender)
+    }
+
+    override func deleteToBeginningOfLine(_ sender: Any?) {
+        if deleteInCell(.toStart) { return }
+        super.deleteToBeginningOfLine(sender)
+    }
+
+    override func deleteToBeginningOfParagraph(_ sender: Any?) {
+        if deleteInCell(.toStart) { return }
+        super.deleteToBeginningOfParagraph(sender)
+    }
+
+    override func deleteToEndOfLine(_ sender: Any?) {
+        if deleteInCell(.toEnd) { return }
+        super.deleteToEndOfLine(sender)
+    }
+
+    override func deleteToEndOfParagraph(_ sender: Any?) {
+        if deleteInCell(.toEnd) { return }
+        super.deleteToEndOfParagraph(sender)
+    }
+
     /// A plain click in a grid's cell, kept while the click moves the caret.
     func noteCellClick(_ event: NSEvent) {
         clickedCell = nil
