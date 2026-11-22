@@ -160,6 +160,139 @@ import Testing
         #expect(kinds("```rust\nx")[.fenceEnd] == nil)
     }
 
+    // MARK: A table as a grid
+
+    let table = ["| A | B |", "| --- | --- |", "| 1 | 2 |"]
+
+    @Test func aTableIsAGridOnlyWithItsDelimiterRow() throws {
+        let grid = try #require(TableGrid.find(in: table))
+        #expect(grid.rows.count == 3 && grid.columns == 2)
+        // The header alone is not, nor a header with a row and no delimiter row.
+        #expect(TableGrid.find(in: [table[0]]) == nil)
+        #expect(TableGrid.find(in: [table[0], table[2]]) == nil)
+        // In a quote, a callout or a list item it is drawn as before.
+        #expect(TableGrid.find(in: table.map { "> " + $0 }) == nil)
+        #expect(TableGrid.find(in: table.map { "- " + $0 }) == nil)
+        // Spaces before the pipe are an indent.
+        #expect(TableGrid.find(in: table.map { "  " + $0 }) != nil)
+        // 200 rows are a grid; 201 are not.
+        let rows = { (count: Int) in Array(self.table.prefix(2)) + (0..<count).map { "| \($0) | x |" } }
+        #expect(TableGrid.find(in: rows(200)) != nil)
+        #expect(TableGrid.find(in: rows(201)) == nil)
+        #expect(MarkdownTable.isDelimiter("| --- | :-: |") && !MarkdownTable.isDelimiter("| a | --- |") && !MarkdownTable.isDelimiter("---"))
+        // The grid is found from any of its lines, and ends at a line that is no row.
+        let text = "Top\n\n" + table.joined(separator: "\n") + "\nUnder\n" as NSString
+        for word in ["A", "---", "2"] {
+            let found = try #require(TableGrid.find(around: text.range(of: word).location, in: text))
+            #expect(text.substring(with: found.range) == table.joined(separator: "\n"))
+        }
+        #expect(TableGrid.find(around: 0, in: text) == nil && TableGrid.find(around: text.range(of: "Under").location, in: text) == nil)
+    }
+
+    @Test func aGridKnowsItsCellsAndItsSides() throws {
+        let text = "| Name  | نام | n |\n| :-- | :-: | --: |\n| a \\| b |  | 12 |\n|x|y" as NSString
+        let grid = try #require(TableGrid.find(around: 0, in: text))
+        let cells = grid.rows.map { $0.cells.map { text.substring(with: $0) } }
+        // The padding spaces are not a cell's text, an escaped pipe is, and a row may lack its closing pipe.
+        #expect(cells == [["Name", "نام", "n"], [":--", ":-:", "--:"], ["a \\| b", "", "12"], ["x", "y"]])
+        #expect(grid.sides == [.start, .centre, .end])
+        #expect(try #require(TableGrid.find(in: table)).sides == [.none, .none])
+        // An empty cell is the place between its two padding spaces.
+        let empty = grid.rows[2].cells[1]
+        #expect(empty.length == 0 && text.substring(with: NSRange(location: empty.location - 2, length: 4)) == "|  |")
+        // The first cell with a letter gives the table its direction.
+        #expect(!grid.rightToLeft(in: text))
+        let persian = "| نام | Age |\n| --- | --- |\n| علی | 30 |" as NSString
+        #expect(try #require(TableGrid.find(around: 0, in: persian)).rightToLeft(in: persian))
+        let numbers = "| 1 | 2 |\n| --- | --- |\n| 3 | سلام |" as NSString
+        #expect(try #require(TableGrid.find(around: 0, in: numbers)).rightToLeft(in: numbers))
+    }
+
+    @Test func aTableIsRawOnlyOutsideOneCell() throws {
+        let text = table.joined(separator: "\n") as NSString
+        let grid = try #require(TableGrid.find(around: 0, in: text))
+        let at = { (word: String) in text.range(of: word).location }
+        // A caret in a cell edits it in place; on the delimiter row the table is raw.
+        for place in [0, at("A"), at("A") + 1, at("2"), text.length] { #expect(!grid.isRaw(with: NSRange(location: place, length: 0)), "\(place)") }
+        for place in [at("---") - 2, at("---"), at("---") + 11] { #expect(grid.isRaw(with: NSRange(location: place, length: 0)), "\(place)") }
+        // A selection in one cell, padding and all, is not raw; one that takes a pipe or another line is.
+        #expect(!grid.isRaw(with: NSRange(location: at("A"), length: 1)))
+        #expect(!grid.isRaw(with: NSRange(location: at("A") - 1, length: 3)))
+        #expect(grid.isRaw(with: NSRange(location: at("A"), length: 3)))
+        #expect(grid.isRaw(with: NSRange(location: at("A"), length: at("1") - at("A"))))
+        #expect(grid.isRaw(with: NSRange(location: 0, length: text.length)))
+        let under = "x\n" + table.joined(separator: "\n") + "\ny" as NSString
+        let lower = try #require(TableGrid.find(around: 3, in: under))
+        // A selection that ends where the table starts, or starts where it ends, does not reach into it.
+        #expect(!lower.isRaw(with: NSRange(location: 0, length: 2)) && !lower.isRaw(with: NSRange(location: NSMaxRange(lower.range), length: 2)))
+        #expect(lower.isRaw(with: NSRange(location: 0, length: 4)))
+    }
+
+    @Test func theCaretSkipsThePipesAndThePadding() throws {
+        let text = "| A   | Bc  |" as NSString
+        let row = TableGrid.row(text, line: NSRange(location: 0, length: text.length))
+        // In a cell's text, its two ends counted, the caret stays.
+        for place in [2, 3, 8, 10] { #expect(TableGrid.caret(place, in: row, step: .near) == place) }
+        // Right at a cell's end goes to the next cell's text; left at its start to the end of the one before.
+        #expect(TableGrid.caret(4, in: row, step: .forward) == 8)
+        #expect(TableGrid.caret(7, in: row, step: .back) == 3)
+        // Past the last cell, or before the first, the caret leaves the row.
+        #expect(TableGrid.caret(11, in: row, step: .forward) == nil && TableGrid.caret(1, in: row, step: .back) == nil)
+        // From anywhere, the nearest place in a cell: the line's start is the first cell, its end the last.
+        #expect(TableGrid.caret(0, in: row, step: .near) == 2 && TableGrid.caret(13, in: row, step: .near) == 10)
+        #expect(TableGrid.caret(7, in: row, step: .near) == 8)
+        // The cell a place is in: between its pipes.
+        #expect(row.cell(at: 0) == nil && row.cell(at: 1) == 0 && row.cell(at: 6) == 0 && row.cell(at: 7) == 1 && row.cell(at: 13) == nil)
+    }
+
+    /// The table of case 8 with a second row, the place of [word]'s cell,
+    /// and the text after the key.
+    func enter(in word: String, _ lines: [String]? = nil) -> MarkdownTable.Enter {
+        let lines = lines ?? table + ["| 3 | 4 |"]
+        let row = lines.firstIndex { $0.contains(word) }!
+        let offset = (lines[row] as NSString).range(of: word).location
+        return MarkdownTable.enter(lines, row: row, column: MarkdownTable.column(at: offset, in: lines[row]))
+    }
+
+    let formatted = ["| A   | B   |", "| --- | --- |", "| 1   | 2   |", "| 3   | 4   |"]
+
+    @Test func enterGoesToTheRowBelow() {
+        // The same column of the row below, the table formatted.
+        #expect(enter(in: "2") == .moved(lines: formatted, row: 3, column: 1))
+        #expect(MarkdownTable.cellStart(formatted[3], column: 1) == (formatted[3] as NSString).range(of: "4").location)
+        // On the last row, a new empty row, the caret in the same column.
+        #expect(enter(in: "4") == .moved(lines: formatted + ["|     |     |"], row: 4, column: 1))
+        // On the header row, the first row under the delimiter row.
+        #expect(enter(in: "B") == .moved(lines: formatted, row: 2, column: 1))
+        // A header and its delimiter row alone: the first row is made.
+        #expect(enter(in: "A", Array(table.prefix(2))) == .moved(lines: Array(formatted.prefix(2)) + ["|     |     |"], row: 2, column: 0))
+    }
+
+    @Test func enterOnAnEmptyLastRowEndsTheTable() {
+        let lines = formatted + ["|     |     |"]
+        #expect(MarkdownTable.enter(lines, row: 4, column: 1) == .ended(lines: formatted))
+        // An empty row that is not the last is a row as any other.
+        #expect(MarkdownTable.enter(Array(lines.prefix(3)) + [lines[4], lines[3]], row: 3, column: 0) == .moved(lines: Array(formatted.prefix(3)) + [lines[4], formatted[3]], row: 4, column: 0))
+    }
+
+    @Test func tabMovesBetweenCellsAndAddsARow() {
+        let lines = table + ["| 3 | 4 |"]
+        func tab(_ word: String, back: Bool = false) -> (row: Int, column: Int, lines: [String]) {
+            let row = lines.firstIndex { $0.contains(word) }!
+            let moved = MarkdownTable.tab(lines, row: row, column: MarkdownTable.column(at: (lines[row] as NSString).range(of: word).location, in: lines[row]), back: back)
+            return (moved.row, moved.column, moved.lines)
+        }
+        #expect(tab("1").row == 2 && tab("1").column == 1)
+        #expect(tab("2").row == 3 && tab("2").column == 0)
+        // The delimiter row is passed over.
+        #expect(tab("B").row == 2 && tab("B").column == 0)
+        // In the last cell, a new empty row, the caret in its first cell.
+        #expect(tab("4").lines == formatted + ["|     |     |"] && tab("4").row == 4 && tab("4").column == 0)
+        #expect(tab("3", back: true).row == 2 && tab("3", back: true).column == 1)
+        #expect(tab("A", back: true).row == 0 && tab("A", back: true).column == 0)
+        #expect(tab("1").lines == formatted)
+    }
+
     /// The tables here are the reader's: every status and kind it draws has
     /// an icon by the same name.
     @Test func theTablesNameTheReadersIcons() {

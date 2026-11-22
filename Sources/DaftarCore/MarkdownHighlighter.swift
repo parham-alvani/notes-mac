@@ -129,6 +129,13 @@ public enum MarkdownHighlighter {
             return state
         }
 
+        /// The state the line starting at [location] starts in, found from
+        /// the nearest line known above and not kept.
+        public func peek(before location: Int, in text: NSString) -> BlockState {
+            if let exact = known.first(where: { $0.location == location }) { return exact.state }
+            return MarkdownHighlighter.blockState(before: location, in: text, from: known.last { $0.location < location })
+        }
+
         /// The state the line starting at [location] starts in, when it is known.
         public func known(at location: Int) -> BlockState? {
             known.first { $0.location == location }?.state

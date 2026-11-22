@@ -314,3 +314,222 @@ public enum CodeBlock {
         return out
     }
 }
+
+/// A Markdown table the editor draws as a grid: a header row, a delimiter
+/// row under it, then its rows, each a line that starts with `|` at the
+/// line's start or after spaces. The text stays a Markdown table: the grid
+/// is how its pipes, its padding and its delimiter row are drawn.
+public struct TableGrid: Equatable, Sendable {
+    /// The side of a column its cells stand on, from the delimiter row's colons.
+    public enum Side: Equatable, Sendable {
+        /// No colon: each cell on the side its own text reads from.
+        case none
+        case start, centre, end
+    }
+
+    /// One line of the table.
+    public struct Row: Equatable, Sendable {
+        /// The line in the text, without its line break.
+        public var line: NSRange
+        /// Each cell's text in the text, without the padding spaces. An
+        /// empty cell is a place after its first padding space.
+        public var cells: [NSRange]
+        /// The pipes that part the cells: not an escaped `\|`.
+        public var pipes: [Int]
+
+        /// The cell that holds [offset]: between its two pipes, the place
+        /// just after the first and the place just before the second
+        /// counted. Nil before the first pipe and after the closing one.
+        public func cell(at offset: Int) -> Int? {
+            let before = pipes.prefix { $0 < offset }.count
+            guard before >= 1, before - 1 < cells.count, offset <= NSMaxRange(line) else { return nil }
+            return before - 1
+        }
+    }
+
+    /// From the header's first letter to the last row's last.
+    public var range: NSRange
+    /// The header, the delimiter row, then the rows.
+    public var rows: [Row]
+    /// Each column's side.
+    public var sides: [Side]
+
+    /// As many columns as the widest row has cells.
+    public var columns: Int { rows.enumerated().filter { $0.offset != 1 }.map(\.element.cells.count).max() ?? 0 }
+
+    /// A table of more rows under its delimiter row is not a grid.
+    public static let mostRows = 200
+
+    /// Whether the line that starts at [start] is a table's row: a pipe at
+    /// the line's start or after spaces only.
+    public static func isRow(_ text: NSString, at start: Int) -> Bool {
+        var at = start
+        while at < text.length, text.character(at: at) == 0x20 { at += 1 }
+        return at < text.length && text.character(at: at) == 0x7C
+    }
+
+    /// The rows next to each other around the line at [location]: from the
+    /// first row's start to the last row's end, without its line break. Nil
+    /// when that line is no row. It looks no further than [most] lines each
+    /// way: [whole] says it found both ends.
+    public static func run(around location: Int, in text: NSString, most: Int = mostRows + 10) -> (range: NSRange, whole: Bool)? {
+        var start = 0, end = 0, contents = 0
+        text.getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: min(location, text.length), length: 0))
+        guard isRow(text, at: start), start < contents else { return nil }
+        var first = start, last = contents, next = end
+        var whole = true, count = 0
+        while first > 0 {
+            var above = 0
+            text.getLineStart(&above, end: nil, contentsEnd: nil, for: NSRange(location: first - 1, length: 0))
+            guard isRow(text, at: above) else { break }
+            guard count < most else {
+                whole = false
+                break
+            }
+            first = above
+            count += 1
+        }
+        count = 0
+        // A line with nothing after its break is the text's end, not a row.
+        while next < text.length, next > last {
+            guard isRow(text, at: next) else { break }
+            guard count < most else {
+                whole = false
+                break
+            }
+            var lineEnd = 0, lineContents = 0
+            text.getLineStart(nil, end: &lineEnd, contentsEnd: &lineContents, for: NSRange(location: next, length: 0))
+            last = lineContents
+            next = lineEnd
+            count += 1
+        }
+        return (NSRange(location: first, length: last - first), whole)
+    }
+
+    /// One row's cells and pipes, for the line [line] of [text] (without its line break).
+    public static func row(_ text: NSString, line: NSRange) -> Row {
+        var pipes: [Int] = []
+        var escaped = false
+        let end = NSMaxRange(line)
+        for at in line.location..<end {
+            let unit = text.character(at: at)
+            if unit == 0x7C, !escaped { pipes.append(at) }
+            escaped = unit == 0x5C && !escaped
+        }
+        func blank(_ at: Int) -> Bool { text.character(at: at) == 0x20 || text.character(at: at) == 0x09 }
+        /// The text between [from] and [to], without the spaces around it.
+        func cell(_ from: Int, _ to: Int) -> NSRange {
+            var low = from, high = to
+            while low < high, blank(low) { low += 1 }
+            while high > low, blank(high - 1) { high -= 1 }
+            // An empty cell: between its two padding spaces, or just after its pipe.
+            if low == high { return NSRange(location: min(from + (to > from ? 1 : 0), to), length: 0) }
+            return NSRange(location: low, length: high - low)
+        }
+        var cells: [NSRange] = []
+        for (index, pipe) in pipes.enumerated() {
+            if index + 1 < pipes.count {
+                cells.append(cell(pipe + 1, pipes[index + 1]))
+            } else {
+                // A row with no closing pipe: what is after the last one is a cell.
+                let rest = cell(pipe + 1, end)
+                if rest.length > 0 { cells.append(rest) }
+            }
+        }
+        return Row(line: line, cells: cells, pipes: pipes)
+    }
+
+    /// The grid of the rows at [range] of [text], as `run` gave it: nil
+    /// when the second line is no delimiter row, or the rows are too many.
+    public init?(_ range: NSRange, in text: NSString) {
+        var rows: [Row] = []
+        var at = range.location
+        let end = NSMaxRange(range)
+        while at <= end, at < text.length || rows.isEmpty {
+            var lineEnd = 0, contents = 0
+            text.getLineStart(nil, end: &lineEnd, contentsEnd: &contents, for: NSRange(location: at, length: 0))
+            rows.append(TableGrid.row(text, line: NSRange(location: at, length: contents - at)))
+            guard lineEnd > at, lineEnd <= end else { break }
+            at = lineEnd
+            guard rows.count <= TableGrid.mostRows + 2 else { return nil }
+        }
+        guard rows.count >= 2, rows.count - 2 <= TableGrid.mostRows else { return nil }
+        let marks = rows[1].cells.map { text.substring(with: $0) }
+        guard MarkdownTable.isSeparator(marks) else { return nil }
+        self.range = range
+        self.rows = rows
+        sides = marks.map { mark in
+            switch (mark.hasPrefix(":"), mark.hasSuffix(":")) {
+            case (true, true): .centre
+            case (true, false): .start
+            case (false, true): .end
+            case (false, false): .none
+            }
+        }
+    }
+
+    /// The grid that holds the line at [location] of [text].
+    public static func find(around location: Int, in text: NSString) -> TableGrid? {
+        guard let run = run(around: location, in: text), run.whole else { return nil }
+        return TableGrid(run.range, in: text)
+    }
+
+    /// The grid of [lines], one after the other with a line break between
+    /// them: the header first.
+    public static func find(in lines: [String]) -> TableGrid? {
+        guard !lines.isEmpty else { return nil }
+        let text = lines.joined(separator: "\n") as NSString
+        guard let found = find(around: 0, in: text), NSMaxRange(found.range) == text.length else { return nil }
+        return found
+    }
+
+    /// The row that holds [offset], its end counted.
+    public func row(at offset: Int) -> Int? {
+        rows.firstIndex { offset >= $0.line.location && offset <= NSMaxRange($0.line) }
+    }
+
+    /// Whether the table shows raw with the caret or the selection at
+    /// [selection]: the caret on the delimiter row, or a selection that
+    /// reaches outside one cell. A caret in a cell edits it in place.
+    public func isRaw(with selection: NSRange) -> Bool {
+        if selection.length == 0 { return row(at: selection.location) == 1 }
+        let end = NSMaxRange(selection)
+        guard selection.location < NSMaxRange(range), end > range.location else { return false }
+        guard let first = row(at: selection.location), first == row(at: end), first != 1,
+            let cell = rows[first].cell(at: selection.location), cell == rows[first].cell(at: end)
+        else { return true }
+        return false
+    }
+
+    /// Whether the table reads from the right: as the reader has it, the
+    /// direction of the first cell with a letter.
+    public func rightToLeft(in text: NSString) -> Bool {
+        for (index, row) in rows.enumerated() where index != 1 {
+            for cell in row.cells where cell.length > 0 {
+                if let rtl = TextDirection.ofLine(text.substring(with: cell)) { return rtl }
+            }
+        }
+        return false
+    }
+
+    /// How the caret came to a place.
+    public enum Step: Sendable {
+        /// One place on, one place back, or from anywhere (a click, a line up or down).
+        case forward, back, near
+    }
+
+    /// Where a caret put at [offset] of [row] stands: in a cell's text it
+    /// stays; on a pipe or in the padding it goes on to the next cell's
+    /// text, back to the end of the one before, or to the nearest. Nil when
+    /// the row has no cell that way: the caret leaves the row.
+    public static func caret(_ offset: Int, in row: Row, step: Step) -> Int? {
+        if row.cells.contains(where: { offset >= $0.location && offset <= NSMaxRange($0) }) { return offset }
+        switch step {
+        case .forward: return row.cells.first { $0.location > offset }?.location
+        case .back: return row.cells.last { NSMaxRange($0) < offset }.map { NSMaxRange($0) }
+        case .near:
+            let places = row.cells.flatMap { [$0.location, NSMaxRange($0)] }
+            return places.min { abs($0 - offset) < abs($1 - offset) } ?? offset
+        }
+    }
+}

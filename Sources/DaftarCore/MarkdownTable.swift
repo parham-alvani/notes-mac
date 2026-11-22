@@ -32,6 +32,11 @@ public enum MarkdownTable {
         !cells.isEmpty && cells.allSatisfy { $0.wholeMatch(of: /:?-+:?/) != nil }
     }
 
+    /// The row under a table's header: `| --- | :-: |`.
+    public static func isDelimiter(_ line: String) -> Bool {
+        isRow(line) && isSeparator(cells(line))
+    }
+
     /// The width a cell takes in a monospaced line: a wide letter, as in
     /// Chinese, counts two.
     static func width(_ text: String) -> Int {
@@ -121,6 +126,34 @@ public enum MarkdownTable {
             c = 0
         }
         return (table, r, c)
+    }
+
+    /// What Return does in a table.
+    public enum Enter: Equatable, Sendable {
+        /// The table formatted, and the row and cell the cursor goes to.
+        case moved(lines: [String], row: Int, column: Int)
+        /// The table ends: its lines without the empty last row, and the
+        /// cursor goes to an empty line under them.
+        case ended(lines: [String])
+    }
+
+    /// Return in [lines] with the cursor in [row], [column]: the same cell
+    /// of the row below, over the delimiter row; on the last row a new empty
+    /// row is made, and a last row with nothing in it ends the table.
+    public static func enter(_ lines: [String], row: Int, column: Int) -> Enter {
+        var table = format(lines)
+        let separators = table.map { isSeparator(cells($0)) }
+        let columns = cells(table[0]).count
+        if row == table.count - 1, row > 0, !separators[row], cells(table[row]).allSatisfy(\.isEmpty) {
+            return .ended(lines: Array(table.dropLast()))
+        }
+        var r = row + 1
+        while r < table.count, separators[r] { r += 1 }
+        if r >= table.count {
+            table = format(table + [emptyRow(columns)])
+            r = table.count - 1
+        }
+        return .moved(lines: table, row: r, column: min(max(column, 0), max(columns - 1, 0)))
     }
 
     /// A new row under [lines]' last, the table formatted, the cursor in its first cell.

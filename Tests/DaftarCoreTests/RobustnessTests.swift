@@ -293,6 +293,47 @@ import Testing
             let row = Int.random(in: 0..<lines.count, using: &random)
             _ = MarkdownTable.tab(lines, row: row, column: Int.random(in: 0...6, using: &random), back: Bool.random(using: &random))
             _ = MarkdownTable.column(at: Int.random(in: 0...200, using: &random), in: lines[row])
+            // Return keeps the table a table: every line a row, the cursor on one of them.
+            switch MarkdownTable.enter(lines, row: row, column: Int.random(in: 0...6, using: &random)) {
+            case .moved(let moved, let at, _): #expect(moved.count >= lines.count && at < moved.count && moved.allSatisfy(MarkdownTable.isRow))
+            case .ended(let rest): #expect(rest.count == lines.count - 1)
+            }
+        }
+    }
+
+    /// A grid is found in any text: its rows are lines of the text, each
+    /// cell is inside its row and after the one before, and a caret put on
+    /// a row stands in the row.
+    @Test func aTableGridStaysInsideItsText() {
+        var random = Seeded(state: 31)
+        for _ in 0..<1500 {
+            var lines = (1...Int.random(in: 1...6, using: &random)).map { _ in
+                ["", " ", "> ", "- "].randomElement(using: &random)! + "|"
+                    + (0..<Int.random(in: 0...5, using: &random)).map { _ in Self.text(&random, pieces: 2).replacingOccurrences(of: "\n", with: " ") + "|" }.joined()
+            }
+            if Bool.random(using: &random) { lines.insert("| --- | :-: |", at: min(1, lines.count)) }
+            let text = (Self.text(&random, pieces: 3) + "\n" + lines.joined(separator: "\n") + "\n" + Self.text(&random, pieces: 3)) as NSString
+            for _ in 0..<4 {
+                let location = Int.random(in: 0...text.length, using: &random)
+                if let run = TableGrid.run(around: location, in: text) {
+                    #expect(run.range.location <= location && NSMaxRange(run.range) <= text.length && run.range.length > 0)
+                }
+                guard let grid = TableGrid.find(around: location, in: text) else { continue }
+                #expect(grid.rows.count >= 2 && grid.sides.count == grid.rows[1].cells.count)
+                for row in grid.rows {
+                    #expect(row.line.location >= grid.range.location && NSMaxRange(row.line) <= NSMaxRange(grid.range))
+                    #expect(row.cells.allSatisfy { $0.location > row.line.location && NSMaxRange($0) <= NSMaxRange(row.line) })
+                    #expect(zip(row.cells, row.cells.dropFirst()).allSatisfy { NSMaxRange($0) < $1.location })
+                    let place = Int.random(in: row.line.location...NSMaxRange(row.line), using: &random)
+                    for step in [TableGrid.Step.forward, .back, .near] {
+                        if let caret = TableGrid.caret(place, in: row, step: step) { #expect(caret >= row.line.location && caret <= NSMaxRange(row.line)) }
+                    }
+                    _ = row.cell(at: place)
+                }
+                let from = Int.random(in: 0...text.length, using: &random)
+                _ = grid.isRaw(with: NSRange(location: from, length: Int.random(in: 0...(text.length - from), using: &random)))
+                _ = grid.rightToLeft(in: text)
+            }
         }
     }
 
