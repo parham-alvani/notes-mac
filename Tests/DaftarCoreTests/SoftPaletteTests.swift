@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import DaftarCore
@@ -19,5 +20,24 @@ struct SoftPaletteTests {
 
     @Test func aGreyStaysAsItIs() {
         #expect(SoftPalette.soften(0xA8A8A0) == 0xA8A8A0)
+    }
+}
+
+/// Live preview shows the marks of one element while the cursor is in it
+/// (`docs/specs/look.md` in notes-linux): a mark names its element.
+struct MarkOwnerTests {
+    @Test func aMarkNamesItsElement() {
+        let text = "## Head **bold** and `code` [[Note|label]]" as NSString
+        let marks = MarkdownHighlighter.spans(in: text as String).filter { $0.kind == .markup }
+        func owner(_ mark: String, _ nth: Int) -> String?? {
+            let found = marks.filter { text.substring(with: $0.range) == mark }
+            guard found.indices.contains(nth) else { return nil }
+            return .some(found[nth].owner.map { text.substring(with: $0) })
+        }
+        #expect(owner("##", 0) == .some(nil))
+        #expect(owner("**", 0) == .some("**bold**"))
+        #expect(owner("**", 1) == .some("**bold**"))
+        #expect(owner("`", 1) == .some("`code`"))
+        #expect(owner("Note|", 0) == .some("[[Note|label]]"))
     }
 }
