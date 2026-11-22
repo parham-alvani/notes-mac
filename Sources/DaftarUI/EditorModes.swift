@@ -4,8 +4,8 @@ import SwiftUI
 
 /// Typewriter mode, focus mode and spelling: the editor's ways of writing,
 /// each a setting in the config file's `[editor]` section. None of them
-/// changes the text: focus dims with a rendering attribute, and spelling
-/// marks are the text view's own.
+/// changes the text: focus dims as the view draws, and spelling marks are
+/// the text view's own.
 extension EditorController {
     /// The settings, as they are now: from `updateNSView`, which runs when they change.
     func followWritingModes() {
@@ -27,32 +27,20 @@ extension EditorController {
 
     // MARK: Focus
 
-    /// Every paragraph but the cursor's in the faint colour. A rendering
-    /// attribute, so the text storage, its styles and undo do not change.
+    /// Focus mode: which paragraphs stay bright, kept for the view, which
+    /// dims the rest as it draws (`drawDim`). Nothing of the text storage or
+    /// of its layout changes, so the text, its styles and undo do not, and a
+    /// key that leaves the cursor in its paragraph costs only this look.
     func dim() {
-        guard let view, let layout = view.textLayoutManager, let content = layout.textContentManager else { return }
-        let text = view.string as NSString
+        guard let view else { return }
         guard store.settings.focusMode else {
-            if view.extras.focused != nil {
-                view.extras.focused = nil
-                layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
-                view.showInvertedLetter()
-            }
+            if view.extras.focused != nil { view.focus(nil) }
             return
         }
-        let paragraph = FocusParagraph.range(at: view.selectedRange().location, in: text)
-        if let focused = view.extras.focused, focused.0 == paragraph, focused.1 == text.length { return }
-        view.extras.focused = (paragraph, text.length)
-        layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
-        let start = content.documentRange.location
-        for range in [NSRange(location: 0, length: paragraph.location), NSRange(location: NSMaxRange(paragraph), length: text.length - NSMaxRange(paragraph))]
-        where range.length > 0 {
-            guard let from = content.location(start, offsetBy: range.location), let to = content.location(start, offsetBy: NSMaxRange(range)),
-                let textRange = NSTextRange(location: from, end: to)
-            else { continue }
-            layout.addRenderingAttribute(.foregroundColor, value: NSPalette.faint.withAlphaComponent(0.55), for: textRange)
-        }
-        view.showInvertedLetter()
+        let text = view.string as NSString
+        let bright = FocusParagraph.ranges(for: view.cursorRanges, in: text)
+        if let focused = view.extras.focused, focused.ranges == bright, focused.length == text.length { return }
+        view.focus((bright, text.length))
     }
 
     // MARK: Typewriter
@@ -200,5 +188,175 @@ extension PaletteCommands {
     private static func inEditor(_ model: WindowModel, _ action: @escaping @MainActor () -> Void) {
         if !model.editing { model.editing = true }
         DispatchQueue.main.async { MainActor.assumeIsolated { action() } }
+    }
+}
+
+/// Focus mode's dim (`docs/specs/look.md` in notes-linux, part 2): the
+/// background's colour at 55% over everything but the bright paragraphs, so
+/// the text, a tint, a panel, a box, a chip, a grid and a picture of a
+/// dimmed paragraph all keep their hue at 45%. It is a view over the text
+/// view's own text (TextKit draws the text in a view of its own, so nothing
+/// the text view draws is over it), made of plain layers: nothing is drawn
+/// again when it changes, and a scroll moves it with the text.
+final class FocusDim: NSView {
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The bright bands shown now, in the text view's coordinates.
+    private(set) var bands: [NSRect] = []
+    private var slices: [CALayer] = []
+    /// Wider and higher than any note: the view cuts the layers to itself.
+    private static let far: CGFloat = 10_000_000
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        autoresizingMask = [.width, .height]
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The dim's colour as the window's appearance has it, kept: a move asks for it at every paragraph.
+    private var colour: CGColor?
+
+    /// The palette's colour, as the window's appearance has it now.
+    override func updateLayer() {
+        let colour = NSPalette.background.withAlphaComponent(1 - FocusParagraph.dimmed).cgColor
+        self.colour = colour
+        for slice in slices { slice.backgroundColor = colour }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        colour = nil
+        needsDisplay = true
+    }
+
+    /// Everything dims but [bright]. With [fade], what was bright dims and
+    /// what was dim brightens over 120 ms; else at once.
+    func show(_ bright: [NSRect], fade: Bool) {
+        guard bright != bands || slices.isEmpty else { return }
+        let old = bands
+        bands = bright
+        let scale = window?.backingScaleFactor ?? 2
+        // Slices from top to bottom, each wholly in or out of every band, on whole pixels: two layers that meet between pixels show a line.
+        var edges: [CGFloat] = [0, Self.far]
+        for band in old + bright { edges += [band.minY, band.maxY].map { ($0 * scale).rounded() / scale }.filter { $0 > 0 } }
+        edges = Array(Set(edges)).sorted()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        while slices.count < edges.count - 1 {
+            let slice = CALayer()
+            layer?.addSublayer(slice)
+            slices.append(slice)
+        }
+        while slices.count > edges.count - 1 { slices.removeLast().removeFromSuperlayer() }
+        let colour = self.colour ?? effectiveAppearance.performAsCurrentDrawingAppearance { NSPalette.background.withAlphaComponent(1 - FocusParagraph.dimmed).cgColor }
+        self.colour = colour
+        for (slice, (top, bottom)) in zip(slices, zip(edges, edges.dropFirst())) {
+            let middle = (top + bottom) / 2
+            func dimmed(_ bands: [NSRect]) -> Float { bands.contains { $0.minY <= middle && middle < $0.maxY } ? 0 : 1 }
+            let now = dimmed(bright), was = dimmed(old)
+            slice.backgroundColor = colour
+            slice.frame = CGRect(x: 0, y: top, width: Self.far, height: bottom - top)
+            slice.removeAnimation(forKey: "fade")
+            slice.opacity = now
+            guard fade, was != now else { continue }
+            let change = CABasicAnimation(keyPath: "opacity")
+            change.fromValue = was
+            change.toValue = now
+            change.duration = FocusParagraph.change
+            change.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            slice.add(change, forKey: "fade")
+        }
+    }
+}
+
+extension NSAppearance {
+    /// What [body] gives with this appearance as the one colours are read in.
+    fileprivate func performAsCurrentDrawingAppearance<T>(_ body: () -> T) -> T {
+        var out: T?
+        performAsCurrentDrawingAppearance { out = body() }
+        return out!
+    }
+}
+
+extension NoteTextView {
+    /// The bright paragraphs changed, or focus mode went off (nil). A move
+    /// to another paragraph dims the old one and brightens the new one over
+    /// 120 ms; typing, a first show and Reduce Motion change at once.
+    func focus(_ now: (ranges: [NSRange], length: Int)?) {
+        let old = extras.focused
+        extras.focused = now
+        guard let now else {
+            extras.dim?.removeFromSuperview()
+            extras.dim = nil
+            return
+        }
+        let dim = extras.dim ?? {
+            let dim = FocusDim()
+            dim.frame = bounds
+            // Over the views TextKit draws the text and the selection in, under everything of the editor's own.
+            if let text = subviews.last(where: { $0.className.hasPrefix("_NSText") }) {
+                addSubview(dim, positioned: .above, relativeTo: text)
+            } else {
+                addSubview(dim, positioned: .below, relativeTo: nil)
+            }
+            extras.dim = dim
+            return dim
+        }()
+        // Typing in the paragraph: the layout the key brings places the dim (`placeDim`, from the viewport hook), so nothing is laid out here for it.
+        if let old, old.length != now.length, old.ranges.count == now.ranges.count, !dim.bands.isEmpty { return }
+        let moved = old.map { $0.length == now.length } ?? false
+        dim.show(brightBands(), fade: moved && !Motion.reduced && window?.isVisible == true)
+    }
+
+    /// The layout moved: the dim follows the bright paragraphs, at once.
+    /// [laidOut] is false inside a layout, where nothing more is laid out.
+    func placeDim(laidOut: Bool = true) {
+        guard let dim = extras.dim, extras.focused != nil else { return }
+        if dim.frame != bounds { dim.frame = bounds }
+        dim.show(brightBands(layingOut: laidOut), fade: false)
+    }
+
+    /// Where the bright paragraphs are in the view: each from the top of
+    /// its first line to the bottom of its last, as wide as the view.
+    func brightBands(layingOut: Bool = true) -> [NSRect] {
+        guard let focused = extras.focused else { return [] }
+        return focused.ranges.compactMap { range in
+            var from = range.location, to = NSMaxRange(range)
+            // A long paragraph is laid out only where it is on screen.
+            if range.length > Self.laidOutWhole {
+                guard let shown = viewportOffsets() else { return nil }
+                from = max(from, shown.location)
+                to = min(to, NSMaxRange(shown))
+                guard from < to else { return nil }
+            }
+            // An empty line at the end of the note is a line of the paragraph before it to TextKit.
+            guard to > from else { return layingOut ? lineRect(at: from) : extras.dim?.bands.first }
+            guard let top = paragraphFrame(at: from, layingOut: layingOut), let bottom = paragraphFrame(at: to - 1, layingOut: layingOut) else { return nil }
+            return NSRect(x: 0, y: top.minY, width: bounds.width, height: bottom.maxY - top.minY)
+        }
+    }
+
+    /// A bright paragraph of at most this many letters is asked for its two
+    /// ends wherever they are; a longer one only for what is on screen.
+    private static let laidOutWhole = 6000
+
+    /// The frame of the paragraph that holds [offset], with the room over
+    /// and under its lines, in the view.
+    private func paragraphFrame(at offset: Int, layingOut: Bool) -> NSRect? {
+        guard let layout = textLayoutManager, let content = layout.textContentManager,
+            let location = content.location(content.documentRange.location, offsetBy: offset)
+        else { return nil }
+        if layout.textLayoutFragment(for: location)?.state != .layoutAvailable {
+            guard layingOut else { return nil }
+            layout.ensureLayout(for: NSTextRange(location: location))
+        }
+        return layout.textLayoutFragment(for: location)?.layoutFragmentFrame.offsetBy(dx: 0, dy: textContainerOrigin.y)
     }
 }

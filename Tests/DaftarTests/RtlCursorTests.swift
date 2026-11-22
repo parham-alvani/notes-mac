@@ -41,17 +41,25 @@ import Testing
     }
 
     /// Each block is over its own letter: never as wide as a word where
-    /// the direction changes, and no two letters of a line share one.
+    /// the direction changes, and no two letters of a line share one. A
+    /// task's marks are letters only while the cursor is in them (a box is
+    /// drawn in their place otherwise), so each letter is looked at with the
+    /// cursor on it, and the marks and the text are two groups.
     @Test func eachLetterHasItsOwnBlock() throws {
         for line in 1..<Self.lines.count {
             let start = Self.start(line)
             let length = (Self.lines[line] as NSString).length
-            let blocks = try (start..<start + length).map { try block(at: $0) }
-            for (index, one) in blocks.enumerated() {
+            let marks = TaskBox.find(in: Self.lines[line]).map { NSMaxRange($0.cover) } ?? -1
+            var blocks: [NSRect] = []
+            for index in 0..<length {
+                let one = try block(at: start + index)
                 let letter = try #require(view.letterBox(NSRange(location: start + index, length: 1)))
                 #expect(abs(one.minX - letter.minX) < 0.5 && abs(one.width - letter.width) < 0.5, "line \(line), letter \(index)")
-                for other in blocks[(index + 1)...] {
-                    #expect(one.intersection(other).width < 0.5, "line \(line), letter \(index)")
+                blocks.append(one)
+            }
+            for (index, one) in blocks.enumerated() {
+                for (later, other) in blocks.enumerated() where later > index && (index <= marks) == (later <= marks) {
+                    #expect(one.intersection(other).width < 0.5, "line \(line), letters \(index) and \(later)")
                 }
             }
         }

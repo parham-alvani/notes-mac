@@ -74,6 +74,8 @@ struct EditorView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
+        coordinator.view?.closeSlashBar()
+        coordinator.view?.closeLinkCard()
         coordinator.checkHeadings()
         let left = coordinator.leaving
         coordinator.saveNow()
@@ -158,6 +160,26 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var openElements: [NSRange] = []
     /// The lines `lineElements` was made for and the text's length then: with others, it is made again.
     var elementsFor: (lines: NSRange, length: Int)?
+    // What the tables drawn as grids keep (`EditorTable.swift`).
+    /// The widths of the plain cells measured so far, by their text, and the font they were measured in.
+    var tableWidths: [String: CGFloat] = [:]
+    var tableWidthsFor = ""
+    /// The measure the tables were fitted to last.
+    var tableRoom: CGFloat = 0
+    /// Where the selection was in a table at the last move.
+    var tableAt: Int?
+    /// Where an edit leaves the caret, and the text's generation before it:
+    /// a caret put there by typing is not moved to a cell's text.
+    var typedCaret: (generation: Int, offset: Int)?
+    /// How deep the styling is in the rows of a table whose look changed.
+    var tableDepth = 0
+    /// This editor draws the first lines of a note in a link's card: no
+    /// cursor shows a mark, and nothing in it is live (`EditorLinkCard.swift`).
+    var isPreview = false
+    /// The text size as a part of the setting's: a card's body is at 0.9.
+    var textScale: CGFloat = 1
+    /// 1 em: the text size this editor draws at.
+    var em: CGFloat { CGFloat(store.settings.textSize) * textScale }
     /// The block states of the lines styled last (fence, comment, math).
     var blockStates = MarkdownHighlighter.BlockStates()
     var images: [String: NSImage] = [:]
@@ -236,6 +258,20 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         store.unsaved[ObjectIdentifier(self)] = { [weak self] in self?.hasUnsaved ?? false }
         store.followers[ObjectIdentifier(self)] = { [weak self] in self?.follow($0) }
         store.checks.editors[ObjectIdentifier(self)] = { [weak self] in self?.leaving }
+        NotificationCenter.default.addObserver(self, selector: #selector(dayChanged(_:)), name: .NSCalendarDayChanged, object: nil)
+    }
+
+    /// A new day: a due date may be late now. The note is styled again, the
+    /// lines on screen first; nothing looks at the day on a key.
+    @objc nonisolated private func dayChanged(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            guard let self, let view = self.view, view.textStorage != nil else { return }
+            if self.session == nil {
+                self.restyleProgressively(around: view.viewportOffsets()?.location ?? 0)
+            } else {
+                self.restyle(all: true)
+            }
+        }
     }
 
     /// Everything typed is on disk when this returns.
@@ -257,6 +293,10 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         images = [:]
         animator.reset()
         guard let view else { return }
+        // What was over the note before goes with it.
+        view.closeSlashBar()
+        view.closeLinkCard()
+        if view.extras.focused != nil { view.focus(nil) }
         view.textStorage?.delegate = self
         view.delegate = self
         view.textLayoutManager?.delegate = self
@@ -701,10 +741,12 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
         view?.cursorLineMoved()
         view?.showFormatBar()
+        if view?.extras.slash != nil { view?.followSlashBar() }
         followCursor()
     }
 
     func textDidChange(_ notification: Notification) {
+        if view?.extras.linkHover != nil { view?.closeLinkCard() }
         updateCounts()
         saveTask?.cancel()
         saveTask = Task { [weak self] in

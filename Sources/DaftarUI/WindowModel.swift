@@ -618,6 +618,8 @@ enum Palette {
 enum NSPalette {
     static let text = dynamic(dark: 0xF5F5F0, light: 0x2A2A28)
     static let faint = dynamic(dark: 0x707080, light: 0x9A9A92)
+    /// A closed task's text and box, the reader's `--done-color`.
+    static let done = dynamic(dark: 0x707080, light: 0x6A6A62)
     static let muted = dynamic(dark: 0xA8A8A0, light: 0x6A6A62)
     static let background = dynamic(dark: 0x323232, light: 0xFAF9F5)
     static let panel = dynamic(dark: 0x282826, light: 0xEFEDE6)

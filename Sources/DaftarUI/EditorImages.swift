@@ -5,6 +5,8 @@ import ImageIO
 extension NSAttributedString.Key {
     /// On the line of an image embed: the image to draw under it.
     static let daftarImage = NSAttributedString.Key("DaftarImage")
+    /// A run the line never breaks inside: a date chip, so the emoji and its date stay on one line.
+    static let daftarNoBreak = NSAttributedString.Key("DaftarNoBreak")
 }
 
 /// An image the editor draws under the line that embeds it.
@@ -68,6 +70,20 @@ extension EditorController: NSTextLayoutManagerDelegate {
             }
         }
         return fragment
+    }
+
+    /// No line break inside a date chip: at the space between `📅` and its
+    /// date the pill would be in two pieces, one at the end of a line and
+    /// one at the start of the next. The whole chip goes to the next line,
+    /// and the text is as it was written.
+    nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, shouldBreakLineBefore location: any NSTextLocation, hyphenating: Bool) -> Bool {
+        guard let content = textLayoutManager.textContentManager as? NSTextContentStorage, let text = content.attributedString else { return true }
+        let offset = content.offset(from: content.documentRange.location, to: location)
+        guard offset > 0, offset < text.length else { return true }
+        var run = NSRange(location: 0, length: 0)
+        guard text.attribute(.daftarNoBreak, at: offset, effectiveRange: &run) != nil else { return true }
+        // At the chip's own start the line may break: only its inside is kept together.
+        return run.location == offset && text.attribute(.daftarNoBreak, at: offset - 1, effectiveRange: nil) == nil
     }
 }
 

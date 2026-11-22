@@ -126,13 +126,13 @@ import Testing
         window.contentView = view
         defer { window.contentView = nil }
         end()
-        view.insertText("Notes /", replacementRange: view.selectedRange())
-        let slash = (view.string as NSString).length - 1
-        let menu = view.slashMenu(at: slash)
-        #expect(menu.items.contains { $0.title == "Code block" && $0.image != nil })
-        let snippet = try #require(EditorCommands.slashCommands(today: Day(year: 2026, month: 10, day: 25), time: "09:00").first { $0.id == "code" })
-        view.applySlash(snippet, slashAt: slash)
-        #expect(view.string == "# Plan\n- [ ] first\nNotes \n```\n\n```")
+        view.insertText("Notes ", replacementRange: view.selectedRange())
+        // The `/` opens the bar, the letters filter it, and Return puts the row in their place.
+        for key in ["/", "c", "o", "d"] { view.insertText(key, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        #expect(view.extras.slash?.choice?.id == "code")
+        view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        // The block has a line of its own, and a blank line over it.
+        #expect(view.string == "# Plan\n- [ ] first\nNotes \n\n```\n\n```")
         #expect(view.selectedRange().location == (view.string as NSString).length - 4)
         // In a test the typing and the snippet are one undo group; in the
         // app they are two keystrokes. Either way, undo takes the snippet away.
@@ -563,6 +563,8 @@ import Testing
         reference.view = other
         reference.load("Notes/Ref.md")
         // The marks of an element show while the cursor is in it: the same cursor.
+        // As typing left it: in a table's cell it may be in the padding, where a caret set is moved from.
+        reference.typedCaret = (reference.textGeneration - 1, view.selectedRange().location)
         other.setSelectedRange(view.selectedRange())
         reference.revealed = controller.revealed
         reference.restyle(all: true)
@@ -608,6 +610,37 @@ import Testing
                 view.insertText(keys[next(keys.count)], replacementRange: view.selectedRange())
             }
             if let unlike = try unlikeAWholeRestyle() {
+                Issue.record("step \(step): styled unlike a whole restyle \(unlike)")
+                return
+            }
+        }
+    }
+
+    /// The same in tables: a key in a cell, a pipe, a delimiter row typed or
+    /// broken, a row added or taken, a table split in two or put in a code
+    /// block leave every row drawn as a whole restyle draws it, a grid or raw.
+    @Test func eachKeyInATableStylesItAsAWholeRestyleWould() throws {
+        let start = "Top\n\n| Name | نام | n |\n| :-- | :-: | --: |\n| a | **b** | 1 |\n| c |  | 22 |\n\nText\n| x | y |\n| --- | --- |\n| 1 | 2 |\nUnder\n\n```\n| in | code |\n| --- | --- |\n```\n\n| h |\n"
+        try start.write(to: root.appending(path: "Notes/Fuzz.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Fuzz.md")
+        var seed: UInt64 = 0x7AB1E
+        func next(_ bound: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 33) % UInt64(bound))
+        }
+        let keys = ["a", " ", "\n", "|", "| ", "-", "---", ":", "| --- |", "**", "`", "```", "> ", "\\", "ب", "x y"]
+        for step in 0..<150 {
+            let length = (view.string as NSString).length
+            let at = next(length + 1)
+            view.setSelectedRange(NSRange(location: at, length: 0))
+            switch next(8) {
+            case 0, 1: if view.selectedRange().location > 0 { view.deleteBackward(nil) }
+            case 2: view.insertTab(nil)
+            case 3: view.insertNewline(nil)
+            default: view.insertText(keys[next(keys.count)], replacementRange: view.selectedRange())
+            }
+            // Every third key: the check makes an editor each time, and a suite that waits for a Neovim must get its turn.
+            if step % 3 == 2, let unlike = try unlikeAWholeRestyle() {
                 Issue.record("step \(step): styled unlike a whole restyle \(unlike)")
                 return
             }

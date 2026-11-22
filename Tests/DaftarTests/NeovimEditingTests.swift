@@ -74,6 +74,16 @@ import Testing
         #expect(ok, "cursor: \(comment) -> \(view.selectedRange())")
     }
 
+    /// A click on a task's box is Neovim's change of that line, never the
+    /// view's: Neovim writes it, and one `u` takes it back.
+    @Test func aClickOnATaskBoxIsNeovimsChange() async throws {
+        let session = try await open("first\n- [ ] a\nb\n")
+        view.toggleTaskBox(at: 6)
+        await settle(session, "first\n- [x] a ✅ \(Day.today())\nb\n", "the box ticked")
+        keys("u")
+        await settle(session, "first\n- [ ] a\nb\n", "one step of undo")
+    }
+
     @Test func keysTypedBeforeNeovimRunsAreKept() async throws {
         try "one\n".write(to: root.appending(path: "N.md"), atomically: true, encoding: .utf8)
         controller.load("N.md")

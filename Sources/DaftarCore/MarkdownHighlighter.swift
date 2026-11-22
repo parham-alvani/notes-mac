@@ -15,8 +15,15 @@ public enum MarkdownHighlighter {
         case markup
         case bold, italic, strike, highlight
         case code, codeBlock, fence
+        /// A closing fence's line, which is a `fence` too.
+        case fenceEnd
         case link, url, tag, embed
         case taskOpen, taskDone, taskCancelled, taskOther
+        /// What a task's box is drawn in place of (`TaskBox.cover`), once its mark is complete.
+        case taskBox
+        /// A date of a task, drawn as a pill, and a task's `[reason:: …]` field.
+        case dateChip(DateChip.Kind)
+        case taskReason
         case listMarker
         case quote, calloutTitle
         case frontMatter
@@ -122,6 +129,13 @@ public enum MarkdownHighlighter {
             return state
         }
 
+        /// The state the line starting at [location] starts in, found from
+        /// the nearest line known above and not kept.
+        public func peek(before location: Int, in text: NSString) -> BlockState {
+            if let exact = known.first(where: { $0.location == location }) { return exact.state }
+            return MarkdownHighlighter.blockState(before: location, in: text, from: known.last { $0.location < location })
+        }
+
         /// The state the line starting at [location] starts in, when it is known.
         public func known(at location: Int) -> BlockState? {
             known.first { $0.location == location }?.state
@@ -170,7 +184,9 @@ public enum MarkdownHighlighter {
     /// The spans of every line that overlaps [range].
     /// [startingIn] is the state the first line starts in, when the caller
     /// knows it (`BlockStates`); it is looked for otherwise.
-    public static func spans(in text: NSString, range: NSRange, startingIn known: BlockState? = nil) -> [Span] {
+    /// [today] is the day a due date is late before, as `YYYY-MM-DD`; with
+    /// none, no date is late.
+    public static func spans(in text: NSString, range: NSRange, startingIn known: BlockState? = nil, today: String? = nil) -> [Span] {
         let lines = text.lineRange(for: range)
         var state = known ?? blockState(before: lines.location, in: text)
         var out: [Span] = []
@@ -184,20 +200,29 @@ public enum MarkdownHighlighter {
             let first = lineRange.location == 0
             let before = state
             state = next(after: line, from: state, firstLine: first)
-            style(line: line, at: content, before: before, after: state, into: &out)
+            style(line: line, at: content, before: before, after: state, today: today, into: &out)
             start = NSMaxRange(lineRange)
         }
         return out
     }
 
-    public static func spans(in text: String) -> [Span] {
+    public static func spans(in text: String, today: String? = nil) -> [Span] {
         let ns = text as NSString
-        return spans(in: ns, range: NSRange(location: 0, length: ns.length))
+        return spans(in: ns, range: NSRange(location: 0, length: ns.length), today: today)
+    }
+
+    /// The box of [line], when it is a task whose mark is complete: the
+    /// styling's own rule for a task, so the box is where the colours are.
+    static func taskBox(in line: NSString) -> TaskBox? {
+        let whole = NSRange(location: 0, length: line.length)
+        let body = Patterns.quote.firstMatch(in: line as String, range: whole)?.range.length ?? 0
+        guard let match = Patterns.task.firstMatch(in: line as String, range: NSRange(location: body, length: line.length - body)) else { return nil }
+        return TaskBox(list: match.range(at: 1), brackets: match.range(at: 2), in: line)
     }
 
     // MARK: One line
 
-    private static func style(line: String, at range: NSRange, before: BlockState, after: BlockState, into out: inout [Span]) {
+    private static func style(line: String, at range: NSRange, before: BlockState, after: BlockState, today: String?, into out: inout [Span]) {
         guard range.length > 0 else { return }
         switch before {
         case .frontMatter:
@@ -205,6 +230,7 @@ public enum MarkdownHighlighter {
             return
         case .fence:
             out.append(Span(kind: after == .normal ? .fence : .codeBlock, range: range))
+            if after == .normal { out.append(Span(kind: .fenceEnd, range: range)) }
             return
         case .comment:
             out.append(Span(kind: .comment, range: range))
@@ -251,6 +277,7 @@ public enum MarkdownHighlighter {
             return
         }
         var body = 0
+        var task: TaskBox?
         if let match = Patterns.quote.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) {
             out.append(Span(kind: .quote, range: range))
             out.append(Span(kind: .markup, range: at(match.range)))
@@ -267,7 +294,13 @@ public enum MarkdownHighlighter {
             case " ": .taskOpen
             case "x", "X": .taskDone
             case "-": .taskCancelled
-            default: .taskOther
+            default:
+                // A status of the vault's own is closed by its type.
+                switch status.first.flatMap({ symbol in TaskStatuses.current.all.first { $0.symbol == symbol } })?.type {
+                case .done: .taskDone
+                case .cancelled: .taskCancelled
+                default: .taskOther
+                }
             }
             out.append(Span(kind: kind, range: at(match.range(at: 2))))
             if kind == .taskDone || kind == .taskCancelled {
@@ -275,6 +308,11 @@ public enum MarkdownHighlighter {
                 if text.length > 0 { out.append(Span(kind: kind, range: at(text))) }
             }
             each(Patterns.taskMetadata) { out.append(Span(kind: .metadata, range: at($0.range))) }
+            if let box = TaskBox(list: match.range(at: 1), brackets: match.range(at: 2), in: ns) {
+                // The box is one element, and so is each chip: raw while the cursor is in it.
+                out.append(Span(kind: .taskBox, range: at(box.cover), owner: at(box.cover)))
+                task = box
+            }
         } else if let match = Patterns.list.firstMatch(in: line, range: NSRange(location: body, length: ns.length - body)) {
             out.append(Span(kind: .listMarker, range: at(match.range(at: 1))))
         }
@@ -291,6 +329,17 @@ public enum MarkdownHighlighter {
                     owner: at(match.range)))
         }
         func free(_ local: NSRange) -> Bool { !code.contains { NSIntersectionRange($0, local).length > 0 } }
+
+        if let task {
+            for chip in DateChip.chips(in: ns, from: task.text, status: task.status, today: today) where free(chip.range) {
+                out.append(Span(kind: .dateChip(chip.kind), range: at(chip.range), owner: at(chip.range)))
+            }
+            if line.utf8.contains(UInt8(ascii: ":")), let reason = Patterns.reason.firstMatch(in: line, range: NSRange(location: task.text, length: ns.length - task.text)),
+                free(reason.range)
+            {
+                out.append(Span(kind: .taskReason, range: at(reason.range)))
+            }
+        }
 
         each(Patterns.comment) { match in if free(match.range) { out.append(Span(kind: .comment, range: at(match.range))) } }
         each(Patterns.wikilink) { match in
@@ -362,6 +411,7 @@ public enum MarkdownHighlighter {
         nonisolated(unsafe) static let task = make(#"\G([ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+)(\[([^\]])\])(?=\s|$)"#)
         nonisolated(unsafe) static let list = make(#"\G([ \t]*(?:[-*+]|\d+[.)]))[ \t]+"#)
         nonisolated(unsafe) static let taskMetadata = make(#"(?:✅|➕|⏳|❌|📅|🔁|⛔|🛫|🆔|🔺|⏫|🔼|🔽|⏬)(?:[ \t]*[0-9A-Za-z/,:.-]+(?:[ \t]+[a-z]+)*)?"#)
+        nonisolated(unsafe) static let reason = make(#"\[(?i:reason)[ \t]*::[^\]\n]*\]"#)
         nonisolated(unsafe) static let inlineCode = make(#"(`+)(?:(?!\1).)+?\1"#)
         nonisolated(unsafe) static let comment = make(#"%%.*?%%"#)
         nonisolated(unsafe) static let wikilink = make(#"(!?)\[\[([^\]\n]+?)\]\]"#)

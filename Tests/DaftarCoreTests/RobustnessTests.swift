@@ -79,6 +79,39 @@ import Testing
         }
     }
 
+    /// What the editor draws in place of text: a box and its chips are
+    /// inside their line, the chips in order and apart, and a panel's lines
+    /// are lines of the note.
+    @Test func theDrawnPartsStayInsideTheirText() {
+        var random = Seeded(state: 21)
+        let today = Day(year: 2026, month: 11, day: 22)
+        for _ in 0..<3000 {
+            let line = (["- [ ] ", "- [x] ", "  * [/] ", "> - [ ] ", "1. [-] ", ""].randomElement(using: &random)! + Self.text(&random, pieces: 12))
+                .replacingOccurrences(of: "\n", with: " ")
+            let length = (line as NSString).length
+            if let box = TaskBox.find(in: line) {
+                #expect(box.cover.location >= 0 && NSMaxRange(box.cover) < box.text && box.text <= length, "\(line.debugDescription)")
+            }
+            let chips = DateChip.chips(in: line, today: today)
+            #expect(chips.allSatisfy { $0.range.length > 0 && $0.range.location >= 0 && NSMaxRange($0.range) <= length }, "\(line.debugDescription)")
+            #expect(zip(chips, chips.dropFirst()).allSatisfy { NSMaxRange($0.range) <= $1.range.location }, "\(line.debugDescription)")
+            if let lines = TaskBox.clicked(line, today: today.description) {
+                #expect(!lines.isEmpty && lines == TaskLine.toggled(line, today: today.description))
+                #expect(TaskBox.moved(length, line: NSRange(location: 0, length: length), lines: lines) <= lines.reduce(lines.count - 1) { $0 + ($1 as NSString).length })
+            }
+            _ = Callout.head(of: line)
+            _ = CodeBlock.word(ofFence: line)
+        }
+        for text in Self.samples(400, seed: 22) {
+            let count = text.components(separatedBy: "\n").count
+            let callouts = Callout.panels(in: text).map(\.lines), blocks = CodeBlock.panels(in: text).map(\.lines)
+            for panels in [callouts, blocks] {
+                #expect(panels.allSatisfy { !$0.isEmpty && $0.lowerBound >= 0 && $0.upperBound <= count })
+                #expect(zip(panels, panels.dropFirst()).allSatisfy { $0.upperBound <= $1.lowerBound })
+            }
+        }
+    }
+
     @Test func taskLinesSurviveAnyText() {
         var random = Seeded(state: 3)
         for _ in 0..<3000 {
@@ -260,6 +293,47 @@ import Testing
             let row = Int.random(in: 0..<lines.count, using: &random)
             _ = MarkdownTable.tab(lines, row: row, column: Int.random(in: 0...6, using: &random), back: Bool.random(using: &random))
             _ = MarkdownTable.column(at: Int.random(in: 0...200, using: &random), in: lines[row])
+            // Return keeps the table a table: every line a row, the cursor on one of them.
+            switch MarkdownTable.enter(lines, row: row, column: Int.random(in: 0...6, using: &random)) {
+            case .moved(let moved, let at, _): #expect(moved.count >= lines.count && at < moved.count && moved.allSatisfy(MarkdownTable.isRow))
+            case .ended(let rest): #expect(rest.count == lines.count - 1)
+            }
+        }
+    }
+
+    /// A grid is found in any text: its rows are lines of the text, each
+    /// cell is inside its row and after the one before, and a caret put on
+    /// a row stands in the row.
+    @Test func aTableGridStaysInsideItsText() {
+        var random = Seeded(state: 31)
+        for _ in 0..<1500 {
+            var lines = (1...Int.random(in: 1...6, using: &random)).map { _ in
+                ["", " ", "> ", "- "].randomElement(using: &random)! + "|"
+                    + (0..<Int.random(in: 0...5, using: &random)).map { _ in Self.text(&random, pieces: 2).replacingOccurrences(of: "\n", with: " ") + "|" }.joined()
+            }
+            if Bool.random(using: &random) { lines.insert("| --- | :-: |", at: min(1, lines.count)) }
+            let text = (Self.text(&random, pieces: 3) + "\n" + lines.joined(separator: "\n") + "\n" + Self.text(&random, pieces: 3)) as NSString
+            for _ in 0..<4 {
+                let location = Int.random(in: 0...text.length, using: &random)
+                if let run = TableGrid.run(around: location, in: text) {
+                    #expect(run.range.location <= location && NSMaxRange(run.range) <= text.length && run.range.length > 0)
+                }
+                guard let grid = TableGrid.find(around: location, in: text) else { continue }
+                #expect(grid.rows.count >= 2 && grid.sides.count == grid.rows[1].cells.count)
+                for row in grid.rows {
+                    #expect(row.line.location >= grid.range.location && NSMaxRange(row.line) <= NSMaxRange(grid.range))
+                    #expect(row.cells.allSatisfy { $0.location > row.line.location && NSMaxRange($0) <= NSMaxRange(row.line) })
+                    #expect(zip(row.cells, row.cells.dropFirst()).allSatisfy { NSMaxRange($0) < $1.location })
+                    let place = Int.random(in: row.line.location...NSMaxRange(row.line), using: &random)
+                    for step in [TableGrid.Step.forward, .back, .near] {
+                        if let caret = TableGrid.caret(place, in: row, step: step) { #expect(caret >= row.line.location && caret <= NSMaxRange(row.line)) }
+                    }
+                    _ = row.cell(at: place)
+                }
+                let from = Int.random(in: 0...text.length, using: &random)
+                _ = grid.isRaw(with: NSRange(location: from, length: Int.random(in: 0...(text.length - from), using: &random)))
+                _ = grid.rightToLeft(in: text)
+            }
         }
     }
 
@@ -499,6 +573,23 @@ import Testing
             let parts = Spelling.parts(in: string, range: NSRange(location: min(anchor, head), length: abs(anchor - head)))
             #expect(zip(parts, parts.dropFirst()).allSatisfy { NSMaxRange($0.range) <= $1.range.location })
             #expect(parts.allSatisfy { NSMaxRange($0.range) <= string.length && !string.substring(with: $0.range).contains("\n") })
+            // Focus mode's bright ranges are inside the text, in order and apart.
+            let bright = FocusParagraph.ranges(for: [NSRange(location: min(anchor, head), length: abs(anchor - head)), NSRange(location: head, length: 0)], in: string)
+            #expect(bright.allSatisfy { NSMaxRange($0) <= string.length })
+            #expect(zip(bright, bright.dropFirst()).allSatisfy { NSMaxRange($0) < $1.location })
+            // The slash bar and the link under a place take any text and any place.
+            if let bar = SlashBar(typedAt: head, in: string, items: EditorCommands.slashCommands(today: Day(year: 2026, month: 11, day: 22), time: "09:05")) {
+                #expect(string.character(at: bar.slash) == 0x2F)
+                if let next = bar.following(string, caret: anchor), let choice = next.choice {
+                    let edit = next.edit(choice, in: string)
+                    #expect(NSMaxRange(edit.range) <= string.length && edit.cursor <= string.length - edit.range.length + (edit.text as NSString).length)
+                }
+            }
+            let line = string.substring(with: string.lineRange(for: NSRange(location: head, length: 0))) as NSString
+            if let found = LinkCard.link(at: min(anchor, line.length), in: line) {
+                #expect(NSMaxRange(found.range) <= line.length)
+                _ = LinkCard(link: found.link, path: "A/B.md", text: text)
+            }
             let paragraph = FocusParagraph.range(at: head, in: string)
             #expect(NSMaxRange(paragraph) <= string.length && (string.length == 0 || NSLocationInRange(min(head, string.length - 1), paragraph) || head == string.length))
         }

@@ -73,10 +73,8 @@ const statuses = [
   ["d", "thumbs-down", "--red"],
   ["c", "thumbs-down", "--red"],
 ];
-const icon = (name) => {
-  const svg = readFileSync(`node_modules/lucide-static/icons/${name}.svg`, "utf8").replace(/<!--.*?-->/s, "").replace(/\s+/g, " ").trim();
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-};
+const svg = (name) => readFileSync(`node_modules/lucide-static/icons/${name}.svg`, "utf8").replace(/<!--.*?-->/s, "").replace(/\s+/g, " ").trim();
+const icon = (name) => `url("data:image/svg+xml,${encodeURIComponent(svg(name))}")`;
 const selector = (status) => `input.task-list-item-checkbox[data-status='${status === "'" ? "\\'" : status}']`;
 const css = [
   `input.task-list-item-checkbox { --task-icon: ${icon("square-dashed")}; --task-color: var(--list-marker); }`,
@@ -109,6 +107,11 @@ const calloutCss = [
   `:root { --icon-copy: ${icon("copy")}; --icon-copied: ${icon("check-check")}; --icon-search: ${icon("search")}; --icon-up: ${icon("chevron-up")}; --icon-down: ${icon("chevron-down")}; --icon-close: ${icon("x")}; }`,
 ];
 writeFileSync(`${out}/callouts.css`, calloutCss.join("\n") + "\n");
+
+// The editor draws a task's box and a callout's icon itself, with the same
+// icons: their SVGs by name (`EditorIcons` in EditorParts.swift).
+const editorIcons = [...new Set(["square-dashed", ...statuses.map(([, name]) => name), ...calloutIcons.map(([, name]) => name)])].sort();
+writeFileSync(`${out}/editor-icons.json`, JSON.stringify(Object.fromEntries(editorIcons.map((name) => [name, svg(name)]))) + "\n");
 
 cpSync("src/index.html", `${out}/index.html`);
 cpSync("src/reader.css", `${out}/reader.css`);

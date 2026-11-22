@@ -811,10 +811,9 @@ extension NoteTextView {
     }
 
     /// The letter under the block in the background's colour, or none. A
-    /// rendering attribute, as focus mode's, so the text and undo do not
-    /// change. The letter it was on goes back to its colour: by itself when
-    /// the text is as it was, or with the whole note when an edit may have
-    /// moved it, or when focus mode dims (which has to be put back after).
+    /// rendering attribute, so the text and undo do not change. The letter
+    /// it was on goes back to its colour: by itself when the text is as it
+    /// was, or with the whole note when an edit may have moved it.
     /// Taking it off the whole note at every move had TextKit draw every
     /// line again: stalls of up to 90 ms after a move in a long note.
     func invertLetter(_ range: NSRange?) {
@@ -824,13 +823,10 @@ extension NoteTextView {
         let old = extras.invertedLetter
         extras.invertedLetter = now
         if let old, let layout = textLayoutManager, let content = layout.textContentManager {
-            if old.1 == length, extras.focused == nil, let letter = textRange(of: old.0) {
+            if old.1 == length, let letter = textRange(of: old.0) {
                 layout.removeRenderingAttribute(.foregroundColor, for: letter)
             } else {
                 layout.removeRenderingAttribute(.foregroundColor, for: content.documentRange)
-                // Focus mode's dimming was taken off with it.
-                extras.focused = nil
-                controller?.dim()
             }
         }
         showInvertedLetter()

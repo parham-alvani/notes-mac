@@ -69,6 +69,29 @@ let hasNeovim = NeovimClient.locate() != nil
         await session.stop()
     }
 
+    /// A table is a grid in Neovim mode too, and raw while Neovim's cursor
+    /// is in it: the cursor walks over the pipes and the padding there.
+    @Test func aTableIsAGridAwayFromNeovimsCursor() async throws {
+        try "Top\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nEnd\n".write(to: root.appending(path: "Table.md"), atomically: true, encoding: .utf8)
+        controller.load("Table.md")
+        let session = try #require(controller.session)
+        #expect(await eventually { session.state == .running })
+        let text = view.string as NSString
+        func drawn(_ word: String) -> Bool {
+            (view.textStorage?.attribute(NoteTextView.tableRow, at: text.range(of: word).location, effectiveRange: nil) as? String)?.hasPrefix("grid:") == true
+        }
+        #expect(await eventually { drawn("| A") && drawn("| ---") && drawn("| 1") })
+        // Down into the table: raw, every line of it.
+        for key in ["j", "j", "j", "j"] { press(key) }
+        #expect(await eventually { view.selectedRange().location == text.range(of: "| 1").location })
+        #expect(await eventually { !drawn("| A") && !drawn("| ---") && !drawn("| 1") })
+        // Out of it: the grid again. The text never changed.
+        press("G")
+        #expect(await eventually { drawn("| A") && drawn("| 1") })
+        #expect(view.string == text as String)
+        await session.stop()
+    }
+
     @Test func aMovedNoteIsSavedAtItsNewPathOnly() async throws {
         controller.load("Note.md")
         let session = try #require(controller.session)

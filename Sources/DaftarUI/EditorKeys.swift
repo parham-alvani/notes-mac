@@ -2,8 +2,8 @@ import AppKit
 import DaftarCore
 
 /// The plain editor's keys: lists and tables, moving and copying lines,
-/// the shortcuts, pairs, the slash menu, completion, and what is dropped
-/// or pasted. The rules are `EditorCommands` and `MarkdownTable` (core).
+/// the shortcuts, pairs, completion, and what is dropped or pasted (the
+/// slash bar is `EditorSlashBar.swift`). The rules are `EditorCommands` and `MarkdownTable` (core).
 extension NoteTextView {
     // MARK: Lines
 
@@ -35,12 +35,15 @@ extension NoteTextView {
     override func insertNewline(_ sender: Any?) {
         let line = currentLineRange()
         let cursor = selectedRange()
-        // Return at the end of a table row: a new row, the cursor in its first cell.
+        // Return in a table: the same cell of the row below. A cell never holds a line break,
+        // so a selection in one cell does not become one.
+        if tableEnter() { return }
+        // Return at the end of a row with no delimiter row under its header yet: a new row, the cursor in its first cell.
         if cursor.length == 0, cursor.location == NSMaxRange(line), let table = tableBlock(), !MarkdownTable.cells(ns.substring(with: line)).allSatisfy(\.isEmpty) {
             let rows = Array(table.lines[...table.row])
             let formatted = MarkdownTable.newRow(rows)
             let replaced = NSRange(location: table.range.location, length: NSMaxRange(line) - table.range.location)
-            let text = formatted.joined(separator: "\n")
+            let text = formatted.joined(separator: table.eol)
             let start = replaced.location + (text as NSString).length - (formatted.last! as NSString).length
             return replace(replaced, with: text, select: NSRange(location: start + MarkdownTable.cellStart(formatted.last!, column: 0), length: 0))
         }
@@ -57,7 +60,7 @@ extension NoteTextView {
 
     /// Tab and ⇧Tab move list items in and out by four spaces.
     override func insertTab(_ sender: Any?) {
-        if selectedRange().length == 0, tableTab(back: false) { return }
+        if tableTab(back: false) { return }
         let lines = linesInSelection()
         let text = ns.substring(with: lines)
         guard text.split(separator: "\n").allSatisfy({ EditorCommands.isListItem(String($0)) }), !text.isEmpty else {
@@ -67,15 +70,17 @@ extension NoteTextView {
     }
 
     override func insertBacktab(_ sender: Any?) {
-        if selectedRange().length == 0, tableTab(back: true) { return }
+        if tableTab(back: true) { return }
         shift(linesInSelection()) { EditorCommands.outdent($0) }
     }
 
     // MARK: Tables
 
-    /// The rows of the table the cursor is in: their range, their lines, and
-    /// which of them holds the cursor.
-    private func tableBlock() -> (range: NSRange, lines: [String], row: Int)? {
+    /// The rows of the table the cursor is in: their range, their lines
+    /// without their line breaks, which of them holds the cursor, and the
+    /// line break the note has there. Rows in a code block, the front
+    /// matter, math or a comment are not a table: their keys are the text's.
+    private func tableBlock() -> (range: NSRange, lines: [String], row: Int, eol: String)? {
         let line = currentLineRange()
         guard MarkdownTable.isRow(ns.substring(with: line)) else { return nil }
         let isRow = { (range: NSRange) in MarkdownTable.isRow(self.ns.substring(with: range)) }
@@ -89,27 +94,87 @@ extension NoteTextView {
         while next < ns.length {
             let below = ns.lineRange(for: NSRange(location: next, length: 0))
             guard isRow(below) else { break }
-            // The row without its newline.
-            end = NSMaxRange(below) - (ns.character(at: NSMaxRange(below) - 1) == 10 ? 1 : 0)
+            // The row without its line break.
+            end = NSMaxRange(below)
+            while end > below.location, [10, 13].contains(ns.character(at: end - 1)) { end -= 1 }
             next = NSMaxRange(below)
         }
+        if let controller, controller.blockStates.peek(before: start, in: ns) != .normal { return nil }
         let range = NSRange(location: start, length: end - start)
-        let lines = ns.substring(with: range).components(separatedBy: "\n")
-        let row = ns.substring(with: NSRange(location: start, length: line.location - start)).filter { $0 == "\n" }.count
-        return (range, lines, row)
+        let raw = ns.substring(with: range) as NSString
+        // A note from Windows keeps its line breaks.
+        let eol = raw.range(of: "\r\n").location != NSNotFound ? "\r\n" : "\n"
+        let lines = raw.components(separatedBy: eol)
+        // A table whose lines end in two ways is left to the text's own keys.
+        guard !lines.contains(where: { $0.contains("\n") || $0.contains("\r") }) else { return nil }
+        let row = (ns.substring(with: NSRange(location: start, length: line.location - start)) as NSString).components(separatedBy: eol).count - 1
+        return (range, lines, row, eol)
     }
 
-    /// Tab in a table: the next cell, the columns lined up.
+    /// Whether the selection is a caret, or is inside one cell of [line]: a
+    /// table's key moves it as its caret would. One that reaches over a pipe
+    /// or a line is raw text, and the key is the text's.
+    private func inOneCell(_ selection: NSRange, of line: NSRange) -> Bool {
+        guard selection.length > 0 else { return true }
+        let row = TableGrid.row(ns, line: line)
+        guard NSMaxRange(selection) <= NSMaxRange(line), let cell = row.cell(at: selection.location), cell == row.cell(at: NSMaxRange(selection)) else { return false }
+        return !row.pipes.contains { $0 >= selection.location && $0 < NSMaxRange(selection) }
+    }
+
+    /// Tab in a table: the next cell, the columns lined up. One step to undo,
+    /// with its formatting. A header cell that still holds the Table item's
+    /// placeholder word is selected, so typing replaces the word.
     private func tableTab(back: Bool) -> Bool {
-        guard let table = tableBlock() else { return false }
         let line = currentLineRange()
-        let column = MarkdownTable.column(at: selectedRange().location - line.location, in: ns.substring(with: line))
+        let selection = selectedRange()
+        // A selection of lines is moved in or out as list items are.
+        guard selection.length == 0 || !ns.substring(with: selection).contains(where: \.isNewline) else { return false }
+        guard let table = tableBlock(), inOneCell(selection, of: line) else { return false }
+        let column = MarkdownTable.column(at: selection.location - line.location, in: ns.substring(with: line))
         let moved = MarkdownTable.tab(table.lines, row: table.row, column: column, back: back)
-        var start = table.range.location
-        for line in moved.lines[..<moved.row] { start += (line as NSString).length + 1 }
-        replace(table.range, with: moved.lines.joined(separator: "\n"),
-            select: NSRange(location: start + MarkdownTable.cellStart(moved.lines[moved.row], column: moved.column), length: 0))
+        let cells = MarkdownTable.cells(moved.lines[moved.row])
+        let placeholder = moved.row == 0 && cells.indices.contains(moved.column) && cells[moved.column] == MarkdownTable.placeholder
+        putTable(moved.lines, in: table.range, row: moved.row, column: moved.column, eol: table.eol, selected: placeholder ? (MarkdownTable.placeholder as NSString).length : 0)
         return true
+    }
+
+    /// The table's lines after a key, in place of [range], the cursor at the
+    /// start of a cell's text, with [selected] UTF-16 units of it selected.
+    private func putTable(_ lines: [String], in range: NSRange, row: Int, column: Int, eol: String, selected: Int = 0) {
+        var start = range.location
+        for line in lines[..<row] { start += (line as NSString).length + (eol as NSString).length }
+        breakUndoCoalescing()
+        replace(range, with: lines.joined(separator: eol), select: NSRange(location: start + MarkdownTable.cellStart(lines[row], column: column), length: selected))
+        breakUndoCoalescing()
+    }
+
+    /// Return in a table with its delimiter row: the same cell of the row
+    /// below, a new row under the last, and on an empty last row the table
+    /// ends. A cell never holds a line break.
+    private func tableEnter() -> Bool {
+        guard let table = tableBlock(), table.lines.count >= 2, MarkdownTable.isDelimiter(table.lines[1]) else { return false }
+        let line = currentLineRange()
+        let selection = selectedRange()
+        // A selection in one cell moves as its caret would, and stays in the text.
+        guard inOneCell(selection, of: line) else { return false }
+        let column = MarkdownTable.column(at: selection.location - line.location, in: ns.substring(with: line))
+        switch MarkdownTable.enter(table.lines, row: table.row, column: column) {
+        case .moved(let lines, let row, let column):
+            putTable(lines, in: table.range, row: row, column: column, eol: table.eol)
+        case .ended(let lines):
+            // The empty row's line stays, empty, with the cursor on it.
+            let text = lines.joined(separator: table.eol) + table.eol
+            breakUndoCoalescing()
+            replace(table.range, with: text, select: NSRange(location: table.range.location + (text as NSString).length, length: 0))
+            breakUndoCoalescing()
+        }
+        return true
+    }
+
+    /// ⌃↩ in a table is Return: a cell never holds a line break.
+    override func insertLineBreak(_ sender: Any?) {
+        if tableEnter() { return }
+        super.insertLineBreak(sender)
     }
 
     // MARK: Moving lines
@@ -233,12 +298,7 @@ extension NoteTextView {
         if insertAtCursors(string) { return }
         if let typed = string as? String, handlePair(typed, replacementRange: replacementRange) { return }
         super.insertText(string, replacementRange: replacementRange)
-        if let typed = string as? String, typed == "/", EditorCommands.opensSlashMenu(in: ns, at: selectedRange().location) {
-            let slash = selectedRange().location - 1
-            // After the key is handled, so the slash is on screen under the menu.
-            DispatchQueue.main.async { [weak self] in self?.showSlashMenu(at: slash) }
-            return
-        }
+        if let typed = string as? String, typed == "/" { openSlashBar() }
         if let typed = string as? String { completeAfterTyping(typed) }
         guard let typed = string as? String, typed == "[" else { return }
         let at = selectedRange().location
@@ -303,6 +363,8 @@ extension NoteTextView {
 
     /// Backspace in an empty pair takes both.
     override func deleteBackward(_ sender: Any?) {
+        // At the start of a grid's cell there is nothing of the cell to take.
+        if deleteInCell(.back) { return }
         let at = selectedRange()
         if !vimActive, at.length == 0, at.location >= 1, at.location < ns.length, autoClosed == at.location,
             let close = Self.closing[ns.substring(with: NSRange(location: at.location - 1, length: 1))],
@@ -313,51 +375,6 @@ extension NoteTextView {
         }
         if let auto = autoClosed { autoClosed = at.length == 0 && at.location <= auto && at.location > 0 ? auto - 1 : nil }
         super.deleteBackward(sender)
-    }
-
-    // MARK: Slash commands
-
-    /// The snippets under the `/` at [slash], each with its icon in its colour.
-    func slashMenu(at slash: Int) -> NSMenu {
-        let menu = NSMenu()
-        let time = Date().formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-        var group = ""
-        for snippet in EditorCommands.slashCommands(today: .today(), time: time) {
-            if snippet.group != group {
-                menu.addItem(NSMenuItem.sectionHeader(title: snippet.group))
-                group = snippet.group
-            }
-            let item = NSMenuItem(title: snippet.title, action: #selector(chooseSlash(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = SlashChoice(snippet: snippet, slash: slash)
-            let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
-                .applying(.init(paletteColors: [NSPalette.named(snippet.color)]))
-            item.image = NSImage(systemSymbolName: snippet.symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    private func showSlashMenu(at slash: Int) {
-        guard slash < ns.length, ns.character(at: slash) == 0x2F, window != nil else { return }
-        let rect = firstRect(forCharacterRange: NSRange(location: slash, length: 1), actualRange: nil)
-        slashMenu(at: slash).popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.minY - 4), in: nil)
-    }
-
-    @objc private func chooseSlash(_ item: NSMenuItem) {
-        guard let choice = item.representedObject as? SlashChoice else { return }
-        applySlash(choice.snippet, slashAt: choice.slash)
-    }
-
-    /// Puts [snippet] in place of the `/` at [slash], as one step to undo.
-    func applySlash(_ snippet: Snippet, slashAt slash: Int) {
-        guard slash < ns.length, ns.character(at: slash) == 0x2F else { return }
-        let edit = EditorCommands.apply(snippet, slashAt: slash, in: ns)
-        guard shouldChangeText(in: edit.range, replacementString: edit.text) else { return }
-        textStorage?.replaceCharacters(in: edit.range, with: edit.text)
-        didChangeText()
-        setSelectedRange(NSRange(location: edit.cursor, length: 0))
-        if snippet.id == "link" || snippet.id == "embed" { complete(nil) }
     }
 
     override var rangeForUserCompletion: NSRange {
@@ -427,15 +444,5 @@ extension NoteTextView {
         else { return super.paste(sender) }
         guard let name = controller.savePastedImage(png) else { return }
         if vimActive { vim?.paste("![[\(name)]]") } else { insertText("![[\(name)]]", replacementRange: selectedRange()) }
-    }
-}
-
-/// A slash menu item's snippet and the slash it replaces.
-final class SlashChoice: NSObject {
-    let snippet: Snippet
-    let slash: Int
-    init(snippet: Snippet, slash: Int) {
-        self.snippet = snippet
-        self.slash = slash
     }
 }
