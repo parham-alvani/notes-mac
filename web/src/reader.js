@@ -1696,7 +1696,10 @@ window.daftar = {
       if (note.folds == null && note.folded) folds.shutAll();
       folds.apply();
       timing.mark("folds");
-      tableSort.restore(sorts);
+      // A table drawn again gets its sort back. With an embed still to fill,
+      // not yet: an embed's tables are counted too, so until they are there
+      // a table's number is another table's.
+      if (!main.querySelector(".embed")) tableSort.restore(sorts);
       // A note shown again after it changed on disk (a format on leaving the
       // editor, a pull) stays where it was, and a heading or a line (back
       // from the editor) is scrolled to. The code blocks' heads and the folds
