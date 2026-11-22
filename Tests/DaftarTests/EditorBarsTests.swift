@@ -386,6 +386,13 @@ private let barsPicture = ProcessInfo.processInfo.environment["DAFTAR_BARS_PICTU
         let link = try #require(view.letterBox(text.range(of: "[[Plan]]")))
         #expect(abs(card.frame.minY - (link.maxY + 6)) < 0.5 && abs(card.frame.minX - link.minX) < 0.5)
         #expect(card.frame.maxX <= view.visibleRect.maxX - 8)
+        // In a short pane the card is as high as the room it has, and inside the view.
+        view.closeLinkCard()
+        window.setContentSize(NSSize(width: 760, height: 260))
+        let short = try #require(try rest(on: "Plan]]"))
+        #expect(short.frame.maxY <= view.visibleRect.maxY - 8 + 0.5 && short.frame.height < card.frame.height)
+        #expect(short.frame.minY >= link.maxY + 5.5)
+        window.setContentSize(NSSize(width: 760, height: 620))
         // The card never has the keys, and the text is as it was.
         #expect(!card.acceptsFirstResponder && view.string == Self.linkNote)
         // A link to a heading: the section without its heading, and the heading in the head.

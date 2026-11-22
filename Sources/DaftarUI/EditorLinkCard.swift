@@ -26,7 +26,8 @@ final class LinkCardView: NSView {
     /// What the card says where there are no lines.
     private let words: NSTextField?
 
-    init(card: LinkCard, store: VaultStore, width: CGFloat) {
+    /// [most] is the room the card has when that is less than its 240 px.
+    init(card: LinkCard, store: VaultStore, width: CGFloat, most: CGFloat = LinkCardView.most) {
         self.card = card
         scroll = NoteTextView.scrollableNoteView()
         scroll.hasVerticalScroller = false
@@ -60,7 +61,7 @@ final class LinkCardView: NSView {
             words = label
             bodyHeight = 44
         }
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: min(Self.most, Self.headHeight + bodyHeight)))
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: min(Self.most, most, Self.headHeight + bodyHeight)))
         wantsLayer = true
         layer?.cornerRadius = 12
         layer?.borderWidth = 1
@@ -296,10 +297,12 @@ extension NoteTextView {
         if let path, !Vault.isNote(path) { return closeLinkCard() }
         let card = LinkCard(link: hover.link, path: path, text: path.flatMap { own ? string : store.text(of: $0) })
         let visible = visibleRect
-        let view = LinkCardView(card: card, store: store, width: visible.width - 16)
+        // The room under the link and over it: a short pane makes the card lower, never puts it outside the view.
+        let under = visible.maxY - 8 - (box.maxY + 6), over = box.minY - 6 - (visible.minY + 8)
+        let view = LinkCardView(card: card, store: store, width: visible.width - 16, most: max(under, over, LinkCardView.headHeight + 44))
         view.textView = self
         var origin = NSPoint(x: box.minX, y: box.maxY + 6)
-        if origin.y + view.frame.height > visible.maxY - 8, box.minY - 6 - view.frame.height >= visible.minY + 8 { origin.y = box.minY - 6 - view.frame.height }
+        if view.frame.height > under, over > under { origin.y = box.minY - 6 - view.frame.height }
         origin.x = max(visible.minX + 8, min(origin.x, visible.maxX - view.frame.width - 8))
         view.setFrameOrigin(origin)
         addSubview(view)
