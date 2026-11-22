@@ -339,6 +339,31 @@ import WebKit
         #expect(ReaderView.Coordinator.preview(of: ".daftar.toml", anchor: "", in: store) == nil)
     }
 
+    @Test func aClickOnTheNoteThatLeavesTicksNothing() async throws {
+        let (web, window, shown) = try await page("One.md")
+        defer { window.orderOut(nil) }
+        // A click on the box of the note on the page, the moment the next note is handed to the page:
+        // the page still shows `One`, and the app already has `Two`, whose first line is a task too.
+        // The test's window is not seen, and a page that is not seen makes no soft change: here it says it is seen.
+        _ = try await run(web, "Object.defineProperty(document, 'visibilityState', { get: () => 'visible' }); 1")
+        _ = try await run(web, "(() => { const show = window.daftar.show; window.daftar.show = function (note) { const done = show.call(this, note); if (note.path === 'Two.md' && !window.clicked) { window.clicked = document.querySelector('#note').textContent.includes('one') ? 'one' : 'two'; document.querySelector('#note input[type=checkbox]').click(); } return done; }; })(); 1")
+        shown.request = ReaderRequest(path: "Two.md")
+        #expect(try await until(web, "document.querySelector('#note .inline-title')?.textContent === 'Two'"))
+        try await Task.sleep(for: .milliseconds(500))
+        // The click was on the note that leaves, and neither note's task was ticked by it.
+        #expect(try await run(web, "window.clicked") == "one")
+        #expect(try String(contentsOf: root.appending(path: "One.md"), encoding: .utf8).hasPrefix("- [ ] one"))
+        #expect(try String(contentsOf: root.appending(path: "Two.md"), encoding: .utf8).hasPrefix("- [ ] two"))
+        // The new note's box works.
+        _ = try await run(web, "document.querySelector('#note input[type=checkbox]').click(); 1")
+        var ticked = false
+        for _ in 0..<30 where !ticked {
+            try await Task.sleep(for: .milliseconds(100))
+            ticked = try String(contentsOf: root.appending(path: "Two.md"), encoding: .utf8).hasPrefix("- [x] two")
+        }
+        #expect(ticked)
+    }
+
     @Test func anotherNoteIsDrawnAtItsPlaceAndTheKeysAreNotLost() async throws {
         let (web, window, shown) = try await page("Sections.md")
         defer { window.orderOut(nil) }

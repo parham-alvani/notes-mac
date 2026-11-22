@@ -1535,22 +1535,49 @@ function forgetPage() {
 }
 
 /**
- * Makes the change [draw] softly: the note that leaves fades out as the new
+ * The soft change that has not drawn its note yet, or null. Until it has,
+ * the page still shows the note that leaves, and the app already has the
+ * one that comes: a click or a key there would name a line of the wrong
+ * note (a task's box sends its line and no path). So the note that leaves
+ * takes none. It is a frame, and never more than `softly` waits.
+ */
+let leaving = null;
+for (const kind of ["click", "auxclick", "keydown"]) {
+  window.addEventListener(
+    kind,
+    (event) => {
+      // A key with Command or Control is the app's, not the note's.
+      if (!leaving || event.metaKey || event.ctrlKey) return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+    },
+    true,
+  );
+}
+
+/**
+ * Makes the change [change] softly: the note that leaves fades out as the new
  * one fades in, with no movement. The new note is drawn at its place first
- * (the page's view transition takes a picture of the old one, runs [draw],
+ * (the page's view transition takes a picture of the old one, runs [change],
  * and fades between the two, in the 120 ms `reader.css` gives it). With Reduce Motion, or on a page that has no
  * view transitions, the change is made at once. A page that draws no frame
  * (a window behind another) would wait for ever: after 400 ms the change is
  * made at once. The keys are the page's all along, so none is lost.
  */
-async function softly(draw) {
-  if (motion() !== "smooth" || !document.startViewTransition || document.visibilityState !== "visible") return draw();
+async function softly(change) {
+  if (motion() !== "smooth" || !document.startViewTransition || document.visibilityState !== "visible") return change();
+  const mine = {};
+  const draw = () => {
+    if (leaving === mine) leaving = null;
+    return change();
+  };
   let transition;
   try {
     transition = document.startViewTransition(draw);
   } catch (error) {
-    return draw();
+    return change();
   }
+  leaving = mine;
   // A transition that is skipped rejects these; that is no error here.
   transition.ready.catch(() => {});
   transition.finished.catch(() => {});
@@ -1558,8 +1585,9 @@ async function softly(draw) {
   const late = new Promise((resolve) => (timer = setTimeout(resolve, 400, "late")));
   const first = await Promise.race([transition.updateCallbackDone.catch(() => {}), late]);
   clearTimeout(timer);
-  if (first !== "late") return;
-  transition.skipTransition();
+  if (first === "late") transition.skipTransition();
+  // Drawn by now in every case: [change] draws once, so this is for a
+  // transition that was late, or that ended without running it.
   draw();
 }
 
