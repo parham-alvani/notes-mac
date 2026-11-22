@@ -4,6 +4,11 @@ import Foundation
 /// columns up, as Obsidian's table editor does, and Return at the end of a
 /// row starts a new one.
 public enum MarkdownTable {
+    /// The word the Table item of the slash bar writes in each header cell.
+    /// It is there to be typed over: the insert selects the first one, and
+    /// Tab into a header cell that still holds it selects it.
+    public static let placeholder = "Column"
+
     /// A row starts with a pipe, as every table in the vault is written.
     public static func isRow(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces).hasPrefix("|")

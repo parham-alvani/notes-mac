@@ -266,7 +266,7 @@ extension NoteTextView {
         let edit = bar.edit(snippet, in: text)
         guard NSMaxRange(edit.range) <= text.length else { return }
         breakUndoCoalescing()
-        replace(edit.range, with: edit.text, select: NSRange(location: edit.cursor, length: 0))
+        replace(edit.range, with: edit.text, select: NSRange(location: edit.cursor, length: edit.selected))
         breakUndoCoalescing()
         // A link's list of notes opens at once.
         if snippet.id == "link" || snippet.id == "embed" { complete(nil) }

@@ -143,7 +143,8 @@ import Testing
         // Escape closes the list and changes nothing: the line is as typed.
         #expect(type("/tab").text == "/tab")
         // A block after other text starts a line of its own.
-        #expect(entered("/code", after: "text ") == "text \n```\n▮\n```")
+        #expect(entered("/code", after: "text ") == "text \n\n```\n▮\n```")
+        #expect(entered("/h2", after: "text ") == "text \n## ▮")
         // What is inserted takes the `/` and the query, and nothing else of the line.
         let text = "On /dat we met" as NSString
         var after = SlashBar(typedAt: 4, in: "On / we met", items: items)
@@ -162,6 +163,90 @@ import Testing
         #expect(written("task-today") == "- [ ] ▮ 📅 2026-11-22")
         #expect(written("red") == "==🔴▮==" && written("yellow") == "==▮==" && written("purple") == "==🟣▮==")
         #expect(written("link") == "[[▮]]" && written("embed") == "![[▮]]" && written("time") == "09:05▮")
+    }
+
+    /// The note after item [id] is chosen for `/query` typed at `▮` of
+    /// [note], with `▮` where the caret is and `◂` where a selection ends.
+    func chosen(_ id: String, at note: String, query: String = "") -> String {
+        let place = (note as NSString).range(of: "▮").location
+        let text = (note as NSString).replacingCharacters(in: NSRange(location: place, length: 1), with: "/" + query) as NSString
+        let item = items.first { $0.id == id }!
+        let edit = EditorCommands.apply(item, slashAt: place, query: (query as NSString).length, in: text)
+        // Only the `/` and the query are replaced.
+        #expect(edit.range == NSRange(location: place, length: 1 + (query as NSString).length))
+        var out = text.replacingCharacters(in: edit.range, with: edit.text) as NSString
+        if edit.selected > 0 { out = out.replacingCharacters(in: NSRange(location: edit.cursor + edit.selected, length: 0), with: "◂") as NSString }
+        return out.replacingCharacters(in: NSRange(location: edit.cursor, length: 0), with: "▮")
+    }
+
+    static let table = "| ▮Column◂ | Column |\n| ------ | ------ |\n|        |        |"
+
+    @Test func aBlockApartHasABlankLineAtEachSideAndTakesNoText() {
+        let table = Self.table
+        // The fault: a table typed on the blank line between two paragraphs had no blank line under
+        // it, and the formatter made the paragraph under it a row of the table.
+        #expect(chosen("table", at: "x\n▮\nA first paragraph.\n\nA second paragraph.\n", query: "tab")
+            == "x\n\n\(table)\n\nA first paragraph.\n\nA second paragraph.\n")
+        // At the start of a line with text: the text goes under the table, after a blank line.
+        #expect(chosen("table", at: "▮x\n\nA first paragraph.\n\nA second paragraph.\n", query: "tab")
+            == "\(table)\n\nx\n\nA first paragraph.\n\nA second paragraph.\n")
+        // Blank lines that are there are kept, and none is added.
+        #expect(chosen("table", at: "x\n\n▮\n\nA first paragraph.\n") == "x\n\n\(table)\n\nA first paragraph.\n")
+        #expect(chosen("table", at: "▮") == table)
+        #expect(chosen("table", at: "x\n\n▮\n") == "x\n\n\(table)\n")
+        // After other text on the line, and with text after it.
+        #expect(chosen("table", at: "before ▮after\nnext\n") == "before \n\n\(table)\n\nafter\nnext\n")
+        // A line of spaces is a blank line.
+        #expect(chosen("code", at: "x\n  \n▮\n \ny\n") == "x\n  \n```\n▮\n```\n \ny\n")
+        // Windows line breaks: the line under is not taken for a blank one, nor the one over.
+        #expect(chosen("code", at: "x\r\n▮\r\ny\r\n") == "x\r\n\n```\n▮\n```\n\r\ny\r\n")
+        // Every item that stands apart, between two lines of text and at a line's start before text.
+        let between = [
+            "callout": "> [!note] ▮\n> ", "warning": "> [!warning] ▮\n> ", "code": "```\n▮\n```", "math": "$$\n▮\n$$",
+            "mermaid": "```mermaid\nflowchart LR\n    A --> B▮\n```", "tasks": "```tasks\nnot done\ndue before tomorrow\n```▮", "table": table,
+        ]
+        for (id, written) in between {
+            #expect(chosen(id, at: "one\n▮\ntwo\n") == "one\n\n\(written)\n\ntwo\n", "\(id)")
+            #expect(chosen(id, at: "one\n▮two\n") == "one\n\n\(written)\n\ntwo\n", "\(id)")
+            #expect(chosen(id, at: "one ▮\ntwo\n") == "one \n\n\(written)\n\ntwo\n", "\(id)")
+        }
+        // A rule: the caret's empty line under it is the blank line. Straight under text, `---` would make that text a heading.
+        #expect(chosen("divider", at: "one\n▮\ntwo\n") == "one\n\n---\n▮\ntwo\n")
+        #expect(chosen("divider", at: "one\n▮two\n") == "one\n\n---\n▮\ntwo\n")
+        #expect(chosen("divider", at: "one\n\n▮\n\ntwo\n") == "one\n\n---\n▮\n\ntwo\n")
+        // Every item of the list that stands apart is one of these, and each is a block.
+        #expect(Set(items.filter(\.apart).map(\.id)) == Set(between.keys).union([
+            "note", "info", "tip", "important", "danger", "example", "question", "success", "summary", "todo", "divider",
+        ]))
+        #expect(items.filter(\.apart).allSatisfy { $0.block })
+        // A heading or a list item is the start of its line: no blank line, and the line's text is its own.
+        #expect(chosen("h2", at: "one\n▮two\n") == "one\n## ▮two\n")
+        #expect(chosen("task", at: "- [ ] a\n▮\n- [ ] b\n") == "- [ ] a\n- [ ] ▮\n- [ ] b\n")
+        #expect(chosen("bullet", at: "one ▮\n") == "one \n- ▮\n")
+        // No item takes a letter of the note: every line that was there is there after, in order.
+        for item in items {
+            for note in ["x\n▮\nA first paragraph.\n\nA second paragraph.\n", "▮x\n\nA first paragraph.\n", "a ▮b\nc\n", "a\n▮"] {
+                let after = chosen(item.id, at: note).replacingOccurrences(of: "▮", with: "").replacingOccurrences(of: "◂", with: "")
+                var rest = after[...]
+                for piece in note.components(separatedBy: "▮").flatMap({ $0.components(separatedBy: "\n") }) where !piece.isEmpty {
+                    let found = rest.range(of: piece)
+                    #expect(found != nil, "\(item.id) lost \(piece)")
+                    if let found { rest = rest[found.upperBound...] }
+                }
+            }
+        }
+    }
+
+    @Test func theTableItemSelectsItsFirstPlaceholder() {
+        let table = items.first { $0.id == "table" }!
+        #expect(MarkdownTable.placeholder == "Column")
+        #expect((table.text as NSString).substring(with: NSRange(location: table.cursor, length: table.selected)) == "Column")
+        // No other item selects anything.
+        #expect(items.filter { $0.selected > 0 }.map(\.id) == ["table"])
+        // The table keys take rows only: a line with no pipe at its start is never a row.
+        #expect(!MarkdownTable.isRow("A first paragraph of the note."))
+        #expect(!MarkdownTable.isRow("a | b"))
+        #expect(MarkdownTable.isRow("  | a | b |"))
     }
 
     @Test func theBarClosesWhenTheCaretLeavesWhatWasTyped() {

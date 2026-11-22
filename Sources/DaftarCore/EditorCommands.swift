@@ -103,8 +103,18 @@ public struct Snippet: Sendable, Equatable, Identifiable {
     public var cursor: Int
     /// A block (a heading, a fence, a table) starts a line of its own.
     public var block: Bool
+    /// A block that stands apart (a callout, a fence, a table, a rule): it
+    /// has a blank line before and after it. A heading or a list item is
+    /// only the start of its line.
+    public var apart: Bool
+    /// How much of [text] after [cursor] is selected, in UTF-16 units: a
+    /// placeholder word, which the first letter typed replaces.
+    public var selected: Int
 
-    init(_ id: String, _ title: String, _ group: String, _ symbol: String, _ color: String, _ text: String, cursor: Int? = nil, block: Bool = false) {
+    init(
+        _ id: String, _ title: String, _ group: String, _ symbol: String, _ color: String, _ text: String, cursor: Int? = nil, selected: Int = 0,
+        block: Bool = false, apart: Bool = false
+    ) {
         self.id = id
         self.title = title
         self.group = group
@@ -112,7 +122,9 @@ public struct Snippet: Sendable, Equatable, Identifiable {
         self.color = color
         self.text = text
         self.cursor = cursor ?? (text as NSString).length
-        self.block = block
+        self.selected = selected
+        self.block = block || apart
+        self.apart = apart
     }
 }
 
@@ -124,7 +136,7 @@ extension EditorCommands {
     public static func slashCommands(today: Day, time: String) -> [Snippet] {
         func callout(_ id: String, _ title: String, _ kind: String, _ symbol: String, _ color: String) -> Snippet {
             let head = "> [!\(kind)] "
-            return Snippet(id, title, "Blocks", symbol, color, head + "\n> ", cursor: (head as NSString).length, block: true)
+            return Snippet(id, title, "Blocks", symbol, color, head + "\n> ", cursor: (head as NSString).length, apart: true)
         }
         var items = [
             Snippet("h1", "Heading 1", "Text", "textformat.size.larger", "orange", "# ", block: true),
@@ -151,13 +163,15 @@ extension EditorCommands {
             ("todo", "Todo callout", "checkmark.circle", "vividYellow"),
         ].map { callout($0.0, $0.1, $0.0, $0.2, $0.3) }
         items += [
-            Snippet("code", "Code block", "Blocks", "chevron.left.forwardslash.chevron.right", "pink", "```\n\n```", cursor: 4, block: true),
-            Snippet("mermaid", "Mermaid diagram", "Blocks", "flowchart.fill", "purple", "```mermaid\nflowchart LR\n    A --> B\n```", cursor: 35, block: true),
-            Snippet("math", "Math block", "Blocks", "function", "purple", "$$\n\n$$", cursor: 3, block: true),
-            Snippet("tasks", "Tasks query", "Blocks", "checklist", "orange", "```tasks\nnot done\ndue before tomorrow\n```", block: true),
-            // The caret before the first header cell's word.
-            Snippet("table", "Table", "Blocks", "tablecells", "green", "| Column | Column |\n| ------ | ------ |\n|        |        |", cursor: 2, block: true),
-            Snippet("divider", "Rule", "Blocks", "minus", "grey", "---\n", block: true),
+            Snippet("code", "Code block", "Blocks", "chevron.left.forwardslash.chevron.right", "pink", "```\n\n```", cursor: 4, apart: true),
+            Snippet("mermaid", "Mermaid diagram", "Blocks", "flowchart.fill", "purple", "```mermaid\nflowchart LR\n    A --> B\n```", cursor: 35, apart: true),
+            Snippet("math", "Math block", "Blocks", "function", "purple", "$$\n\n$$", cursor: 3, apart: true),
+            Snippet("tasks", "Tasks query", "Blocks", "checklist", "orange", "```tasks\nnot done\ndue before tomorrow\n```", apart: true),
+            // The first header cell's word is selected: the first letter typed takes its place.
+            Snippet(
+                "table", "Table", "Blocks", "tablecells", "green", "| \(MarkdownTable.placeholder) | \(MarkdownTable.placeholder) |\n| ------ | ------ |\n|        |        |",
+                cursor: 2, selected: (MarkdownTable.placeholder as NSString).length, apart: true),
+            Snippet("divider", "Rule", "Blocks", "minus", "grey", "---\n", apart: true),
             Snippet("link", "Link to a note", "Links", "link", "aqua", "[[]]", cursor: 2),
             Snippet("embed", "Embed a note or a file", "Links", "photo.on.rectangle", "pink", "![[]]", cursor: 3),
             Snippet("date", "Today's date", "Insert", "calendar", "orange", today.description),
@@ -184,14 +198,42 @@ extension EditorCommands {
 
     /// The edit that puts [snippet] where the `/` at [slash] is, over the
     /// `/` and the [query] UTF-16 units typed after it to find the item:
-    /// the range to replace, what goes there, and where the cursor ends up.
-    public static func apply(_ snippet: Snippet, slashAt slash: Int, query: Int = 0, in text: NSString) -> (range: NSRange, text: String, cursor: Int) {
+    /// the range to replace, what goes there, where the cursor ends up and
+    /// how much after it is selected. Only the `/` and the query are
+    /// replaced, so no other text of the note is ever taken.
+    ///
+    /// A block after other text on the line starts a line of its own. A
+    /// block that stands apart also has a blank line before it and after it
+    /// wherever the line beside it is not blank: a paragraph straight under
+    /// a table is a row of that table to Markdown, and one straight over a
+    /// `---` is a heading.
+    public static func apply(_ snippet: Snippet, slashAt slash: Int, query: Int = 0, in text: NSString) -> (range: NSRange, text: String, cursor: Int, selected: Int) {
+        let range = NSRange(location: slash, length: 1 + query)
         let line = text.lineRange(for: NSRange(location: slash, length: 0))
-        let before = text.substring(with: NSRange(location: line.location, length: slash - line.location))
-        // A block after other text on the line starts a line of its own.
-        let lead = snippet.block && !before.trimmingCharacters(in: .whitespaces).isEmpty ? "\n" : ""
-        let insert = lead + snippet.text
-        return (NSRange(location: slash, length: 1 + query), insert, slash + (lead as NSString).length + snippet.cursor)
+        var contents = 0
+        text.getLineStart(nil, end: nil, contentsEnd: &contents, for: line)
+        func blank(_ range: NSRange) -> Bool { text.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let textBefore = !blank(NSRange(location: line.location, length: slash - line.location))
+        var lead = snippet.block && textBefore ? "\n" : ""
+        var trail = ""
+        if snippet.apart {
+            if textBefore {
+                lead = "\n\n"
+            } else if line.location > 0, !blank(text.lineRange(for: NSRange(location: line.location - 1, length: 0))) {
+                // The `/`'s own line, left empty, is the blank line.
+                lead = "\n"
+            }
+            // A snippet that ends in a line break (a rule) leaves the caret on an empty line under it: that line is the blank one.
+            let open = snippet.text.hasSuffix("\n")
+            let after = max(contents, NSMaxRange(range))
+            if NSMaxRange(range) < contents, !blank(NSRange(location: NSMaxRange(range), length: contents - NSMaxRange(range))) {
+                // What was after the `/` on its line goes under the block, as it is.
+                trail = open ? "\n" : "\n\n"
+            } else if !open, NSMaxRange(line) < text.length, NSMaxRange(line) > after, !blank(text.lineRange(for: NSRange(location: NSMaxRange(line), length: 0))) {
+                trail = "\n"
+            }
+        }
+        return (range, lead + snippet.text + trail, slash + (lead as NSString).length + snippet.cursor, snippet.selected)
     }
 }
 
@@ -286,7 +328,7 @@ public struct SlashBar: Sendable, Equatable {
     }
 
     /// The edit that puts [snippet] in place of the `/` and the query, as one step.
-    public func edit(_ snippet: Snippet, in text: NSString) -> (range: NSRange, text: String, cursor: Int) {
+    public func edit(_ snippet: Snippet, in text: NSString) -> (range: NSRange, text: String, cursor: Int, selected: Int) {
         EditorCommands.apply(snippet, slashAt: slash, query: end - slash - 1, in: text)
     }
 }

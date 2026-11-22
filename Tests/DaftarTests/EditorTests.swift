@@ -131,7 +131,8 @@ import Testing
         for key in ["/", "c", "o", "d"] { view.insertText(key, replacementRange: NSRange(location: NSNotFound, length: 0)) }
         #expect(view.extras.slash?.choice?.id == "code")
         view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-        #expect(view.string == "# Plan\n- [ ] first\nNotes \n```\n\n```")
+        // The block has a line of its own, and a blank line over it.
+        #expect(view.string == "# Plan\n- [ ] first\nNotes \n\n```\n\n```")
         #expect(view.selectedRange().location == (view.string as NSString).length - 4)
         // In a test the typing and the snippet are one undo group; in the
         // app they are two keystrokes. Either way, undo takes the snippet away.
