@@ -103,6 +103,10 @@ import Testing
         #expect(DateChip.chips(in: rule, today: today).map { (rule as NSString).substring(with: $0.range) } == ["🔁 every 2 weeks on Monday"])
         let last = "- [ ] a 🔁 every day ^abc"
         #expect(DateChip.chips(in: last, today: today).map { (last as NSString).substring(with: $0.range) } == ["🔁 every day"])
+        // A mark outside the basic plane is found with no other mark on the line.
+        for (line, want) in [("- [ ] a 🛫 2026-11-20", ["🛫 2026-11-20"]), ("- [ ] a 🔁 every day 🔼", ["🔁 every day"]), ("- [ ] a 🔁 every day 🔺 🛫 2026-11-20", ["🔁 every day", "🛫 2026-11-20"])] {
+            #expect(DateChip.chips(in: line, today: today).map { (line as NSString).substring(with: $0.range) } == want, "\(line)")
+        }
         #expect(kinds("- [ ] a `📅 2026-11-20`")[.dateChip(.late)] == nil)
         #expect(kinds("- [x] a ✅ 2026-11-21")[.dateChip(.done)] == ["✅ 2026-11-21"])
         #expect(kinds("```\n- [ ] a 📅 2026-11-20\n```")[.dateChip(.late)] == nil)

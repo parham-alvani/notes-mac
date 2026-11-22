@@ -141,9 +141,33 @@ public struct DateChip: Equatable, Sendable {
 
     private static let dated: [String: Kind] = ["➕": .created, "⏳": .scheduled, "🛫": .start, "📅": .due, "✅": .done, "❌": .cancelled]
     /// What a line must hold to have a chip.
-    private static let marks = CharacterSet(charactersIn: "➕⏳🛫📅✅❌🔁")
+    private static let marks = units(of: "➕⏳🛫📅✅❌🔁")
     /// What ends a repeat's rule: the next date, a priority.
-    private static let ends = CharacterSet(charactersIn: "➕⏳🛫📅✅❌🔁🔺⏫🔼🔽⏬")
+    private static let ends = units(of: "➕⏳🛫📅✅❌🔁🔺⏫🔼🔽⏬")
+
+    /// Each character of [characters] as its UTF-16 units.
+    private static func units(of characters: String) -> [[unichar]] { characters.unicodeScalars.map { Array(String($0).utf16) } }
+
+    /// Where the first character of [set] is in [range] of [line], or `NSNotFound`.
+    ///
+    /// Not `rangeOfCharacter(from:)`: on macOS 26 it does not find a
+    /// character outside the basic plane (`📅`, `🔁`, `🛫`, `🔺`) in a
+    /// `CharacterSet`, so a line with only such a mark had no chip there.
+    private static func first(of set: [[unichar]], in line: NSString, range: NSRange) -> Int {
+        let end = NSMaxRange(range)
+        var at = range.location
+        while at < end {
+            let unit = line.character(at: at)
+            // Every mark is above U+2000: most of a line is passed in one compare.
+            if unit >= 0x2000 {
+                for mark in set where mark[0] == unit {
+                    if mark.count == 1 || (at + 1 < end && line.character(at: at + 1) == mark[1]) { return at }
+                }
+            }
+            at += 1
+        }
+        return NSNotFound
+    }
     nonisolated(unsafe) private static let date = try! NSRegularExpression(pattern: #"(➕|⏳|🛫|📅|✅|❌)\x{FE0F}? ([0-9]{4}-[0-9]{2}-[0-9]{2})(?![0-9])"#)
     nonisolated(unsafe) private static let blockId = try! NSRegularExpression(pattern: #"\s\^[A-Za-z0-9-]+\s*$"#)
 
@@ -153,7 +177,7 @@ public struct DateChip: Equatable, Sendable {
     /// is still open.
     static func chips(in line: NSString, from: Int, status: Character, today: String?, statuses: TaskStatuses = .current) -> [DateChip] {
         let rest = NSRange(location: from, length: line.length - from)
-        guard rest.length > 0, line.rangeOfCharacter(from: marks, options: [], range: rest).location != NSNotFound else { return [] }
+        guard rest.length > 0, first(of: marks, in: line, range: rest) != NSNotFound else { return [] }
         var out: [DateChip] = []
         date.enumerateMatches(in: line as String, range: rest) { match, _, _ in
             guard let match, let kind = dated[line.substring(with: match.range(at: 1))] else { return }
@@ -173,7 +197,7 @@ public struct DateChip: Equatable, Sendable {
             guard mark.location != NSNotFound else { break }
             var start = NSMaxRange(mark)
             if start < line.length, line.character(at: start) == 0xFE0F { start += 1 }
-            var end = line.rangeOfCharacter(from: ends, options: [], range: NSRange(location: start, length: line.length - start)).location
+            var end = first(of: ends, in: line, range: NSRange(location: start, length: line.length - start))
             if end == NSNotFound { end = line.length }
             let id = blockId.rangeOfFirstMatch(in: line as String, range: NSRange(location: start, length: line.length - start))
             if id.location != NSNotFound { end = min(end, id.location) }
