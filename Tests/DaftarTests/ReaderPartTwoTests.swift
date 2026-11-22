@@ -40,6 +40,11 @@ import WebKit
         try write("Notes.md", "Text with a note[^1] and one more[^two].\n\nSee [[Plan]], [[Plan#Next]], [[Nowhere]] and [[Empty]].\n\n[^1]: The note.\n[^two]: The second, with [[Plan]].\n")
         try write("Work/Plan.md", "---\ntags: [a]\n---\n# Plan\n\n" + (1...20).map { "l\($0)" }.joined(separator: "\n\n") + "\n\n## Next\n\nThe next step.\n\n## Later\n\nNot yet.\n")
         try write("Empty.md", "---\ntags: [a]\n---\n")
+        // Two parents that fit the bar by themselves, and leave no room for the last heading.
+        let long = { (name: String) in "\(name) heading with a longer name" }
+        try write("Deep.md", "# \(long("First"))\n\n## \(long("Second"))\n\n### The place that is being read\n\n" + (1...40).map { "Deep \($0)." }.joined(separator: "\n\n") + "\n")
+        try write("One.md", "- [ ] one\n\n" + (1...30).map { "One \($0)." }.joined(separator: "\n\n") + "\n")
+        try write("Two.md", "- [ ] two\n\nTwo.\n")
         store = VaultStore(settings: AppSettings(url: root.appending(path: "config/config.toml")), openVault: false)
         store.openSynchronously(root)
     }
@@ -123,6 +128,22 @@ import WebKit
         #expect(try await until(web, "Math.abs(\(Self.heading("B")).getBoundingClientRect().top - 36) < 2"))
         #expect(try await run(web, "String(document.activeElement === document.body || document.activeElement === null)") == "true")
         #expect(try await until(web, "!\(Self.barOn)"))
+    }
+
+    @Test func aPathTooWideLeavesParentsOutAndKeepsTheLastHeading() async throws {
+        let (web, window, _) = try await page("Deep.md")
+        defer { window.orderOut(nil) }
+        try await scroll(web, Self.heading("The place that is being read"), top: -200)
+        #expect(try await until(web, Self.barOn))
+        // The last heading shows whole; parents are left out from the start, with `…` there.
+        let last = "document.querySelector('#section-bar .section-crumb.is-last')"
+        #expect(try await run(web, "\(last).textContent") == "The place that is being read")
+        #expect(try await run(web, "String(!\(last).hidden && \(last).scrollWidth <= \(last).clientWidth + 1 && \(last).clientWidth > 40)") == "true")
+        #expect(try await run(web, "String(document.querySelector('#section-bar .section-crumb').hidden)") == "true")
+        #expect(try await run(web, "String(document.querySelector('#section-bar .section-dots').hidden)") == "false")
+        #expect(try await run(web, Self.path) == "Second heading with a longer name › The place that is being read")
+        // Nothing of the path is outside the bar's line.
+        #expect(try await run(web, "String((() => { const line = document.querySelector('#section-bar .section-path'); return line.scrollWidth <= line.clientWidth + 1; })())") == "true")
     }
 
     @Test func aFoldedSectionAndTheSettingLeaveTheBarOut() async throws {

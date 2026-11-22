@@ -1085,14 +1085,19 @@ const sectionBar = {
   /** Leaves parents out from the start, with `…` there, until the path fits the bar. */
   fit(line) {
     const crumbs = [...line.querySelectorAll(".section-crumb")];
-    if (crumbs.length < 2 || line.scrollWidth <= line.clientWidth) return;
+    if (crumbs.length < 2) return;
+    // Measured with the last heading as wide as its text (at most 24 em):
+    // on the line it gives way first, and the parents would squeeze it out.
+    line.classList.add("is-measured");
+    const widths = crumbs.map((crumb) => crumb.getBoundingClientRect().width);
     const dots = line.querySelector(".section-dots");
     const mark = crumbs[0].nextElementSibling;
     const style = getComputedStyle(mark);
     const separator = mark.getBoundingClientRect().width + parseFloat(style.marginLeft) + parseFloat(style.marginRight);
     dots.hidden = false;
     const dotsWidth = dots.getBoundingClientRect().width - separator;
-    const from = leftOut(crumbs.map((crumb) => crumb.getBoundingClientRect().width), separator, dotsWidth, line.clientWidth);
+    line.classList.remove("is-measured");
+    const from = leftOut(widths, separator, dotsWidth, line.clientWidth);
     dots.hidden = from === 0;
     crumbs.slice(0, from).forEach((crumb) => {
       crumb.nextElementSibling.hidden = true;
