@@ -1613,6 +1613,8 @@ window.daftar = {
     closePreview();
     preview.on = note.linkPreview !== false;
     sectionBar.on = note.sectionBar !== false;
+    // A line or a heading that is gone to stops under where the bar is, not under the bar.
+    document.documentElement.classList.toggle("keeps-section-bar", sectionBar.on && !note.canvas && !note.image && !note.base);
     const root = document.documentElement.style;
     if (note.palette) document.documentElement.dataset.palette = note.palette;
     if (note.textSize) root.setProperty("--text-size", `${note.textSize}px`);

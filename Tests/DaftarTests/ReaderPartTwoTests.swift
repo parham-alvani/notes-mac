@@ -146,6 +146,23 @@ import WebKit
         #expect(try await run(web, "String((() => { const line = document.querySelector('#section-bar .section-path'); return line.scrollWidth <= line.clientWidth + 1; })())") == "true")
     }
 
+    @Test func aLineGoneToIsNotUnderTheBar() async throws {
+        let (web, window, _) = try await page("Sections.md")
+        defer { window.orderOut(nil) }
+        // The editor's line, or a link's: a paragraph deep under C. The bar shows there, and is not over the paragraph.
+        let block = "[...document.querySelectorAll('#note > p')].find((p) => p.textContent === 'C paragraph 5.')"
+        _ = try await run(web, "window.daftar.scrollToLine(Number(\(block).dataset.line)); 1")
+        #expect(try await until(web, Self.barOn))
+        #expect(try await run(web, "String(\(block).getBoundingClientRect().top >= document.getElementById('section-bar').getBoundingClientRect().height)") == "true")
+        #expect(try await run(web, "String(\(block).getBoundingClientRect().top < 60)") == "true")
+        // With no bar, the line is at the very top, as before.
+        store.settings.sectionBar = false
+        store.noteChanged("Sections.md")
+        #expect(try await until(web, "!document.documentElement.classList.contains('keeps-section-bar')"))
+        _ = try await run(web, "window.daftar.scrollToLine(Number(\(block).dataset.line)); 1")
+        #expect(try await until(web, "Math.abs(\(block).getBoundingClientRect().top) < 1"))
+    }
+
     @Test func aFoldedSectionAndTheSettingLeaveTheBarOut() async throws {
         let (web, window, _) = try await page("Sections.md")
         defer { window.orderOut(nil) }
