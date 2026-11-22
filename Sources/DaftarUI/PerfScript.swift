@@ -21,6 +21,7 @@ import WebKit
 /// state after ⌘T         the tabs, the tab in front (*), each one's line, who has the keys, the pages and the windows
 /// page after a change    how much text the page in front shows, and its end
 /// append Note.md words   words at the end of a file, as another app writes them -- never in a git repository
+/// hover Plan             the pointer rests on that word of the note in the editor, so a link's card shows
 /// quit
 /// ```
 ///
@@ -297,6 +298,17 @@ enum PerfScript {
                 }
             }
             return true
+        case "hover":
+            // The pointer on a word of the editor's text, as a mouse that moved there and stays.
+            func editor(_ view: NSView) -> NoteTextView? {
+                if let found = view as? NoteTextView, found.controller?.isPreview == false { return found }
+                return view.subviews.lazy.compactMap(editor).first
+            }
+            guard let view = front?.contentView.flatMap(editor) else { return false }
+            let range = (view.string as NSString).range(of: rest)
+            guard range.location != NSNotFound, let box = view.letterBox(NSRange(location: range.location, length: 1)) else { return false }
+            view.hoverLink(at: NSPoint(x: box.midX, y: box.midY))
+            return view.extras.linkHover != nil
         case "append":
             // Text at the end of a file, as another app writes it -- never in a git repository.
             let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)

@@ -353,6 +353,9 @@ extension NoteTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // A key closes a link's card, and no card opens under a still pointer while the person types.
+        extras.keySincePointer = true
+        if extras.linkHover != nil { closeLinkCard() }
         guard let vim, vimActive else {
             // ⌥↑ and ⌥↓ move the line, or the selected lines.
             let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])

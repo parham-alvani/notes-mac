@@ -72,7 +72,6 @@ extension EditorController {
         var total: CGFloat
     }
 
-    private var em: CGFloat { CGFloat(store.settings.textSize) }
 
     /// The room above and under a row's text: 0.35 em.
     static func rowRoom(_ em: CGFloat) -> CGFloat { ceil(em * 0.35) }
@@ -404,7 +403,7 @@ extension NoteTextView {
     /// `wide:` and its width, for a table too wide for the measure.
     static let tableRow = NSAttributedString.Key("DaftarTableRow")
 
-    private var em: CGFloat { CGFloat(controller?.store.settings.textSize ?? 16) }
+    private var em: CGFloat { controller?.em ?? 16 }
 
     /// Where the grid's rows start and end, across the view: the text's measure.
     private var gridSides: (left: CGFloat, right: CGFloat) {

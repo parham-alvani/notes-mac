@@ -320,7 +320,7 @@ extension EditorController {
         return out
     }
 
-    private var fontSize: CGFloat { CGFloat(store.settings.textSize) }
+    private var fontSize: CGFloat { em }
 
     var base: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
@@ -621,7 +621,8 @@ extension EditorController {
     /// type stay: they say what the line is.
     private func hideMarks(_ spans: [MarkdownHighlighter.Span], in storage: NSTextStorage, styled: NSRange) {
         let text = storage.string as NSString
-        let selection = view?.selectedRange()
+        // A card's body has no cursor: every mark is hidden.
+        let selection = isPreview ? NSRange(location: NSNotFound, length: 0) : view?.selectedRange()
         /// The elements on the cursor's lines, for `revealSelection`.
         var elements: [NSRange] = []
         /// Hides [marks] unless the selection is in [element]; with no view, they show.

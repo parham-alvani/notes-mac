@@ -82,6 +82,8 @@ final class NoteTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A click outside a link's card closes it.
+        closeLinkCard()
         // A click on a task's box ticks it, and moves no cursor.
         if boxClick(event) { return }
         if cursorClick(event) { return }
@@ -171,7 +173,7 @@ final class NoteTextView: NSTextView {
             guard let first = lineRect(at: range.location), let last = lineRect(at: max(range.location, NSMaxRange(range) - 1)) else { return nil }
             return NSRect(x: left, y: first.minY - 2, width: right - left, height: last.maxY - first.minY + 2 + under)
         }
-        let em = CGFloat(controller?.store.settings.textSize ?? 16)
+        let em = controller?.em ?? 16
         let text = storage.string as NSString
         /// The runs of [key], one per block: a line break left out of a run,
         /// as a line just added has it, does not split the block.
@@ -435,6 +437,11 @@ final class NoteTextView: NSTextView {
 
     /// The margins for the view's width now, and the settings now.
     func fitMargins() {
+        // A card's body has the card's own margins.
+        if controller?.isPreview == true {
+            if textContainerInset != NSSize(width: 9, height: 8) { textContainerInset = NSSize(width: 9, height: 8) }
+            return
+        }
         let settings = AppSettings.shared
         let side = Self.sideMargin(width: bounds.width, textSize: settings.textSize, textWidth: settings.textWidth)
         if abs(textContainerInset.width - side) > 1 {

@@ -20,6 +20,10 @@ final class EditorExtras {
     /// The slash bar while a typed `/` listens, and its list while it has rows (`EditorSlashBar.swift`).
     var slash: SlashBar?
     var slashList: SlashList?
+    /// The link the pointer rests on, and its card (`EditorLinkCard.swift`).
+    var linkHover: LinkHover?
+    /// A key was pressed since the pointer last moved: no card opens under a still pointer.
+    var keySincePointer = false
     /// Neovim's completion menu while it shows (`NeovimMenu.swift`).
     var menu: NeovimMenu?
     /// Neovim mode's cursor, block or bar, that slides (`NeovimOverlays.swift`).

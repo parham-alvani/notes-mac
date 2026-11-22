@@ -122,7 +122,7 @@ extension NoteTextView {
     /// Where a drawn part is, and which (`DrawnPart.value`).
     static let part = NSAttributedString.Key("DaftarPart")
 
-    private var em: CGFloat { CGFloat(controller?.store.settings.textSize ?? 16) }
+    private var em: CGFloat { controller?.em ?? 16 }
 
     /// The baseline of the line of text at [offset], in the view.
     func baseline(at offset: Int) -> CGFloat? {
@@ -317,12 +317,16 @@ extension NoteTextView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        // Nothing in a card's body is live.
+        guard controller?.isPreview != true else { return }
         hover(at: convert(event.locationInWindow, from: nil))
+        hoverLink(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         hover(at: nil)
+        hoverLink(at: nil)
     }
 
     /// A click on a task's box leaves the keys where they are.

@@ -333,6 +333,174 @@ private let barsPicture = ProcessInfo.processInfo.environment["DAFTAR_BARS_PICTU
         #expect(try colour(at: NSPoint(x: point.x, y: shown.midY)).enumerated().allSatisfy { abs($0.element - bright[$0.offset]) < 0.02 })
     }
 
+    // MARK: The link's card
+
+    static let linkNote = "Top words.\n\nSee [[Plan]] and [[Plan#Next|what is next]], then ![[Plan]] or [[Shot.png]].\n\nA [[Nowhere]] link, an [[Empty]] one and [[#Here]].\n\n`[[Plan]]` in code.\n\n## Here\n\nUnder here.\n"
+
+    /// A point on the letters of [word], in the view.
+    func point(on word: String, plus: Int = 1) throws -> NSPoint {
+        let box = try #require(view.letterBox(NSRange(location: at(word) + plus, length: 1)))
+        return NSPoint(x: box.midX, y: box.midY)
+    }
+
+    /// The pointer rests on [word] long enough: the card that shows, if one does.
+    func rest(on word: String, plus: Int = 1) throws -> LinkCardView? {
+        view.hoverLink(at: try point(on: word, plus: plus))
+        view.showLinkCard()
+        return view.extras.linkHover?.view
+    }
+
+    @Test func theLinkUnderThePointerIsFoundDrawnOrRaw() throws {
+        try open(Self.linkNote)
+        // Drawn, with its marks hidden: the pointer is on the name.
+        let plan = try #require(view.link(at: try point(on: "Plan]]")))
+        #expect(text.substring(with: plan.range) == "[[Plan]]" && plan.link.target == "Plan")
+        let next = try #require(view.link(at: try point(on: "what is next")))
+        #expect(next.link.target == "Plan" && next.link.anchor == "Next")
+        // Raw, with the caret in it.
+        caret(in: "Plan]]")
+        #expect(view.link(at: try point(on: "[[Plan]]", plus: 0))?.link.target == "Plan")
+        // An embed, a link in code and plain words have none.
+        #expect(view.link(at: try point(on: "![[Plan]]", plus: 4)) == nil)
+        #expect(view.link(at: try point(on: "`[[Plan]]`", plus: 4)) == nil)
+        #expect(view.link(at: try point(on: "Top words")) == nil)
+        #expect(view.link(at: NSPoint(x: 5, y: 5)) == nil)
+    }
+
+    @Test func theCardShowsTheNotesTitleAndItsFirstLines() throws {
+        try open(Self.linkNote)
+        let card = try #require(try rest(on: "Plan]]"))
+        #expect(card.card.title == "Plan" && card.card.heading == nil && card.card.folder == "Notes › Work" && card.card.path == "Notes/Work/Plan.md")
+        // The first lines, without the front matter and the heading that is the title.
+        let body = try #require(card.bodyText)
+        #expect(body.string.hasPrefix("The **plan** for the week, with a [[Other]] note.\n\n- [ ] Call the bank"))
+        // Drawn with the editor's styles at 0.9 em, the marks hidden: nothing shows raw, also on the first line.
+        let stars = (body.string as NSString).range(of: "**")
+        #expect((body.attribute(.foregroundColor, at: stars.location, effectiveRange: nil) as? NSColor) == .clear)
+        let word = (body.string as NSString).range(of: "week")
+        #expect(abs(((body.attribute(.font, at: word.location, effectiveRange: nil) as? NSFont)?.pointSize ?? 0) - CGFloat(store.settings.textSize) * 0.9) < 0.01)
+        let box = (body.string as NSString).range(of: "- [ ]")
+        #expect((body.attribute(NoteTextView.part, at: box.location, effectiveRange: nil) as? String).flatMap(DrawnPart.init) == .box(" "))
+        // 360 wide, at most 240 high, under the link by 6 px with its start edge on the link's, inside the view by 8 px.
+        #expect(card.frame.width == 360 && card.frame.height <= 240)
+        let link = try #require(view.letterBox(text.range(of: "[[Plan]]")))
+        #expect(abs(card.frame.minY - (link.maxY + 6)) < 0.5 && abs(card.frame.minX - link.minX) < 0.5)
+        #expect(card.frame.maxX <= view.visibleRect.maxX - 8)
+        // The card never has the keys, and the text is as it was.
+        #expect(!card.acceptsFirstResponder && view.string == Self.linkNote)
+        // A link to a heading: the section without its heading, and the heading in the head.
+        let section = try #require(try rest(on: "what is next"))
+        #expect(section.card.heading == "Next" && section.bodyText?.string == "What comes ==next==.")
+        // One card at a time: the first went when the second came.
+        #expect(card.superview == nil && view.subviews.filter { $0 is LinkCardView }.count == 1)
+        // The pointer on the card is not on the links under it.
+        view.hoverLink(at: try point(on: "#Here"))
+        #expect(view.extras.linkHover?.view === section)
+        view.closeLinkCard()
+        // A link into this note shows it as it is typed.
+        let here = try #require(try rest(on: "#Here"))
+        #expect(here.card.title == "Bars" && here.card.heading == "Here" && here.bodyText?.string == "Under here.")
+        // No such note, and an empty note.
+        view.closeLinkCard()
+        let none = try #require(try rest(on: "Nowhere"))
+        #expect(none.card.title == "Nowhere" && none.card.body == .missing && none.bodyWords == "No note yet." && none.bodyText?.length == 0)
+        view.closeLinkCard()
+        let empty = try #require(try rest(on: "Empty"))
+        #expect(empty.card.title == "Empty" && empty.bodyWords == "The note is empty.")
+        // Each body's editor is let go by the store.
+        view.closeLinkCard()
+        #expect(view.subviews.filter { $0 is LinkCardView }.isEmpty)
+        #expect(store.flushers.count == 1 && store.followers.count == 1)
+    }
+
+    @Test func whereNoCardShows() throws {
+        try open(Self.linkNote)
+        // An embed and a file that is no note.
+        #expect(try rest(on: "![[Plan]]", plus: 4) == nil)
+        #expect(try rest(on: "Shot.png") == nil)
+        #expect(view.extras.linkHover == nil)
+        // A key pressed since the pointer last moved: typing under a still pointer opens nothing.
+        view.hoverLink(at: try point(on: "Plan]]"))
+        #expect(view.extras.linkHover != nil)
+        end()
+        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+        view.keyDown(with: key)
+        #expect(view.extras.linkHover == nil && view.extras.keySincePointer)
+        view.showLinkCard()
+        #expect(view.extras.linkHover == nil)
+        // The pointer moves again: a card may open.
+        #expect(try rest(on: "Plan]]") != nil)
+        // A key closes a card that shows, at once.
+        view.keyDown(with: key)
+        #expect(view.extras.linkHover == nil && !view.subviews.contains { $0 is LinkCardView })
+        // With the setting off.
+        store.settings.linkPreview = false
+        #expect(try rest(on: "Plan]]") == nil)
+        store.settings.linkPreview = true
+    }
+
+    @Test func theCardClosesAtOnceAndItsHeadOpensTheNote() throws {
+        try open(Self.linkNote)
+        var opened: [String] = []
+        controller.onOpen = { opened.append($0) }
+        // A change of the note.
+        #expect(try rest(on: "Plan]]") != nil)
+        view.insertText("!", replacementRange: NSRange(location: 0, length: 0))
+        #expect(view.extras.linkHover == nil)
+        // A scroll of the note.
+        #expect(try rest(on: "Plan]]") != nil)
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        clip.setBoundsOrigin(NSPoint(x: 0, y: 4))
+        #expect(view.extras.linkHover == nil)
+        clip.setBoundsOrigin(.zero)
+        // The window loses the focus.
+        #expect(try rest(on: "Plan]]") != nil)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(view.extras.linkHover == nil)
+        // Another note.
+        #expect(try rest(on: "Plan]]") != nil)
+        controller.load("Notes/Other.md")
+        #expect(view.extras.linkHover == nil && !view.subviews.contains { $0 is LinkCardView })
+        try open(Self.linkNote)
+        // The head is the card's top; a click there opens the note, a click in the body does nothing.
+        let card = try #require(try rest(on: "Plan]]"))
+        #expect(card.isHead(NSPoint(x: 20, y: 10)) && !card.isHead(NSPoint(x: 20, y: 60)))
+        #expect(card.hitTest(NSPoint(x: card.frame.midX, y: card.frame.maxY - 5)) === card)
+        view.openLinkCard()
+        #expect(opened == ["Notes/Work/Plan.md"] && view.extras.linkHover == nil)
+        // A link to no note opens nothing.
+        #expect(try rest(on: "Nowhere") != nil)
+        view.openLinkCard()
+        #expect(opened.count == 1)
+        view.closeLinkCard()
+    }
+
+    @Test func theCardWaitsForThePointerToRestAndGoesAfterItLeft() async throws {
+        try open(Self.linkNote)
+        view.hoverLink(at: try point(on: "Plan]]"))
+        #expect(view.extras.linkHover != nil && view.extras.linkHover?.view == nil)
+        // Not yet at 150 ms; there after 350.
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(view.extras.linkHover?.view == nil)
+        try await Task.sleep(for: .milliseconds(350))
+        let card = try #require(view.extras.linkHover?.view)
+        // The pointer on the card keeps it; off both, it goes 250 ms later.
+        view.hoverLink(at: try point(on: "Top words"))
+        view.hoverLink(at: NSPoint(x: card.frame.midX, y: card.frame.midY))
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(view.extras.linkHover?.view === card)
+        view.hoverLink(at: nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(view.extras.linkHover?.view === card)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(view.extras.linkHover == nil && card.superview == nil)
+        // The pointer that goes off the link before the rest is over shows nothing.
+        view.hoverLink(at: try point(on: "Plan]]"))
+        view.hoverLink(at: try point(on: "Top words"))
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(view.extras.linkHover == nil)
+    }
+
     // MARK: Pictures
 
     /// The editor with the slash bar, focus mode and a link's card, as pictures, to look at.
@@ -353,6 +521,15 @@ private let barsPicture = ProcessInfo.processInfo.environment["DAFTAR_BARS_PICTU
             type("ca")
             try snapshot("slash-query-\(name)")
             view.closeSlashBar()
+            try open(Self.linkNote)
+            _ = try rest(on: "Plan]]")
+            try snapshot("card-\(name)")
+            _ = try rest(on: "what is next")
+            try snapshot("card-heading-\(name)")
+            view.closeLinkCard()
+            _ = try rest(on: "Nowhere")
+            try snapshot("card-missing-\(name)")
+            view.closeLinkCard()
         }
     }
 }

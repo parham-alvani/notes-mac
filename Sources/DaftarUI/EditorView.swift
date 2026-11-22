@@ -74,6 +74,8 @@ struct EditorView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ container: EditorContainer, coordinator: EditorController) {
+        coordinator.view?.closeSlashBar()
+        coordinator.view?.closeLinkCard()
         coordinator.checkHeadings()
         let left = coordinator.leaving
         coordinator.saveNow()
@@ -171,6 +173,13 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var typedCaret: (generation: Int, offset: Int)?
     /// How deep the styling is in the rows of a table whose look changed.
     var tableDepth = 0
+    /// This editor draws the first lines of a note in a link's card: no
+    /// cursor shows a mark, and nothing in it is live (`EditorLinkCard.swift`).
+    var isPreview = false
+    /// The text size as a part of the setting's: a card's body is at 0.9.
+    var textScale: CGFloat = 1
+    /// 1 em: the text size this editor draws at.
+    var em: CGFloat { CGFloat(store.settings.textSize) * textScale }
     /// The block states of the lines styled last (fence, comment, math).
     var blockStates = MarkdownHighlighter.BlockStates()
     var images: [String: NSImage] = [:]
@@ -286,6 +295,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         guard let view else { return }
         // What was over the note before goes with it.
         view.closeSlashBar()
+        view.closeLinkCard()
         if view.extras.focused != nil { view.focus(nil) }
         view.textStorage?.delegate = self
         view.delegate = self
@@ -736,6 +746,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     }
 
     func textDidChange(_ notification: Notification) {
+        if view?.extras.linkHover != nil { view?.closeLinkCard() }
         updateCounts()
         saveTask?.cancel()
         saveTask = Task { [weak self] in
