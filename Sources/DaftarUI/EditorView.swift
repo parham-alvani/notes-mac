@@ -236,6 +236,20 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         store.unsaved[ObjectIdentifier(self)] = { [weak self] in self?.hasUnsaved ?? false }
         store.followers[ObjectIdentifier(self)] = { [weak self] in self?.follow($0) }
         store.checks.editors[ObjectIdentifier(self)] = { [weak self] in self?.leaving }
+        NotificationCenter.default.addObserver(self, selector: #selector(dayChanged(_:)), name: .NSCalendarDayChanged, object: nil)
+    }
+
+    /// A new day: a due date may be late now. The note is styled again, the
+    /// lines on screen first; nothing looks at the day on a key.
+    @objc nonisolated private func dayChanged(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            guard let self, let view = self.view, view.textStorage != nil else { return }
+            if self.session == nil {
+                self.restyleProgressively(around: view.viewportOffsets()?.location ?? 0)
+            } else {
+                self.restyle(all: true)
+            }
+        }
     }
 
     /// Everything typed is on disk when this returns.

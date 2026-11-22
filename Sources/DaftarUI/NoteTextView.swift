@@ -50,6 +50,8 @@ final class NoteTextView: NSTextView {
     /// Where a closing bracket was put that the person did not type, so
     /// typing it steps over it (`EditorKeys.swift`).
     var autoClosed: Int?
+    /// The task box under the pointer, by where its marks start (`EditorParts.swift`).
+    var hoveredBox: Int?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -74,6 +76,8 @@ final class NoteTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A click on a task's box ticks it, and moves no cursor.
+        if boxClick(event) { return }
         if cursorClick(event) { return }
         super.mouseDown(with: event)
         if vimActive { vim?.moveCursor(to: selectedRange().location) }
@@ -152,10 +156,12 @@ final class NoteTextView: NSTextView {
         let left = textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0) - 2
         let right = textContainerOrigin.x + (textContainer?.size.width ?? bounds.width) - (textContainer?.lineFragmentPadding ?? 0) + 2
         /// The rect of a run of whole lines, from the first's top to the last's bottom.
-        func box(_ range: NSRange) -> NSRect? {
+        /// [under] is the room under the last line: a line has its own above its letters.
+        func box(_ range: NSRange, under: CGFloat = 2) -> NSRect? {
             guard let first = lineRect(at: range.location), let last = lineRect(at: max(range.location, NSMaxRange(range) - 1)) else { return nil }
-            return NSRect(x: left, y: first.minY - 2, width: right - left, height: last.maxY - first.minY + 4)
+            return NSRect(x: left, y: first.minY - 2, width: right - left, height: last.maxY - first.minY + 2 + under)
         }
+        let em = CGFloat(controller?.store.settings.textSize ?? 16)
         let text = storage.string as NSString
         /// The runs of [key], one per block: a line break left out of a run,
         /// as a line just added has it, does not split the block.
@@ -164,9 +170,10 @@ final class NoteTextView: NSTextView {
             storage.enumerateAttribute(key, in: lines, options: []) { value, range, _ in
                 guard let value else { return }
                 let name = value as? String ?? "\(value)"
+                // An empty line between two blocks is not such a break: the run before it ends with its own.
                 if let last = out.last, last.0 == name, NSMaxRange(last.1) <= range.location,
                     text.substring(with: NSRange(location: NSMaxRange(last.1), length: range.location - NSMaxRange(last.1))).allSatisfy({ $0 == "\n" }),
-                    range.location - NSMaxRange(last.1) <= 1
+                    range.location == NSMaxRange(last.1) || (range.location - NSMaxRange(last.1) == 1 && text.character(at: NSMaxRange(last.1) - 1) != 0x0A)
                 {
                     out[out.count - 1].1 = NSUnionRange(last.1, range)
                 } else {
@@ -176,9 +183,10 @@ final class NoteTextView: NSTextView {
             return out
         }
         for (name, range) in blocks(Self.calloutPanel) {
-            guard let panel = box(range), panel.intersects(rect) else { continue }
+            // 0.6 em of room under the last line, as a line has above its letters.
+            guard let panel = box(range, under: em * 0.6), panel.intersects(rect) else { continue }
             // A tint and a hairline in the kind's colour, and no bar, as the reader has it.
-            let path = NSBezierPath(roundedRect: panel.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+            let path = NSBezierPath(roundedRect: panel.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
             NSPalette.named(name, alpha: 0.1).setFill()
             path.fill()
             NSPalette.named(name, alpha: 0.26).setStroke()
@@ -188,7 +196,7 @@ final class NoteTextView: NSTextView {
         for (_, range) in blocks(Self.codeBlock) {
             guard let panel = box(range), panel.intersects(rect) else { continue }
             NSPalette.panel.setFill()
-            NSBezierPath(roundedRect: panel, xRadius: 10, yRadius: 10).fill()
+            NSBezierPath(roundedRect: panel, xRadius: 12, yRadius: 12).fill()
         }
         for (name, range) in blocks(Self.quoteBar) {
             // A quote has a bar; a callout has its panel.
@@ -206,6 +214,7 @@ final class NoteTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawCodePanels(in: rect)
+        drawParts(in: rect)
         drawProblemMarks(in: rect)
         guard selectedRange().length == 0, let line = cursorLineRect() else { return }
         // Where the tint is, as drawn: the next move clears this rect, even

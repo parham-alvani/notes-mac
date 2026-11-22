@@ -1066,6 +1066,23 @@ final class NeovimSession {
         return true
     }
 
+    /// A click on a task's box: line [row] (from 0), when it still says
+    /// [old], becomes [lines]. The change is Neovim's, never the view's: one
+    /// `nvim_buf_set_lines`, so one step of Neovim's undo, and the cursor
+    /// stays on the text it was on. The view takes it as any edit of
+    /// Neovim's, and Neovim saves as after any change.
+    func change(line row: Int, from old: String, to lines: [String]) {
+        guard case .running = state else { return }
+        let lua = """
+            local buffer, row, old, new = ...
+            if vim.api.nvim_buf_get_lines(buffer, row, row + 1, false)[1] ~= old then return false end
+            vim.api.nvim_buf_set_lines(buffer, row, row + 1, false, new)
+            return true
+            """
+        let arguments: [MessagePackValue] = [.int(Int64(buffer)), .int(Int64(row)), .string(old), .array(lines.map { .string($0) })]
+        Task { _ = try? await client.request("nvim_exec_lua", [.string(lua), .array(arguments)]) }
+    }
+
     /// Where the cursor goes once Neovim runs: the line the reader was on.
     private var startOffset: Int?
 

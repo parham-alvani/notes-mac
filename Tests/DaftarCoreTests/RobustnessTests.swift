@@ -79,6 +79,39 @@ import Testing
         }
     }
 
+    /// What the editor draws in place of text: a box and its chips are
+    /// inside their line, the chips in order and apart, and a panel's lines
+    /// are lines of the note.
+    @Test func theDrawnPartsStayInsideTheirText() {
+        var random = Seeded(state: 21)
+        let today = Day(year: 2026, month: 11, day: 22)
+        for _ in 0..<3000 {
+            let line = (["- [ ] ", "- [x] ", "  * [/] ", "> - [ ] ", "1. [-] ", ""].randomElement(using: &random)! + Self.text(&random, pieces: 12))
+                .replacingOccurrences(of: "\n", with: " ")
+            let length = (line as NSString).length
+            if let box = TaskBox.find(in: line) {
+                #expect(box.cover.location >= 0 && NSMaxRange(box.cover) < box.text && box.text <= length, "\(line.debugDescription)")
+            }
+            let chips = DateChip.chips(in: line, today: today)
+            #expect(chips.allSatisfy { $0.range.length > 0 && $0.range.location >= 0 && NSMaxRange($0.range) <= length }, "\(line.debugDescription)")
+            #expect(zip(chips, chips.dropFirst()).allSatisfy { NSMaxRange($0.range) <= $1.range.location }, "\(line.debugDescription)")
+            if let lines = TaskBox.clicked(line, today: today.description) {
+                #expect(!lines.isEmpty && lines == TaskLine.toggled(line, today: today.description))
+                #expect(TaskBox.moved(length, line: NSRange(location: 0, length: length), lines: lines) <= lines.reduce(lines.count - 1) { $0 + ($1 as NSString).length })
+            }
+            _ = Callout.head(of: line)
+            _ = CodeBlock.word(ofFence: line)
+        }
+        for text in Self.samples(400, seed: 22) {
+            let count = text.components(separatedBy: "\n").count
+            let callouts = Callout.panels(in: text).map(\.lines), blocks = CodeBlock.panels(in: text).map(\.lines)
+            for panels in [callouts, blocks] {
+                #expect(panels.allSatisfy { !$0.isEmpty && $0.lowerBound >= 0 && $0.upperBound <= count })
+                #expect(zip(panels, panels.dropFirst()).allSatisfy { $0.upperBound <= $1.lowerBound })
+            }
+        }
+    }
+
     @Test func taskLinesSurviveAnyText() {
         var random = Seeded(state: 3)
         for _ in 0..<3000 {

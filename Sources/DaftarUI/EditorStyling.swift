@@ -58,7 +58,11 @@ extension EditorController {
                 if last.location != NSNotFound { style(textStorage, range: last) }
                 return
             }
-            if rest { range = NSRange(location: lines.location, length: text.length - lines.location) }
+            if rest {
+                range = NSRange(location: lines.location, length: text.length - lines.location)
+            } else {
+                range = NSUnionRange(range, quoteRun(under: lines, in: text))
+            }
             // A long paste, an undo of a long cut, or a fence typed above a
             // long note: the screens at the edit now, the rest between frames.
             // Styling it all took 400 ms for a paste of 200,000 letters, and
@@ -100,6 +104,30 @@ extension EditorController {
         }
         return NSRange(location: from, length: text.length - from)
     }
+
+    /// A callout's lines take their kind from its first line: an edit of the
+    /// first line of a `>` run, or of the line above one, styles the run
+    /// again, so a kind typed or changed colours the lines under it. An edit
+    /// inside a run styles its own lines only.
+    func quoteRun(under lines: NSRange, in text: NSString) -> NSRange {
+        let empty = NSRange(location: NSMaxRange(lines), length: 0)
+        func quoted(_ start: Int) -> Bool {
+            var at = start
+            while at < text.length, text.character(at: at) == 0x20 || text.character(at: at) == 0x09 { at += 1 }
+            return at < text.length && text.character(at: at) == 0x3E
+        }
+        guard NSMaxRange(lines) < text.length, quoted(NSMaxRange(lines)) else { return empty }
+        if lines.location > 0, quoted(text.lineRange(for: NSRange(location: lines.location - 1, length: 0)).location) { return empty }
+        var end = NSMaxRange(lines), count = 0
+        while end < text.length, count < Self.quoteLines, quoted(end) {
+            end = NSMaxRange(text.lineRange(for: NSRange(location: end, length: 0)))
+            count += 1
+        }
+        return NSRange(location: NSMaxRange(lines), length: end - NSMaxRange(lines))
+    }
+
+    /// The most lines of a quote an edit of its first line styles again.
+    static let quoteLines = 400
 
     func restyle(all: Bool) {
         guard let storage = view?.textStorage else { return }
@@ -370,6 +398,13 @@ extension EditorController {
         if let kind = head.firstMatch(of: /^\s*>\s*\[!([A-Za-z-]+)\]/).map({ String($0.1) }) {
             let color = NSPalette.calloutColor(kind)
             storage.addAttributes([NoteTextView.quoteBar: color, NoteTextView.calloutPanel: color], range: line)
+            // An em of room at each side of the panel.
+            let paragraph = ((storage.attribute(.paragraphStyle, at: line.location, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            paragraph.firstLineHeadIndent = fontSize
+            paragraph.headIndent = fontSize
+            paragraph.tailIndent = -fontSize
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: line)
         } else {
             storage.addAttribute(NoteTextView.quoteBar, value: "quote", range: line)
         }
@@ -380,9 +415,10 @@ extension EditorController {
     private var codeParagraph: NSParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.3
-        paragraph.firstLineHeadIndent = 12
-        paragraph.headIndent = 12
-        paragraph.tailIndent = -12
+        // 1.1 em of room where the lines start, 0.6 em where they end.
+        paragraph.firstLineHeadIndent = fontSize * 1.1
+        paragraph.headIndent = fontSize * 1.1
+        paragraph.tailIndent = -fontSize * 0.6
         paragraph.baseWritingDirection = .leftToRight
         return paragraph
     }
@@ -391,6 +427,8 @@ extension EditorController {
         guard range.length > 0 || storage.length == 0 else { return }
         storage.setAttributes(base, range: range)
         let mono = Fonts.code(size: fontSize * 0.86)
+        // A code block's letters, as the reader has them.
+        let block = Fonts.code(size: fontSize * 0.85)
         let text = storage.string as NSString
         // A highlight goes on top of bold and italic, so its text colour wins
         // and they keep their weight and slant; the marks go on last and dim.
@@ -402,7 +440,7 @@ extension EditorController {
             }
         }
         let first = blockStates.state(before: text.lineRange(for: range).location, in: text)
-        let spans = MarkdownHighlighter.spans(in: text, range: range, startingIn: first).enumerated()
+        let spans = MarkdownHighlighter.spans(in: text, range: range, startingIn: first, today: Day.today().description).enumerated()
             .sorted { (rank($0.element.kind), $0.offset) < (rank($1.element.kind), $1.offset) }.map(\.element)
         let highlights = spans.filter { $0.kind == .highlight }.map(\.range)
         // The language of the code block being styled, from its fence.
@@ -436,7 +474,7 @@ extension EditorController {
             case .code:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.raw, .backgroundColor: NSPalette.panel], range: r)
             case .codeBlock:
-                storage.addAttribute(.font, value: mono, range: r)
+                storage.addAttribute(.font, value: block, range: r)
                 // The whole lines with their breaks: a block is one run, one panel.
                 storage.addAttributes([.paragraphStyle: codeParagraph, NoteTextView.codeBlock: true], range: text.lineRange(for: r))
                 colourCode(r, in: storage, text: text, language: &language)
@@ -446,8 +484,18 @@ extension EditorController {
                     .split(separator: " ").first.map(String.init) ?? ""
                 language = name
                 let color = NSPalette.named(NSPalette.languageColor(name))
-                storage.addAttributes([.font: mono, .foregroundColor: color], range: r)
+                storage.addAttributes([.font: block, .foregroundColor: color], range: r)
                 storage.addAttributes([.paragraphStyle: codeParagraph, NoteTextView.codeBlock: true], range: text.lineRange(for: r))
+            case .fenceEnd, .taskBox:
+                // Live preview draws them (`drawParts`).
+                break
+            case .dateChip, .taskReason:
+                // The strike of a closed task never covers a date or the reason, nor the space before one.
+                let space = r.location > 0 && text.character(at: r.location - 1) == 0x20 ? 1 : 0
+                let whole = NSRange(location: r.location - space, length: r.length + space)
+                storage.removeAttribute(.strikethroughStyle, range: whole)
+                storage.removeAttribute(.strikethroughColor, range: whole)
+                if span.kind == .taskReason { storage.addAttribute(.foregroundColor, value: NSPalette.muted, range: r) }
             case .frontMatter:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.muted], range: r)
             case .link:
@@ -472,7 +520,10 @@ extension EditorController {
             case .taskOpen, .taskOther:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.accent], range: r)
             case .taskDone, .taskCancelled:
-                storage.addAttributes([.foregroundColor: NSPalette.faint, .strikethroughStyle: NSUnderlineStyle.single.rawValue], range: r)
+                // The done colour, struck through with a line in the faint colour, as the reader has it.
+                storage.addAttributes([
+                    .foregroundColor: NSPalette.done, .strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: NSPalette.faint,
+                ], range: r)
             case .listMarker:
                 // One marker colour at every level, as in the reader.
                 storage.addAttributes([.foregroundColor: NSPalette.accent, .font: Fonts.text(size: fontSize, weight: .semibold)], range: r)
@@ -560,6 +611,18 @@ extension EditorController {
             guard let selection, !isOpen(element, for: selection) else { return }
             for mark in marks { storage.addAttributes(Self.hidden, range: mark) }
         }
+        /// Whether [element] is drawn, not shown raw: always away from the
+        /// cursor's lines; on them, unless the selection is in it.
+        func drawn(_ element: NSRange, onCursorLine: Bool) -> Bool {
+            guard onCursorLine else { return true }
+            elements.append(element)
+            guard let selection else { return false }
+            return !isOpen(element, for: selection)
+        }
+        /// The line of the closed task met last: its chips are drawn at 75%.
+        var closedTask = NSRange(location: NSNotFound, length: 0)
+        /// Where the chip drawn last ends.
+        var lastChip = NSNotFound
         defer {
             if NSIntersectionRange(styled, revealed).length > 0 || NSLocationInRange(revealed.location, styled) || styled.location == revealed.location {
                 // The cursor's lines as they are in this text: a key made the line longer than `revealed` says.
@@ -589,8 +652,51 @@ extension EditorController {
                     continue
                 }
                 let mark = text.substring(with: span.range)
-                if mark.hasPrefix(">") || mark.hasPrefix("[!") { continue }
+                if mark.hasPrefix(">") || mark.hasPrefix("[!") {
+                    // A quote's `>` stays: it says what the line is. A callout has its panel and its icon.
+                    guard storage.attribute(NoteTextView.calloutPanel, at: span.range.location, effectiveRange: nil) != nil else { continue }
+                    hideCalloutMark(span.range, mark: mark, line: line, in: storage, text: text)
+                    continue
+                }
                 storage.addAttributes(Self.hidden, range: span.range)
+            case .taskDone, .taskCancelled:
+                closedTask = line
+            case .taskBox:
+                // The box in place of `- [ ]`: the marks take its width and no more.
+                guard span.range.length > 0, drawn(span.range, onCursorLine: onCursorLine) else { continue }
+                let status = text.substring(with: span.range).dropLast().last ?? " "
+                storage.addAttributes(Self.hidden, range: span.range)
+                storage.addAttribute(.kern, value: fontSize * 1.1, range: NSRange(location: NSMaxRange(span.range) - 1, length: 1))
+                storage.addAttribute(NoteTextView.part, value: DrawnPart.box(status).value, range: span.range)
+            case .dateChip(let kind):
+                let closed = closedTask.location != NSNotFound && NSLocationInRange(span.range.location, closedTask)
+                guard span.range.length > 0, drawn(span.range, onCursorLine: onCursorLine) else {
+                    // Raw: the full size and the line's own colour, with no pill.
+                    storage.addAttributes([.font: Fonts.text(size: fontSize), .foregroundColor: closed ? NSPalette.done : NSPalette.text], range: span.range)
+                    continue
+                }
+                storage.addAttributes([
+                    .font: Fonts.text(size: fontSize * 0.92, weight: kind == .late ? .semibold : .regular),
+                    .foregroundColor: NSPalette.part(kind.colour, alpha: closed ? 0.75 : 1),
+                    NoteTextView.part: DrawnPart.chip(colour: kind.colour, closed: closed).value,
+                    // A date reads from the left in a line read from the right, too.
+                    .writingDirection: [NSWritingDirection.leftToRight.rawValue | NSWritingDirectionFormatType.embedding.rawValue],
+                ], range: span.range)
+                // Half an em of room at each side of the pill, made after the spaces around it: the pill is
+                // drawn that far past its letters. Between two chips, 0.3 em more than their two rooms.
+                if span.range.location > 0, text.character(at: span.range.location - 1) == 0x20 {
+                    let between = lastChip == span.range.location - 1
+                    storage.addAttribute(.kern, value: fontSize * (between ? 1.05 : 0.5), range: NSRange(location: span.range.location - 1, length: 1))
+                }
+                if NSMaxRange(span.range) < text.length, text.character(at: NSMaxRange(span.range)) == 0x20 {
+                    storage.addAttribute(.kern, value: fontSize * 0.5, range: NSRange(location: NSMaxRange(span.range), length: 1))
+                }
+                lastChip = NSMaxRange(span.range)
+            case .fence:
+                // A fence's marks show on the cursor's line only, as a heading's `#` does.
+                guard !onCursorLine else { continue }
+                let closing = index + 1 < spans.count && spans[index + 1].kind == .fenceEnd && spans[index + 1].range == span.range
+                hideFence(span.range, closing: closing, line: line, in: storage, text: text)
             case .highlight:
                 // `==🔴 text==`: the colour's emoji goes too, as in the reader.
                 let inner = NSRange(location: span.range.location + 2, length: max(0, span.range.length - 4))
@@ -612,6 +718,42 @@ extension EditorController {
             default:
                 continue
             }
+        }
+    }
+
+    /// A callout's `>` or its `[!kind]`, away from the cursor's line: at no
+    /// width, with the kind's icon in the place of `[!kind]`.
+    private func hideCalloutMark(_ range: NSRange, mark: String, line: NSRange, in storage: NSTextStorage, text: NSString) {
+        var contents = 0
+        text.getLineStart(nil, end: nil, contentsEnd: &contents, for: NSRange(location: line.location, length: 0))
+        let head = mark.hasPrefix("[!") ? Callout.head(of: text.substring(with: NSRange(location: line.location, length: contents - line.location))) : nil
+        // A line of marks alone keeps their room, unseen: letters of no size would leave it no height.
+        let alone = NSMaxRange(range) >= contents || head?.titled == false
+        if alone {
+            storage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
+        } else {
+            storage.addAttributes(Self.hidden, range: range)
+        }
+        guard let head, range.length > 0 else { return }
+        // The icon, 1.1 em, and 0.4 em before the title with the space that is written there.
+        if !alone { storage.addAttribute(.kern, value: fontSize * 1.25, range: NSRange(location: NSMaxRange(range) - 1, length: 1)) }
+        storage.addAttribute(NoteTextView.part, value: DrawnPart.icon(kind: head.kind, name: head.titled ? "" : head.title).value, range: range)
+    }
+
+    /// A fence's line away from the cursor: its marks at no width. The
+    /// opening one keeps a code line's height for the language word, which
+    /// is drawn in small letters; the closing one is 0.4 em high.
+    private func hideFence(_ range: NSRange, closing: Bool, line: NSRange, in storage: NSTextStorage, text: NSString) {
+        storage.addAttributes(Self.hidden, range: range)
+        let paragraph = ((storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?
+            .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        let font = Fonts.code(size: fontSize * 0.85)
+        let height = closing ? fontSize * 0.4 : ceil((font.ascender - font.descender + font.leading) * 1.3)
+        paragraph.minimumLineHeight = height
+        paragraph.maximumLineHeight = height
+        storage.addAttribute(.paragraphStyle, value: paragraph, range: line)
+        if !closing, let word = CodeBlock.word(ofFence: text.substring(with: range)) {
+            storage.addAttribute(NoteTextView.part, value: DrawnPart.word(word).value, range: range)
         }
     }
 
