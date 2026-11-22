@@ -22,8 +22,8 @@ final class NotePane: Identifiable {
         didSet {
             if editing { readerShown = false }
             if oldValue, !editing {
-                // A page that never answers does not keep the editor up.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                // A page that never answers does not keep the editor up: the change is made at once then.
+                DispatchQueue.main.asyncAfter(deadline: .now() + SoftChange.patience) { [weak self] in
                     if self?.editing == false { self?.readerShown = true }
                 }
             }
@@ -38,6 +38,14 @@ final class NotePane: Identifiable {
     /// has, the editor stays over it, so the page is never seen at the
     /// place it was before the editor opened.
     var readerShown = true
+
+    /// The reader has drawn the note after the editor was left: the editor
+    /// goes, and its picture fades out over the page (`SoftChange`).
+    func readerCame() {
+        guard !readerShown else { return }
+        if !editing, let readerView, let editor = SoftChange.editor(over: readerView) { SoftChange.leave(editor) }
+        readerShown = true
+    }
     /// The source line the reading cursor or the editor's cursor is on, so
     /// the other one opens there.
     @ObservationIgnored var cursorLine: Int? {
@@ -279,11 +287,16 @@ struct NotePaneView: View {
                             ConceptLine(path: path) { model.open($0, in: pane, store: store) }
                         }
                     }
-                    .opacity(covered ? 0 : 1)
+                    .coveredReader(covered)
                     .allowsHitTesting(!covered)
                     .accessibilityHidden(covered)
-                if covered, let path = pane.path { editor(path).allowsHitTesting(editing) }
+                // The editor fades in over the page, and has the keys from the start; it leaves at once,
+                // with its picture fading over the page that has drawn (`NotePane.readerCame`).
+                if covered, let path = pane.path {
+                    editor(path).allowsHitTesting(editing).transition(.asymmetric(insertion: .opacity, removal: .identity))
+                }
             }
+            .motionAnimation(.easeInOut(duration: SoftChange.duration), value: covered)
         } else {
             HomeView(model: model, pane: pane, compact: model.isSplit)
             .overlay(alignment: .topTrailing) {
@@ -342,7 +355,7 @@ struct NotePaneView: View {
                 onSection: { if !pane.editing { pane.section = $0 } },
                 onView: { pane.readerView = $0 },
                 active: !paused,
-                onShown: { pane.readerShown = true },
+                onShown: { pane.readerCame() },
                 shown: model.isShown)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let path = pane.path { Breadcrumb(path: path, model: model, onClose: onClose) }
