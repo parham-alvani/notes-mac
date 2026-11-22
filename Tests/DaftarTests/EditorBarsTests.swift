@@ -117,7 +117,7 @@ private let barsPicture = ProcessInfo.processInfo.environment["DAFTAR_BARS_PICTU
         // Return inserts the row in place of the `/` and the query: a formatted table, the caret in its first header cell.
         key(Self.enter)
         #expect(view.string == "Top\n\n| Column | Column |\n| ------ | ------ |\n|        |        |")
-        #expect(view.selectedRange() == NSRange(location: at("Column"), length: 0))
+        #expect(view.selectedRange() == NSRange(location: at("Column"), length: 6))
         #expect(bar == nil && self.list == nil)
         // One step to undo gives the typed text back.
         view.undoManager?.undo()
@@ -222,6 +222,66 @@ private let barsPicture = ProcessInfo.processInfo.environment["DAFTAR_BARS_PICTU
         #expect(bar == nil)
     }
 
+    /// The fault a test of the app found: a table from the slash bar had no
+    /// blank line under it, so the paragraph under it became a row of the
+    /// table in the file. The person's text is never changed.
+    @Test func aTableFromTheBarLeavesTheParagraphUnderItAlone() throws {
+        let note = "x\n\nA first paragraph.\n\nA second paragraph.\n"
+        let tab = { self.key(Self.tab) }
+        let enter = { self.key(Self.enter) }
+        /// The table is typed in as the person did: the header's two words, then cells with Tab and Return.
+        func fill() {
+            type("/tab")
+            enter()
+            // The first header cell's word is selected, so the first letter takes its place.
+            #expect(view.selectedRange().length == 6 && text.substring(with: view.selectedRange()) == "Column")
+            type("N")
+            #expect(!view.string.contains("NColumn"))
+            // Tab selects the next header cell's word too.
+            tab()
+            #expect(text.substring(with: view.selectedRange()) == "Column")
+            type("Q")
+            tab()
+            #expect(view.selectedRange().length == 0)
+            type("Z")
+            tab()
+            type("a")
+            // Return on the last row: a new row at the end, the caret in the same column.
+            enter()
+            type("12")
+            // Tab past the last cell: one more row.
+            tab()
+            // The letter is typed into the new row's first cell, which the next key lines up.
+            type("b")
+        }
+        let table = "| N   | Q   |\n| --- | --- |\n| Z   | a   |\n|     | 12  |\n| b    |     |"
+        // On the blank line between `x` and the paragraph.
+        try open(note)
+        window.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: 2, length: 0))
+        fill()
+        #expect(view.string == "x\n\n\(table)\n\nA first paragraph.\n\nA second paragraph.\n")
+        controller.saveNow()
+        #expect(try String(contentsOf: root.appending(path: "Notes/Bars.md"), encoding: .utf8) == view.string)
+        // At the start of line 0, before `x`.
+        try open(note)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        fill()
+        #expect(view.string == "\(table)\n\nx\n\nA first paragraph.\n\nA second paragraph.\n")
+        // Each block item, typed straight over a paragraph: a blank line each side, and every line of the note still there.
+        for id in ["callout", "code", "math", "mermaid", "tasks", "table", "divider"] {
+            try open(note)
+            view.setSelectedRange(NSRange(location: 2, length: 0))
+            type("/")
+            let item = try #require(bar?.rows.first { $0.id == id })
+            view.insertSlash(item)
+            let lines = view.string.components(separatedBy: "\n")
+            let paragraph = try #require(lines.firstIndex(of: "A first paragraph."))
+            #expect(lines[paragraph - 1].isEmpty && lines[0] == "x" && lines[1].isEmpty && !lines[2].isEmpty, "\(id)")
+            #expect(view.string.hasSuffix("\n\nA first paragraph.\n\nA second paragraph.\n"), "\(id)")
+        }
+    }
+
     @Test func aClickOnARowInsertsItAndABlockStartsItsOwnLine() throws {
         try open("text ")
         window.makeFirstResponder(view)
@@ -231,8 +291,8 @@ private let barsPicture = ProcessInfo.processInfo.environment["DAFTAR_BARS_PICTU
         let frame = try #require(list.frames().first { $0.line == .row(0) }?.frame)
         #expect(list.row(at: NSPoint(x: frame.midX, y: frame.midY + 1)) == 0)
         view.insertSlash(try #require(bar?.rows.first))
-        #expect(view.string == "text \n```\n\n```")
-        #expect(view.selectedRange().location == 10)
+        #expect(view.string == "text \n\n```\n\n```")
+        #expect(view.selectedRange().location == 11)
         #expect(window.firstResponder === view)
         // The list is over the `/` when there is no room under it, and inside the editor by 8 px.
         try open(String(repeating: "line\n", count: 60))

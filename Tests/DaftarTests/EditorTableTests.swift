@@ -324,6 +324,68 @@ private let tablePicture = ProcessInfo.processInfo.environment["DAFTAR_TABLE_PIC
         #expect(view.selectedRange() == NSRange(location: at("2"), length: 0))
     }
 
+    /// A line with no pipe is never a row: the keys of a table that has such
+    /// a line straight under it, or over it, leave that line as it is.
+    @Test func theTableKeysNeverTakeALineThatIsNoRow() throws {
+        let under = "A first paragraph of the note that is here to be dimmed."
+        try open("Over the table.\n| N | Q |\n| --- | --- |\n| Z | a |\n\(under)\n\nEnd\n")
+        // Tab formats the table: the columns are three wide, not as wide as the paragraph.
+        caret(in: "Z")
+        key { view.insertTab(nil) }
+        #expect(view.string == "Over the table.\n| N   | Q   |\n| --- | --- |\n| Z   | a   |\n\(under)\n\nEnd\n")
+        // Tab in the last cell: the new row is over the paragraph, which is no row of it.
+        key { view.insertTab(nil) }
+        #expect(view.string == "Over the table.\n| N   | Q   |\n| --- | --- |\n| Z   | a   |\n|     |     |\n\(under)\n\nEnd\n")
+        // Return on the empty last row ends the table: its line stays, empty, over the paragraph.
+        key { view.insertNewline(nil) }
+        #expect(view.string == "Over the table.\n| N   | Q   |\n| --- | --- |\n| Z   | a   |\n\n\(under)\n\nEnd\n")
+        // Return on the last row makes a row, and Shift+Tab moves in it: the lines beside the table stay.
+        try open("Over the table.\n| N   | Q   |\n| --- | --- |\n| Z   | a   |\n\(under)\n\nEnd\n")
+        caret(in: "a   |")
+        key { view.insertNewline(nil) }
+        #expect(view.string == "Over the table.\n| N   | Q   |\n| --- | --- |\n| Z   | a   |\n|     |     |\n\(under)\n\nEnd\n")
+        key { view.insertBacktab(nil) }
+        key { view.insertLineBreak(nil) }
+        // The new row is empty and the last: Control+Return ends the table, and its line stays, empty.
+        #expect(view.string == "Over the table.\n| N   | Q   |\n| --- | --- |\n| Z   | a   |\n\n\(under)\n\nEnd\n")
+        // With the caret in the paragraph the keys are the text's: no table is formatted.
+        let before = view.string
+        caret(in: "paragraph")
+        key { view.insertNewline(nil) }
+        #expect(view.string == before.replacingOccurrences(of: "first paragraph", with: "first \nparagraph"))
+        // A header with no delimiter row yet: Return at its end makes a row, over the line under it.
+        try open("| N | Q |\n\(under)\n")
+        view.setSelectedRange(NSRange(location: 9, length: 0))
+        key { view.insertNewline(nil) }
+        #expect(view.string == "| N   | Q   |\n|     |     |\n\(under)\n")
+    }
+
+    /// Tab into a header cell that still holds the Table item's word selects
+    /// the word, so typing replaces it; any other cell gets a caret.
+    @Test func tabSelectsAHeaderCellsPlaceholder() throws {
+        try open("| Column | Column |\n| ------ | ------ |\n| Column |        |\n")
+        view.setSelectedRange(NSRange(location: 2, length: 6))
+        // Tab with the first word selected goes on, and selects the next.
+        key { view.insertTab(nil) }
+        #expect(view.selectedRange() == NSRange(location: 11, length: 6))
+        key { view.insertText("Q", replacementRange: view.selectedRange()) }
+        #expect(view.string.hasPrefix("| Column | Q |\n"))
+        // In a body row the word is the person's text: a caret at its start.
+        key { view.insertTab(nil) }
+        #expect(view.string == "| Column | Q   |\n| ------ | --- |\n| Column |     |\n")
+        #expect(view.selectedRange() == NSRange(location: text.range(of: "Column", options: .backwards).location, length: 0))
+        // Shift+Tab back into the header: a cell with the person's word gets a caret, the one with the item's word is selected.
+        key { view.insertBacktab(nil) }
+        #expect(view.selectedRange() == NSRange(location: at("Q"), length: 0))
+        key { view.insertBacktab(nil) }
+        #expect(view.selectedRange() == NSRange(location: 2, length: 6))
+        // A selection over lines is not the table's: Tab is the text's key, and the table is not formatted.
+        try open("| Column | Column |\n| - | - |\n| a | b |\n")
+        view.setSelectedRange(NSRange(location: 2, length: 25))
+        key { view.insertTab(nil) }
+        #expect(view.string.hasSuffix("| a | b |\n") && !view.string.contains("| --- |"))
+    }
+
     @Test func tabMovesBetweenCellsAndAddsARow() throws {
         try open("Top\n\n" + Self.table + "\n\nEnd\n")
         caret(in: "1")

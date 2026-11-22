@@ -60,7 +60,7 @@ extension NoteTextView {
 
     /// Tab and ⇧Tab move list items in and out by four spaces.
     override func insertTab(_ sender: Any?) {
-        if selectedRange().length == 0, tableTab(back: false) { return }
+        if tableTab(back: false) { return }
         let lines = linesInSelection()
         let text = ns.substring(with: lines)
         guard text.split(separator: "\n").allSatisfy({ EditorCommands.isListItem(String($0)) }), !text.isEmpty else {
@@ -70,7 +70,7 @@ extension NoteTextView {
     }
 
     override func insertBacktab(_ sender: Any?) {
-        if selectedRange().length == 0, tableTab(back: true) { return }
+        if tableTab(back: true) { return }
         shift(linesInSelection()) { EditorCommands.outdent($0) }
     }
 
@@ -111,22 +111,40 @@ extension NoteTextView {
         return (range, lines, row, eol)
     }
 
-    /// Tab in a table: the next cell, the columns lined up. One step to undo, with its formatting.
+    /// Whether the selection is a caret, or is inside one cell of [line]: a
+    /// table's key moves it as its caret would. One that reaches over a pipe
+    /// or a line is raw text, and the key is the text's.
+    private func inOneCell(_ selection: NSRange, of line: NSRange) -> Bool {
+        guard selection.length > 0 else { return true }
+        let row = TableGrid.row(ns, line: line)
+        guard NSMaxRange(selection) <= NSMaxRange(line), let cell = row.cell(at: selection.location), cell == row.cell(at: NSMaxRange(selection)) else { return false }
+        return !row.pipes.contains { $0 >= selection.location && $0 < NSMaxRange(selection) }
+    }
+
+    /// Tab in a table: the next cell, the columns lined up. One step to undo,
+    /// with its formatting. A header cell that still holds the Table item's
+    /// placeholder word is selected, so typing replaces the word.
     private func tableTab(back: Bool) -> Bool {
-        guard let table = tableBlock() else { return false }
         let line = currentLineRange()
-        let column = MarkdownTable.column(at: selectedRange().location - line.location, in: ns.substring(with: line))
+        let selection = selectedRange()
+        // A selection of lines is moved in or out as list items are.
+        guard selection.length == 0 || !ns.substring(with: selection).contains(where: \.isNewline) else { return false }
+        guard let table = tableBlock(), inOneCell(selection, of: line) else { return false }
+        let column = MarkdownTable.column(at: selection.location - line.location, in: ns.substring(with: line))
         let moved = MarkdownTable.tab(table.lines, row: table.row, column: column, back: back)
-        putTable(moved.lines, in: table.range, row: moved.row, column: moved.column, eol: table.eol)
+        let cells = MarkdownTable.cells(moved.lines[moved.row])
+        let placeholder = moved.row == 0 && cells.indices.contains(moved.column) && cells[moved.column] == MarkdownTable.placeholder
+        putTable(moved.lines, in: table.range, row: moved.row, column: moved.column, eol: table.eol, selected: placeholder ? (MarkdownTable.placeholder as NSString).length : 0)
         return true
     }
 
-    /// The table's lines after a key, in place of [range], the cursor at the start of a cell's text.
-    private func putTable(_ lines: [String], in range: NSRange, row: Int, column: Int, eol: String) {
+    /// The table's lines after a key, in place of [range], the cursor at the
+    /// start of a cell's text, with [selected] UTF-16 units of it selected.
+    private func putTable(_ lines: [String], in range: NSRange, row: Int, column: Int, eol: String, selected: Int = 0) {
         var start = range.location
         for line in lines[..<row] { start += (line as NSString).length + (eol as NSString).length }
         breakUndoCoalescing()
-        replace(range, with: lines.joined(separator: eol), select: NSRange(location: start + MarkdownTable.cellStart(lines[row], column: column), length: 0))
+        replace(range, with: lines.joined(separator: eol), select: NSRange(location: start + MarkdownTable.cellStart(lines[row], column: column), length: selected))
         breakUndoCoalescing()
     }
 
@@ -137,14 +155,8 @@ extension NoteTextView {
         guard let table = tableBlock(), table.lines.count >= 2, MarkdownTable.isDelimiter(table.lines[1]) else { return false }
         let line = currentLineRange()
         let selection = selectedRange()
-        if selection.length > 0 {
-            // A selection in one cell moves as its caret would, and stays in the text. One that
-            // reaches over a pipe or a line is raw text, and Return is the text's key.
-            let row = TableGrid.row(ns, line: line)
-            guard NSMaxRange(selection) <= NSMaxRange(line), let cell = row.cell(at: selection.location), cell == row.cell(at: NSMaxRange(selection)),
-                !row.pipes.contains(where: { $0 >= selection.location && $0 < NSMaxRange(selection) })
-            else { return false }
-        }
+        // A selection in one cell moves as its caret would, and stays in the text.
+        guard inOneCell(selection, of: line) else { return false }
         let column = MarkdownTable.column(at: selection.location - line.location, in: ns.substring(with: line))
         switch MarkdownTable.enter(table.lines, row: table.row, column: column) {
         case .moved(let lines, let row, let column):
