@@ -52,6 +52,10 @@ final class NoteTextView: NSTextView {
     var autoClosed: Int?
     /// The task box under the pointer, by where its marks start (`EditorParts.swift`).
     var hoveredBox: Int?
+    /// The cell of a table's grid a click is in, while the click moves the caret (`EditorTable.swift`).
+    var clickedCell: (line: Int, column: Int)?
+    /// The tables are fitted to the view's new width at the next turn.
+    var refitPending = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -79,6 +83,9 @@ final class NoteTextView: NSTextView {
         // A click on a task's box ticks it, and moves no cursor.
         if boxClick(event) { return }
         if cursorClick(event) { return }
+        // A click in a table's cell puts the caret in that cell's text.
+        noteCellClick(event)
+        defer { clickedCell = nil }
         super.mouseDown(with: event)
         if vimActive { vim?.moveCursor(to: selectedRange().location) }
     }
@@ -214,6 +221,7 @@ final class NoteTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawCodePanels(in: rect)
+        drawTables(in: rect)
         drawParts(in: rect)
         drawProblemMarks(in: rect)
         guard selectedRange().length == 0, let line = cursorLineRect() else { return }
@@ -419,6 +427,7 @@ final class NoteTextView: NSTextView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         fitMargins()
+        refitTablesSoon()
     }
 
     /// The margins for the view's width now, and the settings now.

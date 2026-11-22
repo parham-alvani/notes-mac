@@ -333,23 +333,34 @@ extension EditorController {
     }
 
     /// A table's lines in the code font, so that the columns a formatter
-    /// padded line up, with the pipes faint. Not in a code block.
-    private func lineUpTables(in range: NSRange, of storage: NSTextStorage, text: NSString, mono: NSFont) {
+    /// padded line up, with the pipes faint. Not in a code block, and not
+    /// the lines of [grids], which are drawn as grids (`EditorTable.swift`).
+    private func lineUpTables(in range: NSRange, of storage: NSTextStorage, text: NSString, mono: NSFont, grids: [NSRange]) {
         text.enumerateSubstrings(in: text.lineRange(for: range), options: [.byLines, .substringNotRequired]) { _, line, _, _ in
             guard line.length > 1, storage.attribute(NoteTextView.codeBlock, at: line.location, effectiveRange: nil) == nil else { return }
             var at = line.location
             while at < NSMaxRange(line), [32, 9].contains(text.character(at: at)) { at += 1 }
             guard at < NSMaxRange(line), text.character(at: at) == 124,
-                text.range(of: "|", options: .literal, range: NSRange(location: at + 1, length: NSMaxRange(line) - at - 1)).location != NSNotFound
+                text.range(of: "|", options: .literal, range: NSRange(location: at + 1, length: NSMaxRange(line) - at - 1)).location != NSNotFound,
+                !grids.contains(where: { NSLocationInRange(line.location, $0) })
             else { return }
-            storage.addAttribute(.font, value: mono, range: line)
-            var from = line.location
-            while from < NSMaxRange(line) {
-                let pipe = text.range(of: "|", options: .literal, range: NSRange(location: from, length: NSMaxRange(line) - from))
-                guard pipe.location != NSNotFound else { break }
-                storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: pipe)
-                from = NSMaxRange(pipe)
-            }
+            self.lineUp(line, of: storage, text: text, mono: mono)
+        }
+    }
+
+    /// One raw table line: the code font on every letter that shows, the pipes faint.
+    func lineUp(_ line: NSRange, of storage: NSTextStorage, text: NSString, mono: NSFont) {
+        var shown: [NSRange] = []
+        storage.enumerateAttribute(.font, in: line, options: []) { font, range, _ in
+            if ((font as? NSFont)?.pointSize ?? 1) > 0.1 { shown.append(range) }
+        }
+        for range in shown { storage.addAttribute(.font, value: mono, range: range) }
+        var from = line.location
+        while from < NSMaxRange(line) {
+            let pipe = text.range(of: "|", options: .literal, range: NSRange(location: from, length: NSMaxRange(line) - from))
+            guard pipe.location != NSNotFound else { break }
+            storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: pipe)
+            from = NSMaxRange(pipe)
         }
     }
 
@@ -423,7 +434,7 @@ extension EditorController {
         return paragraph
     }
 
-    private func style(_ storage: NSTextStorage, range: NSRange) {
+    func style(_ storage: NSTextStorage, range: NSRange) {
         guard range.length > 0 || storage.length == 0 else { return }
         storage.setAttributes(base, range: range)
         let mono = Fonts.code(size: fontSize * 0.86)
@@ -554,10 +565,18 @@ extension EditorController {
                 storage.addAttributes([.foregroundColor: NSPalette.muted, .font: Fonts.text(size: fontSize * 0.85)], range: r)
             }
         }
-        lineUpTables(in: range, of: storage, text: text, mono: mono)
+        // The tables of these lines that are drawn as grids, once their marks are hidden.
+        let tables = store.settings.livePreview ? tables(touching: range, text: text) : []
+        lineUpTables(in: range, of: storage, text: text, mono: mono, grids: tables.compactMap { $0.grid?.range })
         alignByText(storage, range: range, text: text)
         if store.settings.livePreview { hideMarks(spans, in: storage, styled: range) }
+        let rows = drawGrids(tables, in: storage, styled: range, text: text, mono: mono)
         collapseFrontMatter(storage, range: range)
+        // The other rows of a table that became a grid, or stopped being one.
+        guard !rows.isEmpty, tableDepth < 3 else { return }
+        tableDepth += 1
+        defer { tableDepth -= 1 }
+        for piece in rows where NSMaxRange(piece) <= storage.length { style(storage, range: piece) }
     }
 
     /// Each line on the side its text reads from, whatever its syntax starts
@@ -584,7 +603,7 @@ extension EditorController {
     /// Next to nothing: a mark away from the cursor takes no room.
     /// The emoji that give a highlight its colour.
     private static let swatches: Set<Character> = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"]
-    private static let hidden: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+    static let hidden: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
 
     /// Whether the selection is in [element]: a caret anywhere from its
     /// first mark to after its last, or a selection that reaches into it.
@@ -761,6 +780,7 @@ extension EditorController {
     /// again and the new ones show them.
     func revealSelection() {
         guard store.settings.livePreview, let view, let storage = view.textStorage else { return }
+        followTables()
         let text = storage.string as NSString
         let now = text.lineRange(for: view.selectedRange())
         /// The same lines, but the cursor may be in another element of

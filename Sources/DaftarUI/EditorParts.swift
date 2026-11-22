@@ -180,7 +180,7 @@ extension NoteTextView {
     }
 
     /// The letters whose lines [rect] reaches; all on screen when it is not known.
-    private func offsets(in rect: NSRect) -> NSRange? {
+    func offsets(in rect: NSRect) -> NSRange? {
         guard let visible = viewportOffsets(), let layout = textLayoutManager, let content = layout.textContentManager else { return nil }
         let start = content.documentRange.location
         func offset(at y: CGFloat, end: Bool) -> Int? {

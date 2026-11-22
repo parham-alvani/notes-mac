@@ -564,19 +564,22 @@ extension EditorController {
     /// The method for several ranges: with the one for a single range,
     /// AppKit keeps only the first of a block selection.
     func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRanges old: [NSValue], toCharacterRanges new: [NSValue]) -> [NSValue] {
-        guard hiddenFront > 0, hiddenFront <= (textView.string as NSString).length else { return new }
+        // In a table drawn as a grid the caret keeps to the cells' text (`EditorTable.swift`).
+        guard hiddenFront > 0, hiddenFront <= (textView.string as NSString).length else { return cellCaret(in: textView, from: old, to: new) }
         let kept = new.map(\.rangeValue).compactMap { range -> NSValue? in
             guard range.location < hiddenFront else { return NSValue(range: range) }
             guard NSMaxRange(range) > hiddenFront || range.length == 0 else { return nil }
             return NSValue(range: NSRange(location: hiddenFront, length: max(0, NSMaxRange(range) - hiddenFront)))
         }
-        return kept.isEmpty ? [NSValue(range: NSRange(location: hiddenFront, length: 0))] : kept
+        return kept.isEmpty ? [NSValue(range: NSRange(location: hiddenFront, length: 0))] : cellCaret(in: textView, from: old, to: kept)
     }
 
     /// Typing never reaches the hidden front matter; replacing the whole
     /// note (Sort Tasks, a restore) still may.
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
-        guard hiddenFront > 0, range.location < hiddenFront else { return true }
-        return range.location == 0 && NSMaxRange(range) == (textView.string as NSString).length
+        let allowed = hiddenFront == 0 || range.location >= hiddenFront || (range.location == 0 && NSMaxRange(range) == (textView.string as NSString).length)
+        // Where the edit leaves the caret: typing may put it in a table cell's padding.
+        typedCaret = allowed ? replacementString.map { (textGeneration, range.location + ($0 as NSString).length) } : nil
+        return allowed
     }
 }

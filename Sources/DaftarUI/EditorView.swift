@@ -158,6 +158,19 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     var openElements: [NSRange] = []
     /// The lines `lineElements` was made for and the text's length then: with others, it is made again.
     var elementsFor: (lines: NSRange, length: Int)?
+    // What the tables drawn as grids keep (`EditorTable.swift`).
+    /// The widths of the plain cells measured so far, by their text, and the font they were measured in.
+    var tableWidths: [String: CGFloat] = [:]
+    var tableWidthsFor = ""
+    /// The measure the tables were fitted to last.
+    var tableRoom: CGFloat = 0
+    /// Where the selection was in a table at the last move.
+    var tableAt: Int?
+    /// Where an edit leaves the caret, and the text's generation before it:
+    /// a caret put there by typing is not moved to a cell's text.
+    var typedCaret: (generation: Int, offset: Int)?
+    /// How deep the styling is in the rows of a table whose look changed.
+    var tableDepth = 0
     /// The block states of the lines styled last (fence, comment, math).
     var blockStates = MarkdownHighlighter.BlockStates()
     var images: [String: NSImage] = [:]

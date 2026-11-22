@@ -35,7 +35,9 @@ extension NoteTextView {
     override func insertNewline(_ sender: Any?) {
         let line = currentLineRange()
         let cursor = selectedRange()
-        // Return at the end of a table row: a new row, the cursor in its first cell.
+        // Return in a table: the same cell of the row below.
+        if cursor.length == 0, tableEnter() { return }
+        // Return at the end of a row with no delimiter row under its header yet: a new row, the cursor in its first cell.
         if cursor.length == 0, cursor.location == NSMaxRange(line), let table = tableBlock(), !MarkdownTable.cells(ns.substring(with: line)).allSatisfy(\.isEmpty) {
             let rows = Array(table.lines[...table.row])
             let formatted = MarkdownTable.newRow(rows)
@@ -99,17 +101,49 @@ extension NoteTextView {
         return (range, lines, row)
     }
 
-    /// Tab in a table: the next cell, the columns lined up.
+    /// Tab in a table: the next cell, the columns lined up. One step to undo, with its formatting.
     private func tableTab(back: Bool) -> Bool {
         guard let table = tableBlock() else { return false }
         let line = currentLineRange()
         let column = MarkdownTable.column(at: selectedRange().location - line.location, in: ns.substring(with: line))
         let moved = MarkdownTable.tab(table.lines, row: table.row, column: column, back: back)
-        var start = table.range.location
-        for line in moved.lines[..<moved.row] { start += (line as NSString).length + 1 }
-        replace(table.range, with: moved.lines.joined(separator: "\n"),
-            select: NSRange(location: start + MarkdownTable.cellStart(moved.lines[moved.row], column: moved.column), length: 0))
+        putTable(moved.lines, in: table.range, row: moved.row, column: moved.column)
         return true
+    }
+
+    /// The table's lines after a key, in place of [range], the cursor at the start of a cell's text.
+    private func putTable(_ lines: [String], in range: NSRange, row: Int, column: Int) {
+        var start = range.location
+        for line in lines[..<row] { start += (line as NSString).length + 1 }
+        breakUndoCoalescing()
+        replace(range, with: lines.joined(separator: "\n"), select: NSRange(location: start + MarkdownTable.cellStart(lines[row], column: column), length: 0))
+        breakUndoCoalescing()
+    }
+
+    /// Return in a table with its delimiter row: the same cell of the row
+    /// below, a new row under the last, and on an empty last row the table
+    /// ends. A cell never holds a line break.
+    private func tableEnter() -> Bool {
+        guard let table = tableBlock(), table.lines.count >= 2, MarkdownTable.isDelimiter(table.lines[1]) else { return false }
+        let line = currentLineRange()
+        let column = MarkdownTable.column(at: selectedRange().location - line.location, in: ns.substring(with: line))
+        switch MarkdownTable.enter(table.lines, row: table.row, column: column) {
+        case .moved(let lines, let row, let column):
+            putTable(lines, in: table.range, row: row, column: column)
+        case .ended(let lines):
+            // The empty row's line stays, empty, with the cursor on it.
+            let text = lines.joined(separator: "\n") + "\n"
+            breakUndoCoalescing()
+            replace(table.range, with: text, select: NSRange(location: table.range.location + (text as NSString).length, length: 0))
+            breakUndoCoalescing()
+        }
+        return true
+    }
+
+    /// ⌃↩ in a table is Return: a cell never holds a line break.
+    override func insertLineBreak(_ sender: Any?) {
+        if selectedRange().length == 0, tableEnter() { return }
+        super.insertLineBreak(sender)
     }
 
     // MARK: Moving lines
