@@ -45,6 +45,7 @@ public struct ResolvedSettings: Sendable, Equatable {
     /// The keys a vault may set. The ranges are those of the app's own controls.
     static let allowed: [String: Kind] = [
         "appearance.theme": .choice(["system", "light", "dark"]),
+        "appearance.dark_palette": .choice(["naz", "naz-soft"]),
         "appearance.text_size": .int(10...28),
         "appearance.font": .name,
         "appearance.code_font": .name,
@@ -55,6 +56,7 @@ public struct ResolvedSettings: Sendable, Equatable {
         "appearance.remote_images": .onlyFalse,
         "calendar.place": .place,
         "editor.live_preview": .bool,
+        "editor.format_bar": .bool,
         "editor.format_on_save": .bool,
         "git.sync_interval": .int(0...10_080),
         "git.pull_on_launch": .bool,

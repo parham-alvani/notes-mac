@@ -55,6 +55,8 @@ final class AppSettings {
     /// Every vault this computer knows (`vaults`), the one in use among them.
     private(set) var vaults = Vaults(config: "")
     var appearance: Appearance { didSet { write("appearance.theme", .string(appearance.rawValue)); applyAppearance() } }
+    /// The dark theme's palette: naz, or naz with its colour strength capped (`SoftPalette`).
+    var darkPalette: DarkPalette { didSet { write("appearance.dark_palette", .string(darkPalette.rawValue)); applyPalette() } }
     var textSize: Int { didSet { write("appearance.text_size", .int(textSize)) } }
     var font: String { didSet { write("appearance.font", .string(font)) } }
     var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
@@ -93,6 +95,8 @@ final class AppSettings {
     var shell: String { didSet { write("terminal.shell", .string(shell)) } }
     var vimMode: Bool { didSet { write("editor.vim_mode", .bool(vimMode)) } }
     var livePreview: Bool { didSet { write("editor.live_preview", .bool(livePreview)) } }
+    /// The format bar shows over a selection in the editor.
+    var formatBar: Bool { didSet { write("editor.format_bar", .bool(formatBar)) } }
     /// The front matter shows as a form of properties above the editor, not as YAML.
     var propertiesForm: Bool { didSet { write("editor.properties_form", .bool(propertiesForm)) } }
     /// The cursor's line stays in the middle of the editor while you type.
@@ -157,6 +161,12 @@ final class AppSettings {
         var id: String { rawValue }
     }
 
+    enum DarkPalette: String, CaseIterable, Identifiable {
+        case naz, soft = "naz-soft"
+        var id: String { rawValue }
+        var title: String { self == .naz ? "naz" : "naz, soft" }
+    }
+
     enum Appearance: String, CaseIterable, Identifiable {
         case system, light, dark
         var id: String { rawValue }
@@ -185,11 +195,12 @@ final class AppSettings {
         followsVault = true
         vaultPath = nil
         appearance = .system
-        textSize = 14
+        darkPalette = .naz
+        textSize = 16
         font = "SF Pro"
         codeFont = "SF Mono"
         readingLine = 18
-        textWidth = 46
+        textWidth = 35
         remoteImages = true
         foldSections = .vault
         persianCalendar = false
@@ -211,6 +222,7 @@ final class AppSettings {
         terminalFontSize = 13
         vimMode = false
         livePreview = true
+        formatBar = true
         propertiesForm = true
         typewriter = false
         focusMode = false
@@ -282,11 +294,12 @@ final class AppSettings {
         let vault = file.string("vault") ?? ""
         vaultPath = vault.isEmpty ? nil : (vault as NSString).expandingTildeInPath
         appearance = resolved.string("appearance.theme").flatMap(Appearance.init(rawValue:)) ?? .system
-        textSize = resolved.int("appearance.text_size") ?? 14
+        darkPalette = resolved.string("appearance.dark_palette").flatMap(DarkPalette.init(rawValue:)) ?? .naz
+        textSize = resolved.int("appearance.text_size") ?? 16
         font = resolved.string("appearance.font") ?? "SF Pro"
         codeFont = resolved.string("appearance.code_font") ?? "SF Mono"
         readingLine = max(0, min(100, resolved.int("appearance.reading_line") ?? 18))
-        textWidth = max(0, resolved.int("appearance.text_width") ?? 46)
+        textWidth = max(0, resolved.int("appearance.text_width") ?? 35)
         // Anything but `false` shows them, as before the setting was there.
         remoteImages = resolved.bool("appearance.remote_images") ?? true
         foldSections = resolved.string("appearance.fold_sections").flatMap(FoldSections.init(rawValue:)) ?? .vault
@@ -308,6 +321,7 @@ final class AppSettings {
         shell = resolved.string("terminal.shell") ?? ""
         vimMode = resolved.bool("editor.vim_mode") ?? false
         livePreview = resolved.bool("editor.live_preview") ?? true
+        formatBar = resolved.bool("editor.format_bar") ?? true
         propertiesForm = resolved.bool("editor.properties_form") ?? true
         typewriter = resolved.bool("editor.typewriter") ?? false
         focusMode = resolved.bool("editor.focus") ?? false
@@ -496,6 +510,19 @@ final class AppSettings {
         source.setCancelHandler { close(handle) }
         source.resume()
         fileWatcher = source
+    }
+
+    /// The palette the app's own colours take in the dark (`NSPalette.dynamic`).
+    /// The colours are asked again when the appearance changes, so it is
+    /// changed and put back.
+    func applyPalette() {
+        let soft = darkPalette == .soft
+        guard NSPalette.soft != soft else { return }
+        NSPalette.soft = soft
+        guard let app = NSApp, !app.windows.isEmpty else { return }
+        let dark = app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        app.appearance = NSAppearance(named: dark ? .aqua : .darkAqua)
+        DispatchQueue.main.async { [weak self] in self?.applyAppearance() }
     }
 
     func applyAppearance() {

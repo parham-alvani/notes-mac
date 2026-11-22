@@ -93,7 +93,9 @@ import WebKit
         // The text being read stays where it is: the page moved down by
         // what was added above it (WebKit has no scroll anchoring).
         #expect(try await run(web, first) == before.0)
-        #expect(try await run(web, shown) == before.1)
+        // To a point: a line is 26.4 points high at the default size, and WebKit scrolls by whole points.
+        let after = Double(try await run(web, shown)) ?? .infinity
+        #expect(abs(after - (Double(before.1) ?? 0)) <= 1, "\(after) against \(before.1)")
         #expect((Double(try await run(web, "window.scrollY")) ?? 0) > before.2)
     }
 

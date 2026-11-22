@@ -722,10 +722,14 @@ enum NSPalette {
         }
     }
 
+    /// The dark colours are naz's with their strength capped (`appearance.dark_palette`).
+    /// Set on the main thread by `AppSettings.applyPalette`, read when a colour is drawn.
+    nonisolated(unsafe) static var soft = false
+
     static func dynamic(dark: UInt32, light: UInt32, alpha: CGFloat = 1) -> NSColor {
         NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return rgb(isDark ? dark : light, alpha: alpha)
+            return rgb(isDark ? (soft ? SoftPalette.soften(dark) : dark) : light, alpha: alpha)
         }
     }
 

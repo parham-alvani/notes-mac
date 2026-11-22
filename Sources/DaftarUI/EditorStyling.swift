@@ -297,7 +297,7 @@ extension EditorController {
     var base: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         // Obsidian's line height, 1.6.
-        paragraph.lineHeightMultiple = 1.6
+        paragraph.lineHeightMultiple = 1.65
         paragraph.paragraphSpacing = fontSize * 0.2
         // Each paragraph takes the direction of its first strong letter.
         paragraph.baseWritingDirection = .natural
@@ -412,10 +412,10 @@ extension EditorController {
             guard NSMaxRange(r) <= storage.length else { continue }
             switch span.kind {
             case .heading(let level):
-                // Cupertino's sizes and weights: light large headings, medium small ones.
-                let scale: [CGFloat] = [1.75, 1.5, 1.25, 1.0, 1.0, 0.875]
+                // The reader's sizes, in one weight (docs/specs/look.md in notes-linux).
+                let scale: [CGFloat] = [1.6, 1.35, 1.12, 1.0, 1.0, 0.875]
                 storage.addAttributes([
-                    .font: Fonts.text(size: fontSize * scale[min(level, 6) - 1], weight: level <= 3 ? .regular : .medium),
+                    .font: Fonts.text(size: fontSize * scale[min(level, 6) - 1], weight: .semibold),
                     .foregroundColor: NSPalette.heading(level),
                 ], range: r)
             case .markup, .blockId:
@@ -423,16 +423,16 @@ extension EditorController {
                 let marked = highlights.contains { NSIntersectionRange($0, r).length == r.length }
                 storage.addAttribute(.foregroundColor, value: marked ? NSPalette.markOnHighlight : NSPalette.faint, range: r)
             case .bold:
-                storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.strong], range: r)
+                storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .semibold), .foregroundColor: NSPalette.strong], range: r)
             case .italic:
-                storage.addAttributes([.font: Fonts.text(size: fontSize, italic: true), .foregroundColor: NSPalette.italic], range: r)
+                storage.addAttributes([.font: Fonts.text(size: fontSize, italic: true)], range: r)
             case .strike:
                 storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
             case .highlight:
                 // `==🔴 text==`: the circle picks the colour, as in Obsidian.
                 let inner = text.substring(with: r).dropFirst(2)
                 let color = NSPalette.highlightColor(inner.unicodeScalars.first.map { String($0) } ?? "")
-                storage.addAttributes([.backgroundColor: NSPalette.named(color, alpha: 0.45), .foregroundColor: NSPalette.text], range: r)
+                storage.addAttributes([.backgroundColor: NSPalette.named(color, alpha: 0.32)], range: r)
             case .code:
                 storage.addAttributes([.font: mono, .foregroundColor: NSPalette.raw, .backgroundColor: NSPalette.panel], range: r)
             case .codeBlock:
@@ -474,26 +474,17 @@ extension EditorController {
             case .taskDone, .taskCancelled:
                 storage.addAttributes([.foregroundColor: NSPalette.faint, .strikethroughStyle: NSUnderlineStyle.single.rawValue], range: r)
             case .listMarker:
-                // Each level of a list has its own colour, as in the reader.
-                let line = text.lineRange(for: r)
-                let before = text.substring(with: NSRange(location: line.location, length: r.location - line.location))
-                let indent = before + text.substring(with: r).prefix { $0 == " " || $0 == "\t" }
-                let depth = indent.reduce(0) { $0 + ($1 == "\t" ? 4 : $1 == " " ? 1 : 0) } / 4
-                let colors = ["orange", "aqua", "pink", "chartreuse"]
-                storage.addAttributes([
-                    .foregroundColor: NSPalette.named(colors[depth % colors.count]),
-                    .font: Fonts.text(size: fontSize, weight: .bold),
-                ], range: r)
+                // One marker colour at every level, as in the reader.
+                storage.addAttributes([.foregroundColor: NSPalette.accent, .font: Fonts.text(size: fontSize, weight: .semibold)], range: r)
             case .quote:
                 // A bar beside the quote, as Obsidian draws it; a callout's
-                // lines in its panel. No strip behind each line's letters.
-                storage.addAttribute(.foregroundColor, value: NSPalette.quote, range: r)
+                // lines in its panel. The text keeps its own colour, as in the reader.
                 markQuote(text.lineRange(for: r), in: storage, text: text)
             case .calloutTitle:
                 let title = text.substring(with: r)
                 let kind = title.firstMatch(of: /\[!([A-Za-z-]+)\]/).map { String($0.1) } ?? "note"
                 let color = NSPalette.calloutColor(kind)
-                storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .bold), .foregroundColor: NSPalette.named(color)], range: r)
+                storage.addAttributes([.font: Fonts.text(size: fontSize, weight: .semibold), .foregroundColor: NSPalette.named(color)], range: r)
                 markQuote(text.lineRange(for: r), in: storage, text: text)
             case .comment, .rule:
                 storage.addAttribute(.foregroundColor, value: NSPalette.faint, range: r)
@@ -514,7 +505,7 @@ extension EditorController {
         }
         lineUpTables(in: range, of: storage, text: text, mono: mono)
         alignByText(storage, range: range, text: text)
-        if store.settings.livePreview { hideMarks(spans, in: storage) }
+        if store.settings.livePreview { hideMarks(spans, in: storage, styled: range) }
         collapseFrontMatter(storage, range: range)
     }
 
@@ -544,11 +535,40 @@ extension EditorController {
     private static let swatches: Set<Character> = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"]
     private static let hidden: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
 
-    /// Away from the cursor's lines the marks go -- `**`, `==`, `[[` and a
-    /// link's target, a heading's `#` -- so the note reads as it will look.
-    /// A quote's `>` and a callout's type stay: they say what the line is.
-    private func hideMarks(_ spans: [MarkdownHighlighter.Span], in storage: NSTextStorage) {
+    /// Whether the selection is in [element]: a caret anywhere from its
+    /// first mark to after its last, or a selection that reaches into it.
+    private func isOpen(_ element: NSRange, for selection: NSRange) -> Bool {
+        selection.length > 0
+            ? NSIntersectionRange(element, selection).length > 0
+            : selection.location >= element.location && selection.location <= NSMaxRange(element)
+    }
+
+    /// Away from the cursor the marks go -- `**`, `==`, `[[` and a link's
+    /// target, a heading's `#` -- so the note reads as it will look. The
+    /// marks of a line (a heading's `#`) show on the cursor's line; the marks
+    /// of one element show only while the cursor is in that element
+    /// (docs/specs/look.md in notes-linux). A quote's `>` and a callout's
+    /// type stay: they say what the line is.
+    private func hideMarks(_ spans: [MarkdownHighlighter.Span], in storage: NSTextStorage, styled: NSRange) {
         let text = storage.string as NSString
+        let selection = view?.selectedRange()
+        /// The elements on the cursor's lines, for `revealSelection`.
+        var elements: [NSRange] = []
+        /// Hides [marks] unless the selection is in [element]; with no view, they show.
+        func hide(_ marks: [NSRange], of element: NSRange) {
+            elements.append(element)
+            guard let selection, !isOpen(element, for: selection) else { return }
+            for mark in marks { storage.addAttributes(Self.hidden, range: mark) }
+        }
+        defer {
+            if NSIntersectionRange(styled, revealed).length > 0 || NSLocationInRange(revealed.location, styled) || styled.location == revealed.location {
+                // The cursor's lines as they are in this text: a key made the line longer than `revealed` says.
+                let start = min(revealed.location, text.length)
+                elementsFor = (text.lineRange(for: NSRange(location: start, length: min(revealed.length, text.length - start))), text.length)
+                lineElements = elements.map { NSRange(location: $0.location - revealed.location, length: $0.length) }
+                openElements = selection.map { selection in lineElements.filter { isOpen(NSRange(location: $0.location + revealed.location, length: $0.length), for: selection) } } ?? []
+            }
+        }
         // The cursor's line, or the lines a selection touches.
         let shown = { (line: NSRange) in
             self.revealed.length > 0 ? NSIntersectionRange(line, self.revealed).length > 0 : NSLocationInRange(self.revealed.location, line)
@@ -561,9 +581,13 @@ extension EditorController {
             if line.location == NSNotFound || !NSLocationInRange(span.range.location, line) || NSMaxRange(span.range) > NSMaxRange(line) {
                 line = text.lineRange(for: span.range)
             }
-            guard !shown(line) else { continue }
+            let onCursorLine = shown(line)
             switch span.kind {
             case .markup:
+                if onCursorLine {
+                    if let owner = span.owner { hide([span.range], of: owner) }
+                    continue
+                }
                 let mark = text.substring(with: span.range)
                 if mark.hasPrefix(">") || mark.hasPrefix("[!") { continue }
                 storage.addAttributes(Self.hidden, range: span.range)
@@ -573,14 +597,18 @@ extension EditorController {
                 let body = text.substring(with: inner)
                 guard let first = body.first, Self.swatches.contains(first) else { continue }
                 let width = (String(first) as NSString).length + (body.dropFirst().first == " " ? 1 : 0)
-                storage.addAttributes(Self.hidden, range: NSRange(location: inner.location, length: width))
+                let swatch = NSRange(location: inner.location, length: width)
+                if onCursorLine { hide([swatch], of: span.range) } else { storage.addAttributes(Self.hidden, range: swatch) }
             case .link:
                 // `[label](target)`: the brackets and the target go, the label reads.
                 guard index + 1 < spans.count, spans[index + 1].kind == .url, spans[index + 1].range.location == NSMaxRange(span.range),
                     span.range.length >= 2 else { continue }
-                storage.addAttributes(Self.hidden, range: NSRange(location: span.range.location, length: 1))
-                storage.addAttributes(Self.hidden, range: NSRange(location: NSMaxRange(span.range) - 1, length: 1))
-                storage.addAttributes(Self.hidden, range: spans[index + 1].range)
+                let marks = [NSRange(location: span.range.location, length: 1), NSRange(location: NSMaxRange(span.range) - 1, length: 1), spans[index + 1].range]
+                if onCursorLine {
+                    hide(marks, of: NSUnionRange(span.range, spans[index + 1].range))
+                } else {
+                    for mark in marks { storage.addAttributes(Self.hidden, range: mark) }
+                }
             default:
                 continue
             }
@@ -593,7 +621,20 @@ extension EditorController {
         guard store.settings.livePreview, let view, let storage = view.textStorage else { return }
         let text = storage.string as NSString
         let now = text.lineRange(for: view.selectedRange())
-        guard now != revealed else { return }
+        /// The same lines, but the cursor may be in another element of
+        /// them: its marks show and the one it left hides its own.
+        func showElement() {
+            let selection = view.selectedRange()
+            let open = lineElements.filter { isOpen(NSRange(location: $0.location + now.location, length: $0.length), for: selection) }
+            // Elements kept for other lines or another text (an edit styled
+            // these lines before `revealed` named them) say nothing.
+            let kept = elementsFor.map { $0.lines == now && $0.length == text.length } ?? false
+            guard !kept || open != openElements, NSMaxRange(now) <= storage.length else { return }
+            storage.beginEditing()
+            style(storage, range: now)
+            storage.endEditing()
+        }
+        guard now != revealed else { return showElement() }
         let old = revealed
         revealed = now
         // The lines the old range names in the text as it is now: the same
@@ -602,7 +643,8 @@ extension EditorController {
         // twice, took 6 ms a key at the end of a long paragraph.
         let start = min(old.location, text.length)
         let before = text.lineRange(for: NSRange(location: start, length: min(old.length, text.length - start)))
-        guard before != now else { return }
+        // The edit styled these lines before the cursor moved to where it is now.
+        guard before != now else { return showElement() }
         if NSIntersectionRange(before, now).length > 0 {
             // Only the lines that came into the selection or left it: a
             // selection grown by a line, as a drag or ⇧↓ grows it, styled
@@ -617,6 +659,8 @@ extension EditorController {
             }
             storage.beginEditing()
             for piece in pieces { style(storage, range: piece) }
+            storage.endEditing()
+            return showElement()
         } else {
             storage.beginEditing()
             for range in [old, now] where NSMaxRange(range) <= storage.length {

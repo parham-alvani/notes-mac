@@ -202,7 +202,7 @@ extension NoteTextView {
     }
 
     /// Wraps the selection in a marker, or takes it off when it is there.
-    private func wrap(_ marker: String) {
+    func wrap(_ marker: String) {
         let range = selectedRange()
         let selected = ns.substring(with: range)
         let width = (marker as NSString).length
@@ -215,7 +215,7 @@ extension NoteTextView {
     }
 
     /// ⌘K: `[[selection]]`, and the note completion when nothing is selected.
-    private func insertLink() {
+    func insertLink() {
         let range = selectedRange()
         let selected = ns.substring(with: range)
         replace(range, with: "[[" + selected + "]]", select: NSRange(location: range.location + 2, length: range.length))

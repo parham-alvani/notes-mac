@@ -147,15 +147,15 @@ import WebKit
     @Test func theTextWidthIsASettingAndANarrowPaneHasSmallMargins() async throws {
         let style = "[getComputedStyle(document.getElementById('note')).maxWidth, getComputedStyle(document.getElementById('note')).paddingLeft].join('|')"
         var (web, window) = try await page(width: 1400)
-        #expect(try await run(web, style) == "\(14 * 46)px|35px")
+        #expect(try await run(web, style) == "\(16 * 35)px|40px")
         window.orderOut(nil)
         store.settings.textWidth = 60
         (web, window) = try await page(width: 1400)
-        #expect(try await run(web, style) == "\(14 * 60)px|35px")
+        #expect(try await run(web, style) == "\(16 * 60)px|40px")
         window.orderOut(nil)
         store.settings.textWidth = 0
         (web, window) = try await page(width: 1400)
-        #expect(try await run(web, style) == "none|35px")
+        #expect(try await run(web, style) == "none|40px")
         window.orderOut(nil)
         (web, window) = try await page(width: 600)
         #expect(try await run(web, style) == "none|16px")

@@ -22,7 +22,7 @@ import Testing
         #expect(alone.fromVault.isEmpty)
         // With neither, the default.
         let neither = resolved(vault: "", computer: "")
-        #expect(neither.int("appearance.text_size") == 14)
+        #expect(neither.int("appearance.text_size") == 16)
         #expect(neither.source(of: "appearance.text_size") == .standard)
         #expect(resolved(vault: "", computer: "[appearance]\ntext_size = 20\n").int("appearance.text_size") == 20)
         // The template has every key, and the vault still speaks over it.
@@ -156,7 +156,7 @@ import Testing
         #expect(resolved(vault: "[git]\nsync_interval = -1\n", computer: computer).int("git.sync_interval") == 5)
         #expect(resolved(vault: "[git]\nname = \"\"\nemail = 3\n", computer: computer).author == Git.Author())
         // With no computer value either, the default.
-        #expect(resolved(vault: "[appearance]\ntext_size = \"big\"\n", computer: "").int("appearance.text_size") == 14)
+        #expect(resolved(vault: "[appearance]\ntext_size = \"big\"\n", computer: "").int("appearance.text_size") == 16)
         // A key the app does not know is left alone.
         #expect(resolved(vault: "[capture]\nlater = \"x\"\n\n[plugin]\nshell = \"/tmp/x\"\n\nmemory = true\n", computer: computer).refused.isEmpty)
     }

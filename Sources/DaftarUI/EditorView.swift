@@ -151,6 +151,13 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     // What the styling keeps (`EditorStyling.swift`).
     /// The lines the selection is on, where every mark shows.
     var revealed = NSRange(location: 0, length: 0)
+    /// The elements with marks on the cursor's lines, from the start of
+    /// `revealed`, and the ones the selection was in when the lines were
+    /// styled: a move to another element of the same line styles it again.
+    var lineElements: [NSRange] = []
+    var openElements: [NSRange] = []
+    /// The lines `lineElements` was made for and the text's length then: with others, it is made again.
+    var elementsFor: (lines: NSRange, length: Int)?
     /// The block states of the lines styled last (fence, comment, math).
     var blockStates = MarkdownHighlighter.BlockStates()
     var images: [String: NSImage] = [:]
@@ -693,6 +700,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         updateCounts()
         // The tint of the cursor's line moves with it: the two lines are drawn again, not the page.
         view?.cursorLineMoved()
+        view?.showFormatBar()
         followCursor()
     }
 

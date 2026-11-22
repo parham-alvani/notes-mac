@@ -299,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
+            AppSettings.shared.applyPalette()
             AppSettings.shared.applyAppearance()
             AppSettings.shared.applyMenuBar()
             FullScreenEscape.install()
@@ -421,6 +422,10 @@ private struct GeneralSettings: View {
             }
             .pickerStyle(.segmented)
             .fromVault("appearance.theme", settings)
+            Picker("Dark palette", selection: $settings.darkPalette) {
+                ForEach(AppSettings.DarkPalette.allCases) { Text($0.title).tag($0) }
+            }
+            .fromVault("appearance.dark_palette", settings)
             Stepper("Text size: \(settings.textSize) pt", value: $settings.textSize, in: 10...28)
                 .fromVault("appearance.text_size", settings)
             Picker("Font", selection: $settings.font) {
@@ -624,6 +629,8 @@ private struct EditorSettings: View {
             Section {
                 Toggle("Hide the marks away from the cursor (live preview)", isOn: $settings.livePreview)
                     .fromVault("editor.live_preview", settings)
+                Toggle("Show the format bar over a selection", isOn: $settings.formatBar)
+                    .fromVault("editor.format_bar", settings)
                 Toggle("Show the front matter as properties", isOn: $settings.propertiesForm)
                     .fromVault("editor.properties_form", settings)
                 Toggle("Keep the cursor's line in the middle (typewriter)", isOn: $settings.typewriter)

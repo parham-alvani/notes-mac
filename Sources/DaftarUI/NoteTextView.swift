@@ -177,17 +177,23 @@ final class NoteTextView: NSTextView {
         }
         for (name, range) in blocks(Self.calloutPanel) {
             guard let panel = box(range), panel.intersects(rect) else { continue }
+            // A tint and a hairline in the kind's colour, and no bar, as the reader has it.
+            let path = NSBezierPath(roundedRect: panel.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
             NSPalette.named(name, alpha: 0.1).setFill()
-            NSBezierPath(roundedRect: panel, xRadius: 6, yRadius: 6).fill()
+            path.fill()
+            NSPalette.named(name, alpha: 0.26).setStroke()
+            path.lineWidth = 1
+            path.stroke()
         }
         for (_, range) in blocks(Self.codeBlock) {
             guard let panel = box(range), panel.intersects(rect) else { continue }
             NSPalette.panel.setFill()
-            NSBezierPath(roundedRect: panel, xRadius: 6, yRadius: 6).fill()
+            NSBezierPath(roundedRect: panel, xRadius: 10, yRadius: 10).fill()
         }
         for (name, range) in blocks(Self.quoteBar) {
-            guard let panel = box(range) else { continue }
-            let colour = name == "quote" ? NSPalette.named("orange", alpha: 0.6) : NSPalette.named(name)
+            // A quote has a bar; a callout has its panel.
+            guard name == "quote", let panel = box(range) else { continue }
+            let colour = NSPalette.accent
             let bar = NSRect(x: panel.minX - 10, y: panel.minY + 4, width: 3, height: panel.height - 8)
             guard bar.intersects(rect) else { continue }
             colour.setFill()
@@ -195,7 +201,8 @@ final class NoteTextView: NSTextView {
         }
     }
 
-    /// The line that holds the cursor, tinted, with a thin accent bar.
+    /// The line that holds the cursor, in a neutral tint: weaker than the
+    /// reader's block, so editing and reading are told apart at a glance.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawCodePanels(in: rect)
@@ -215,10 +222,8 @@ final class NoteTextView: NSTextView {
                 self?.fitCaret()
             }
         }
-        NSPalette.named("orange", alpha: 0.07).setFill()
+        NSPalette.text.withAlphaComponent(0.045).setFill()
         line.fill(using: .sourceOver)
-        NSPalette.named("orange", alpha: 0.8).setFill()
-        NSRect(x: line.minX, y: line.minY + 2, width: 2.5, height: max(0, line.height - 4)).fill(using: .sourceOver)
     }
 
     private func cursorLineRect() -> NSRect? { lineRect(at: selectedRange().location) }
@@ -261,7 +266,7 @@ final class NoteTextView: NSTextView {
     /// normal mode the block is drawn under the text with the cursor's line.
     private lazy var caret: NSTextInsertionIndicator = {
         let caret = NSTextInsertionIndicator(frame: .zero)
-        caret.color = NSPalette.cursor
+        caret.color = NSPalette.accent
         caret.displayMode = .hidden
         addSubview(caret)
         return caret
@@ -301,7 +306,19 @@ final class NoteTextView: NSTextView {
             return
         }
         let frame = NSRect(x: fitted.minX, y: fitted.minY, width: 0, height: fitted.height)
-        if caret.frame != frame { caret.frame = frame }
+        if caret.frame != frame {
+            // A short way, the caret glides (70 ms); a jump, a first show and Reduce Motion place it at once.
+            let near = abs(caret.frame.minX - frame.minX) < 240 && abs(caret.frame.minY - frame.minY) < 120
+            if near, caret.displayMode == .automatic, !Motion.reduced, window != nil {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.07
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    caret.animator().frame = frame
+                }
+            } else {
+                caret.frame = frame
+            }
+        }
         if caret.displayMode != .automatic { caret.displayMode = .automatic }
     }
 

@@ -30,6 +30,17 @@ public enum MarkdownHighlighter {
     public struct Span: Hashable, Sendable {
         public var kind: Kind
         public var range: NSRange
+        /// For a mark that opens or closes one element (`**`, `==`, a
+        /// backtick, `[[`): the whole element, marks and all. Live preview
+        /// shows such a mark only while the cursor is in its element. Nil
+        /// for a mark of a line (a heading's `#`, a quote's `>`).
+        public var owner: NSRange?
+
+        public init(kind: Kind, range: NSRange, owner: NSRange? = nil) {
+            self.kind = kind
+            self.range = range
+            self.owner = owner
+        }
     }
 
     public enum BlockState: Equatable, Sendable {
@@ -273,8 +284,11 @@ public enum MarkdownHighlighter {
         each(Patterns.inlineCode) { match in
             code.append(match.range)
             out.append(Span(kind: .code, range: at(match.range)))
-            out.append(Span(kind: .markup, range: at(NSRange(location: match.range.location, length: match.range(at: 1).length))))
-            out.append(Span(kind: .markup, range: at(NSRange(location: NSMaxRange(match.range) - match.range(at: 1).length, length: match.range(at: 1).length))))
+            out.append(Span(kind: .markup, range: at(NSRange(location: match.range.location, length: match.range(at: 1).length)), owner: at(match.range)))
+            out.append(
+                Span(
+                    kind: .markup, range: at(NSRange(location: NSMaxRange(match.range) - match.range(at: 1).length, length: match.range(at: 1).length)),
+                    owner: at(match.range)))
         }
         func free(_ local: NSRange) -> Bool { !code.contains { NSIntersectionRange($0, local).length > 0 } }
 
@@ -284,14 +298,14 @@ public enum MarkdownHighlighter {
             let embed = match.range(at: 1).length > 0
             out.append(Span(kind: embed ? .embed : .link, range: at(match.range)))
             let open = NSRange(location: match.range.location, length: match.range(at: 1).length + 2)
-            out.append(Span(kind: .markup, range: at(open)))
-            out.append(Span(kind: .markup, range: at(NSRange(location: NSMaxRange(match.range) - 2, length: 2))))
+            out.append(Span(kind: .markup, range: at(open), owner: at(match.range)))
+            out.append(Span(kind: .markup, range: at(NSRange(location: NSMaxRange(match.range) - 2, length: 2)), owner: at(match.range)))
             // `[[target|label]]`: the target is markup too; the label is what reads.
             let inner = match.range(at: 2)
             let text = ns.substring(with: inner) as NSString
             let bar = text.range(of: "|")
             if bar.location != NSNotFound {
-                out.append(Span(kind: .markup, range: at(NSRange(location: inner.location, length: bar.location + 1))))
+                out.append(Span(kind: .markup, range: at(NSRange(location: inner.location, length: bar.location + 1)), owner: at(match.range)))
             }
         }
         each(Patterns.markdownLink) { match in
@@ -310,8 +324,8 @@ public enum MarkdownHighlighter {
             out.append(Span(kind: .bold, range: at(whole)))
             out.append(Span(kind: .italic, range: at(whole)))
             let open = NSRange(location: whole.location, length: 3), close = NSRange(location: NSMaxRange(whole) - 3, length: 3)
-            out.append(Span(kind: .markup, range: at(open)))
-            out.append(Span(kind: .markup, range: at(close)))
+            out.append(Span(kind: .markup, range: at(open), owner: at(whole)))
+            out.append(Span(kind: .markup, range: at(close), owner: at(whole)))
             triples += [open, close]
         }
         for (pattern, kind, width) in [(Patterns.bold, Kind.bold, 2), (Patterns.strike, .strike, 2), (Patterns.highlight, .highlight, 2), (Patterns.italic, .italic, 1)] {
@@ -326,8 +340,8 @@ public enum MarkdownHighlighter {
                     if ends.contains(where: { end in triples.contains { NSIntersectionRange($0, end).length > 0 } }) { return }
                 }
                 out.append(Span(kind: kind, range: at(whole)))
-                out.append(Span(kind: .markup, range: at(NSRange(location: whole.location, length: width))))
-                out.append(Span(kind: .markup, range: at(NSRange(location: NSMaxRange(whole) - width, length: width))))
+                out.append(Span(kind: .markup, range: at(NSRange(location: whole.location, length: width)), owner: at(whole)))
+                out.append(Span(kind: .markup, range: at(NSRange(location: NSMaxRange(whole) - width, length: width)), owner: at(whole)))
             }
         }
         each(Patterns.inlineMath) { match in if free(match.range) { out.append(Span(kind: .math, range: at(match.range))) } }

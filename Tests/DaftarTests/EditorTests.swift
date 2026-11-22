@@ -297,7 +297,7 @@ import Testing
         controller.load("Notes/Long.md")
         let at = (view.string as NSString).range(of: "The last heading").location
         func size() -> CGFloat { (view.textStorage?.attribute(.font, at: at, effectiveRange: nil) as? NSFont)?.pointSize ?? 0 }
-        let heading = CGFloat(store.settings.textSize) * 1.75
+        let heading = CGFloat(store.settings.textSize) * 1.6
         // The first screens are styled at once; the end comes a moment later.
         #expect(abs(size() - heading) > 0.5)
         for _ in 0..<100 {
@@ -444,10 +444,16 @@ import Testing
         controller.load("Notes/H.md")
         #expect(hidden("🟢"))
         controller.load("Notes/Live.md")
-        // On the line of the bold word, its marks come back, the heading's go.
+        // In the bold word, its marks come back, the heading's go; the link
+        // on the same line keeps its own hidden until the cursor is in it.
         view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: "bold").location, length: 0))
-        #expect(!hidden("**") && !hidden("(https"))
+        #expect(!hidden("**") && hidden("(https"))
         #expect(hidden("##"))
+        view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: "a link").location + 2, length: 0))
+        #expect(hidden("**") && !hidden("(https"))
+        // In plain text of that line, no element shows its marks.
+        view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: "Some").location + 1, length: 0))
+        #expect(hidden("**") && hidden("(https"))
         store.settings.livePreview = false
         controller.restyle(all: true)
         #expect(!hidden("##"))
@@ -473,13 +479,41 @@ import Testing
         #expect(!hidden("##") && hidden("**") && hidden("*", occurrence: 5))
     }
 
+    /// The format bar is there for a selection inside one paragraph, its
+    /// buttons run the editor's own commands, and a setting turns it off.
+    @Test func theFormatBarShowsOverASelectionAndFormatsIt() throws {
+        try "Some plain words here.\n\nNext.\n".write(to: root.appending(path: "Notes/Bar.md"), atomically: true, encoding: .utf8)
+        controller.load("Notes/Bar.md")
+        view.setSelectedRange((view.string as NSString).range(of: "plain"))
+        let bar = try #require(view.extras.formatBar)
+        #expect(!bar.isHidden)
+        let buttons = try #require(bar.subviews.first as? NSStackView).arrangedSubviews.compactMap { $0 as? NSButton }
+        #expect(buttons.count == FormatBar.items.count)
+        buttons[0].performClick(nil)
+        #expect(view.string.hasPrefix("Some **plain** words here."))
+        // The word is still selected, inside its marks: the bar stays.
+        #expect((view.string as NSString).substring(with: view.selectedRange()) == "plain" && !bar.isHidden)
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(bar.isHidden)
+        // A selection over two paragraphs is not one the marks wrap.
+        view.setSelectedRange(NSRange(location: 0, length: (view.string as NSString).length))
+        #expect(bar.isHidden)
+        store.settings.formatBar = false
+        view.setSelectedRange((view.string as NSString).range(of: "words"))
+        #expect(bar.isHidden)
+        store.settings.formatBar = true
+    }
+
     @Test func marksHideInQuotesAndOnTheLastLine() throws {
         try "Top\n\nBring the ~~old~~ new.\n\n> Bring the ~~gone~~ one.".write(to: root.appending(path: "Notes/S.md"), atomically: true, encoding: .utf8)
         controller.load("Notes/S.md")
         #expect(hidden("~~") && hidden("~~", occurrence: 2))
-        // The cursor at the very end shows the last line's marks.
-        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        // The cursor in the struck word of the last line shows its marks.
+        view.setSelectedRange(NSRange(location: (view.string as NSString).range(of: "gone").location + 1, length: 0))
         #expect(!hidden("~~", occurrence: 2) && hidden("~~"))
+        // At the very end of that line it is in no element.
+        view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
+        #expect(hidden("~~", occurrence: 2) && hidden("~~"))
     }
 
     /// The font size of the letter at [offset]: a heading's is larger.
@@ -528,6 +562,8 @@ import Testing
         other.controller = reference
         reference.view = other
         reference.load("Notes/Ref.md")
+        // The marks of an element show while the cursor is in it: the same cursor.
+        other.setSelectedRange(view.selectedRange())
         reference.revealed = controller.revealed
         reference.restyle(all: true)
         let mine = try #require(view.textStorage), theirs = try #require(other.textStorage)
