@@ -22,6 +22,9 @@ import WebKit
 /// page after a change    how much text the page in front shows, and its end
 /// append Note.md words   words at the end of a file, as another app writes them -- never in a git repository
 /// hover Plan             the pointer rests on that word of the note in the editor, so a link's card shows
+/// type 12 words\e        letters to the window, 12 a second (\n Return, \e Escape; 30r: a key held down),
+///                        each one's time to the editor's text and cursor, and the main thread's time a key;
+///                        the scroll at each frame goes to `<script>.scroll`
 /// quit
 /// ```
 ///
@@ -151,7 +154,11 @@ enum PerfScript {
         _ = watch.take()
         _ = Layouts.shared.take()
         let done = run(word, rest, store: store())
-        DispatchQueue.main.asyncAfter(deadline: .now() + (word == "full" ? 5 : ["key", "state", "page"].contains(word) ? 0.6 : 2.5)) {
+        var after = word == "full" ? 5 : ["key", "state", "page"].contains(word) ? 0.6 : 2.5
+        if word == "type", let rate = Double((rest.split(separator: " ").first ?? "").replacingOccurrences(of: "r", with: "")) {
+            after = Double(rest.count) / max(rate, 1) + 2
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + after) {
             MainActor.assumeIsolated {
                 let (total, worst, first) = watch.take()
                 let window = front
@@ -309,6 +316,88 @@ enum PerfScript {
             guard range.location != NSNotFound, let box = view.letterBox(NSRange(location: range.location, length: 1)) else { return false }
             view.hoverLink(at: NSPoint(x: box.midX, y: box.midY))
             return view.extras.linkHover != nil
+        case "type":
+            // "type 12 some words": the letters as keys to the window, 12 a
+            // second, as a person types (\n is Return, \e is Escape; "30r":
+            // every key after the first is a repeat, as a key held down
+            // sends). Logs how long until the editor's text or cursor
+            // changed, counted for the last key sent before the change, so
+            // a key that waits for the next one (the first y of yy) is
+            // silent, not slow; the main thread's own time a key; and the
+            // scroll at each frame, into "<script>.scroll".
+            func editor(_ view: NSView) -> NoteTextView? {
+                if let found = view as? NoteTextView, found.controller?.isPreview == false { return found }
+                return view.subviews.lazy.compactMap(editor).first
+            }
+            let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
+            let held = parts.first?.hasSuffix("r") == true
+            guard parts.count == 2, let rate = Double(parts[0].replacingOccurrences(of: "r", with: "")), let window = front, let view = window.contentView.flatMap(editor),
+                let path = ProcessInfo.processInfo.environment["DAFTAR_PERF"]
+            else { return false }
+            let letters = Array(parts[1].replacingOccurrences(of: "\\n", with: "\r").replacingOccurrences(of: "\\e", with: "\u{1B}"))
+            let cpuAtStart = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+            let began = DispatchTime.now().uptimeNanoseconds
+            func now() -> Double { Double(DispatchTime.now().uptimeNanoseconds - began) / 1e6 }
+            var times: [Double] = []
+            var silent = 0
+            var sent: [Double] = []
+            var state = (view.textStorage?.length ?? 0, view.selectedRange().location)
+            // Only the frames where the scroll or the cursor moved, kept as numbers, so watching costs little.
+            var scrolls: [(Double, CGFloat, Int)] = []
+            let clip = view.enclosingScrollView?.contentView
+            let watch = Timer(timeInterval: 0.001, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    let seen = (view.textStorage?.length ?? 0, view.selectedRange().location)
+                    if seen != state, let last = sent.last {
+                        times.append(now() - last)
+                        silent += sent.count - 1
+                        sent = []
+                    }
+                    state = seen
+                    let y = clip?.bounds.origin.y ?? 0
+                    if scrolls.last.map({ $0.1 != y || $0.2 != seen.1 }) ?? true { scrolls.append((now(), y, seen.1)) }
+                }
+            }
+            RunLoop.main.add(watch, forMode: .common)
+            func finish() {
+                watch.invalidate()
+                silent += sent.count
+                let sorted = times.sorted()
+                func at(_ part: Double) -> Double { sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * part))] }
+                let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpuAtStart) / 1e6 / Double(max(1, letters.count))
+                let note = String(
+                    format: "type %@: key to view median %.0f ms, p90 %.0f, worst %.0f; %d keys, %d silent; main thread %.1f ms a key\n", parts[0], at(0.5), at(0.9),
+                    sorted.last ?? 0, letters.count, silent, cpu)
+                let start = Date().timeIntervalSince1970 - now() / 1000
+                for (file, text) in [(path + ".log", note), (path + ".scroll", String(format: "# %.3f ", start) + rest.prefix(40) + "\n" + scrolls.map { String(format: "%.0f %.1f %d", $0.0, $0.1, $0.2) }.joined(separator: "\n") + "\n")] {
+                    if !FileManager.default.fileExists(atPath: file) { FileManager.default.createFile(atPath: file, contents: nil) }
+                    guard let handle = FileHandle(forWritingAtPath: file) else { continue }
+                    handle.seekToEndOfFile()
+                    handle.write(Data(text.utf8))
+                    try? handle.close()
+                }
+            }
+            func send(_ index: Int) {
+                guard index < letters.count else {
+                    // A second for the last key to show.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated(finish) }
+                    return
+                }
+                let letter = String(letters[index])
+                let code: UInt16 = letter == "\r" ? 36 : letter == "\u{1B}" ? 53 : 0
+                sent.append(now())
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    if let event = NSEvent.keyEvent(
+                        with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                        context: nil, characters: letter, charactersIgnoringModifiers: letter, isARepeat: held && index > 0, keyCode: code)
+                    {
+                        NSApp.sendEvent(event)
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1 / rate) { MainActor.assumeIsolated { send(index + 1) } }
+            }
+            send(0)
+            return true
         case "append":
             // Text at the end of a file, as another app writes it -- never in a git repository.
             let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
