@@ -96,6 +96,8 @@ final class AppSettings {
     var taskDigest: Bool { didSet { write("notifications.digest", .bool(taskDigest)) } }
     /// Minutes after midnight.
     var digestTime: Int { didSet { write("notifications.digest_time", .string(Self.clock(digestTime))) } }
+    /// The person's own alerts, `[notifications.rules.<id>]`, read from the file and the vault's; none is written here.
+    private(set) var notificationRules: [NotificationRule] = []
     var shell: String { didSet { write("terminal.shell", .string(shell)) } }
     var vimMode: Bool { didSet { write("editor.vim_mode", .bool(vimMode)) } }
     var livePreview: Bool { didSet { write("editor.live_preview", .bool(livePreview)) } }
@@ -329,6 +331,8 @@ final class AppSettings {
         meetingLead = resolved.int("notifications.meeting_lead") ?? 5
         taskDigest = resolved.bool("notifications.digest") ?? true
         digestTime = resolved.string("notifications.digest_time").flatMap(Self.minutes) ?? 9 * 60
+        let rules = NotificationRule.all(resolved, root: vaultRoot)
+        if rules != notificationRules { notificationRules = rules }
         shell = resolved.string("terminal.shell") ?? ""
         vimMode = resolved.bool("editor.vim_mode") ?? false
         livePreview = resolved.bool("editor.live_preview") ?? true

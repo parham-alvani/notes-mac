@@ -3,11 +3,13 @@ import DaftarCore
 import Foundation
 import UserNotifications
 
-/// Meeting alerts and the morning task digest, through Notification Center.
+/// Meeting alerts, the morning task digest and the person's own rules
+/// (`NotificationRule`), through Notification Center.
 ///
-/// Both are planned ahead as notification requests, so they arrive while the
+/// All are planned ahead as notification requests, so they arrive while the
 /// app is closed too. They are planned again whenever the vault changes: a
-/// week note written by the phone, a task ticked.
+/// week note written by the phone, a task ticked, today's heading written
+/// in a note a rule watches.
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
@@ -19,6 +21,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     private static let meetingPrefix = "meeting."
     private static let digestId = "digest"
+    private static let rulePrefix = "rule."
     nonisolated private static let joinAction = "join"
 
     func start() {
@@ -59,7 +62,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// What was asked of Notification Center last, kept until the app quits.
     private var planned: [Planned]?
 
-    /// The meeting alerts and the digest the vault calls for now.
+    /// The meeting alerts, the digest and the rules' alerts the vault calls for now.
     static func plan(store: VaultStore, now: Date = Date()) -> [Planned] {
         let settings = store.settings
         var out: [Planned] = []
@@ -93,6 +96,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                     userInfo: ["open": "today"], at: minute(at)))
             }
         }
+        for rule in settings.notificationRules {
+            let text = store.url(of: rule.note).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+            guard let (at, day) = rule.next(now: now, text: text) else { continue }
+            out.append(Planned(
+                id: rule.alertId, title: rule.alertTitle, body: rule.body(day), userInfo: ["open": rule.note], sound: true, at: minute(at)))
+        }
         return out
     }
 
@@ -106,7 +115,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         guard authorized else { return }
         let wanted = Self.plan(store: store)
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter {
-            $0.hasPrefix(Self.meetingPrefix) || $0 == Self.digestId
+            $0.hasPrefix(Self.meetingPrefix) || $0 == Self.digestId || $0.hasPrefix(Self.rulePrefix)
         }
         if wanted == planned, Set(pending) == Set(wanted.map(\.id)) { return }
         planned = nil
@@ -135,8 +144,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             response.actionIdentifier == Self.joinAction || response.actionIdentifier == UNNotificationDefaultActionIdentifier
         {
             await MainActor.run { _ = NSWorkspace.shared.open(url) }
-        } else if info["open"] as? String == "today", let url = URL(string: "daftar://open?path=today") {
+        } else if let path = info["open"] as? String, let url = Self.openURL(path) {
             await MainActor.run { _ = NSWorkspace.shared.open(url) }
         }
+    }
+
+    /// `daftar://open?path=…`: the Today page for `today`, else the note at [path].
+    nonisolated static func openURL(_ path: String) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = "daftar"
+        parts.host = "open"
+        parts.queryItems = [URLQueryItem(name: "path", value: path)]
+        return parts.url
     }
 }

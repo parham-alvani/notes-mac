@@ -689,7 +689,7 @@ import Testing
             let other = texts[(index * 7 + 3) % texts.count]
             let vault = "vault = \"/tmp\"\n[terminal]\nshell = \"\(text)\"\n[appearance]\ntext_size = \(text)\ntheme = \"\(text)\"\n[home]\nimage = \"\(text)\"\n" + text
             let settings = ResolvedSettings.resolved(vault: vault, computer: other)
-            #expect(settings.fromVault.allSatisfy { ResolvedSettings.allowed[$0] != nil })
+            #expect(settings.fromVault.allSatisfy { ResolvedSettings.shared($0) != nil })
             #expect(settings.refused.allSatisfy { ResolvedSettings.allowed[$0] == nil })
             #expect(!settings.fromVault.contains("terminal.shell") && !settings.fromVault.contains("vault"))
             if settings.source(of: "home.image") == .vault, let image = settings.string("home.image") {

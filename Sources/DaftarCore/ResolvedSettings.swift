@@ -84,6 +84,16 @@ public struct ResolvedSettings: Sendable, Equatable {
         "files.show_hidden": .bool,
     ]
 
+    /// The kind of [key] when a vault may set it on every platform: a key
+    /// on `allowed`, or a key of a notification rule
+    /// (`notifications.rules.<id>.note` and the others,
+    /// `NotificationRule.kinds`), whose ids no list can name ahead.
+    static func shared(_ key: String) -> Kind? {
+        if let kind = allowed[key] { return kind }
+        guard let (_, name) = NotificationRule.split(key) else { return nil }
+        return NotificationRule.kinds[name]
+    }
+
     /// The settings only the Mac has, which a vault holds in its `[macos]`
     /// table and nowhere else: none names a program, a path outside the
     /// vault, or what leaves the Mac.
@@ -139,6 +149,8 @@ public struct ResolvedSettings: Sendable, Equatable {
     private var computer = ConfigFile(text: "")
     /// The keys of the vault's file the list refuses, in the file's order.
     public private(set) var refused: [String] = []
+    /// The keys the vault sets here, in the order its file writes them.
+    private var vaultOrder: [String] = []
 
     public init() {}
 
@@ -169,7 +181,7 @@ public struct ResolvedSettings: Sendable, Equatable {
                 continue
             }
             // What only this platform has is the platform table's to hold.
-            guard let kind = allowed[name] ?? (table && platform == Self.platform ? platformOnly[name] : nil) else {
+            guard let kind = Self.shared(name) ?? (table && platform == Self.platform ? platformOnly[name] : nil) else {
                 let section = name.lastIndex(of: ".").map { String(name[..<$0]) } ?? ""
                 if section.isEmpty ? (!table && top.contains(name)) : (sections.contains(section) && !open.contains(section)) { resolved.refused.append(key) }
                 continue
@@ -177,6 +189,7 @@ public struct ResolvedSettings: Sendable, Equatable {
             if table { resolved.inPlatformTable.insert(name) }
             guard resolved.follows, !resolved.declined.contains(name), let value = file[key], accepts(value, as: kind, root: root) else { continue }
             if table { own[name] = value } else { shared[name] = value }
+            if !resolved.vaultOrder.contains(name) { resolved.vaultOrder.append(name) }
         }
         resolved.vault = shared.merging(own) { $1 }
         return resolved
@@ -201,7 +214,7 @@ public struct ResolvedSettings: Sendable, Equatable {
     /// nature, and a setting only this platform has. Else the shared section.
     public func destination(of key: String, value: ConfigFile.Value, root: URL? = nil, writable: Bool) -> Destination {
         let only = Self.platformOnly[key]
-        guard writable, follows, !declined.contains(key), let kind = Self.allowed[key] ?? only,
+        guard writable, follows, !declined.contains(key), let kind = Self.shared(key) ?? only,
             Self.accepts(value, as: kind, root: root)
         else { return .device }
         // The author is the vault's own to write by hand, not a setting of the app.
@@ -215,7 +228,7 @@ public struct ResolvedSettings: Sendable, Equatable {
     }
 
     /// A key a vault may hold on this platform: it has Keep on This Device and Follow the Vault.
-    public static func mayBeInVault(_ key: String) -> Bool { allowed[key] != nil || platformOnly[key] != nil }
+    public static func mayBeInVault(_ key: String) -> Bool { shared(key) != nil || platformOnly[key] != nil }
 
     /// This computer declines [key] (`vault_settings` as a list), or every key.
     public func declines(_ key: String) -> Bool { !follows || declined.contains(key) }
@@ -245,6 +258,13 @@ public struct ResolvedSettings: Sendable, Equatable {
     public func source(of key: String) -> Source {
         if vault[key] != nil { return .vault }
         return computer[key] != nil ? .computer : .standard
+    }
+
+    /// Every key set here, the vault's first in its file's order, then the
+    /// computer's in its file's order: the order of the notification rules.
+    public var orderedKeys: [String] {
+        var seen = Set(vaultOrder)
+        return vaultOrder + computer.keys.filter { seen.insert($0).inserted }
     }
 
     /// The keys the vault sets here, each shown in Settings as "From the vault".

@@ -259,7 +259,7 @@ final class VaultFollower {
     private func observe() {
         guard let store else { return }
         withObservationTracking {
-            _ = (store.revision, store.loading, store.root, store.settings.dockBadge, store.settings.spotlight)
+            _ = (store.revision, store.loading, store.root, store.settings.dockBadge, store.settings.spotlight, store.settings.notificationRules)
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.observe()
@@ -562,6 +562,17 @@ private struct NotificationSettings: View {
                     .fromVault("notifications.digest_time", settings)
             }
             Section {
+                ForEach(settings.notificationRules, id: \.id) { rule in
+                    LabeledContent(rule.alertTitle, value: "\(rule.note) at \(AppSettings.clock(rule.at))")
+                }
+            } header: {
+                Text("Rules")
+            } footer: {
+                Text(settings.notificationRules.isEmpty
+                    ? "None. A rule is a [notifications.rules.<id>] section of the settings file or the vault's .daftar.toml: at a time each day, an alert when a note has no heading for today."
+                    : "Each rings at its time when its note has no heading for today. They are [notifications.rules.<id>] sections of the settings file or the vault's .daftar.toml.")
+            }
+            Section {
                 Button("Open Notification Settings…") {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
                 }
@@ -572,6 +583,7 @@ private struct NotificationSettings: View {
         .onChange(of: settings.meetingLead) { replan() }
         .onChange(of: settings.taskDigest) { replan() }
         .onChange(of: settings.digestTime) { replan() }
+        .onChange(of: settings.notificationRules) { replan() }
     }
 
     private func replan() {

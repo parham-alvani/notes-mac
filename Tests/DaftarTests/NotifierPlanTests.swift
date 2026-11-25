@@ -34,4 +34,28 @@ import Testing
         settings.taskDigest = false
         #expect(Notifier.plan(store: store, now: now).isEmpty)
     }
+
+    /// A rule's alert is planned for its time while today's heading is
+    /// missing, and taken away once the heading is written; a click opens the note.
+    @Test func aRuleIsPlannedUntilTodaysHeadingIsWritten() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "daftar-notifier-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: "config"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rule = "[notifications]\nmeetings = false\ndigest = false\n\n[notifications.rules.log]\nnote = \"Log.md\"\nheading = \"YYYY-MM-DD\"\nat = \"21:00\"\n"
+        try rule.write(to: root.appending(path: "config/config.toml"), atomically: true, encoding: .utf8)
+        let now = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 3, day: 2, hour: 12)))
+        try "# Log\n".write(to: root.appending(path: "Log.md"), atomically: true, encoding: .utf8)
+        let settings = AppSettings(url: root.appending(path: "config/config.toml"))
+        let store = VaultStore(settings: settings, openVault: false)
+        store.openSynchronously(root)
+        let plan = Notifier.plan(store: store, now: now)
+        #expect(plan.map(\.id) == ["rule.log"])
+        #expect(plan.first?.title == "Log")
+        #expect(plan.first?.body == "No heading for today yet: 2026-03-02")
+        #expect(plan.first?.userInfo == ["open": "Log.md"])
+        #expect(plan.first?.at == DateComponents(year: 2026, month: 3, day: 2, hour: 21, minute: 0))
+        try "# Log\n\n## 2026-03-02\n".write(to: root.appending(path: "Log.md"), atomically: true, encoding: .utf8)
+        #expect(Notifier.plan(store: store, now: now).first?.at == DateComponents(year: 2026, month: 3, day: 3, hour: 21, minute: 0))
+        #expect(Notifier.openURL("Diet/Food Diary.md")?.absoluteString == "daftar://open?path=Diet/Food%20Diary.md")
+    }
 }
