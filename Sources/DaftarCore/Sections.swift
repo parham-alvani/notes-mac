@@ -97,14 +97,31 @@ public enum Sections {
         return below.indices.filter { headings[$0].level == top }
     }
 
+    /// A heading as the reader shows it: a link is its text
+    /// (`[Ann](https://x.y)` is `Ann`, `[[Notes/Bo|Bo]]` is `Bo`), and the
+    /// marks of emphasis, highlight and code are left out (`**Al**` is `Al`).
+    static func shownName(_ heading: String) -> String {
+        let rules = [
+            (#"!?\[\[[^\]|]*\|([^\]]*)\]\]"#, "$1"),
+            (#"!?\[\[([^\]]*)\]\]"#, "$1"),
+            (#"!?\[([^\]]*)\]\([^)]*\)"#, "$1"),
+            (#"\*\*|__|==|~~|`"#, ""),
+        ]
+        let name = rules.reduce(heading) { name, rule in
+            name.replacingOccurrences(of: rule.0, with: rule.1, options: .regularExpression)
+        }
+        return name.trimmingCharacters(in: .whitespaces)
+    }
+
     /// The text with the headings right under heading [index] in the order
-    /// of their names, as Finder orders them, each with its section. The
-    /// text before the first of them stays first. Nil when they are in
-    /// order already or there are fewer than two.
+    /// of their names, as Finder orders them, each with its section. A name
+    /// is the text the reader shows (`shownName`). The text before the
+    /// first of them stays first. Nil when they are in order already or
+    /// there are fewer than two.
     public static func sortChildren(_ text: String, heading index: Int) -> String? {
         let start = headings(in: text)
         guard start.indices.contains(index) else { return nil }
-        let names = children(of: index, in: start).map { start[$0].text }
+        let names = children(of: index, in: start).map { shownName(start[$0].text) }
         let sorted = names.enumerated().sorted {
             let order = $0.element.localizedStandardCompare($1.element)
             return order == .orderedSame ? $0.offset < $1.offset : order == .orderedAscending

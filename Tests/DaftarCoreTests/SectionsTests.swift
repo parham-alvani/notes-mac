@@ -111,6 +111,13 @@ import Testing
         #expect(Sections.sortChildren(text, heading: 7) == nil)
     }
 
+    @Test func headingsSortByTheTextTheReaderShows() throws {
+        let text = "# Models\n## [Zoe](https://x.y/zoe)\n## Bea\n## [[People/Cy|Cy]]\n## **Al**\n## [Dee](<https://x.y/d_(e)>)\n"
+        let sorted = try #require(Sections.sortChildren(text, heading: 0))
+        #expect(sorted == "# Models\n## **Al**\n## Bea\n## [[People/Cy|Cy]]\n## [Dee](<https://x.y/d_(e)>)\n## [Zoe](https://x.y/zoe)\n")
+        #expect(Sections.sortChildren(sorted, heading: 0) == nil)
+    }
+
     @Test func aSectionRunsToTheNextHeadingOfItsLevel() {
         let headings = Sections.headings(in: Self.note)
         let count = Sections.lines(Self.note).lines.count
