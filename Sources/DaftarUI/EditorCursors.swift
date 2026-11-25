@@ -50,6 +50,10 @@ final class EditorExtras {
     var dim: FocusDim?
     /// The scroll view's own insets, before typewriter mode added room at the end.
     var insets: NSEdgeInsets?
+    /// The width of a date chip's letters, by the chip as styled (`drawParts`):
+    /// measuring lays the letters out, and the chips on screen were measured
+    /// again at every draw.
+    var chipWidths: [NSAttributedString: CGFloat] = [:]
 }
 
 /// The carets that are not the text view's own, drawn over the text; a

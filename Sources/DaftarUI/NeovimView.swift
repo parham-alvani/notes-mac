@@ -19,13 +19,45 @@ extension NoteTextView {
         extras.applyingEdit = true
         defer { extras.applyingEdit = false }
         storage.replaceCharacters(in: range, with: text)
-        redrawPanels()
+        redrawPanels(from: range.location)
         return true
     }
 
-    /// A quote's bar and a block's panel span lines the edit did not touch:
-    /// the background on screen is drawn again, not only the edited line's.
-    func redrawPanels() { setNeedsDisplay(visibleRect, avoidAdditionalLayout: true) }
+    /// After an edit at [offset], what is drawn behind the text can change
+    /// from the first line of the edited block down: a table's columns, a
+    /// callout's kind and a panel's corners from the block's first line, and
+    /// every line below when the edit changed the paragraph's height. Nothing
+    /// above the block moves, so it is not drawn again: the whole screen at
+    /// every key was about an eighth of a key's time. An edit below the
+    /// screen changes nothing on it; one above it, everything.
+    func redrawPanels(from offset: Int) {
+        if let rect = panelsToRedraw(from: offset) { setNeedsDisplay(rect, avoidAdditionalLayout: true) }
+    }
+
+    /// The part of the screen `redrawPanels` draws again; nil when it is none.
+    func panelsToRedraw(from offset: Int) -> NSRect? {
+        let visible = visibleRect
+        guard let storage = textStorage, let shown = viewportOffsets(), offset >= shown.location else { return visible }
+        guard offset <= NSMaxRange(shown) else { return nil }
+        let text = storage.string as NSString
+        let blocks = [Self.tableRow, Self.calloutPanel, Self.codeBlock, Self.quoteBar]
+        func inBlock(_ at: Int) -> Bool { at < storage.length && blocks.contains { storage.attribute($0, at: at, effectiveRange: nil) != nil } }
+        var top = text.lineRange(for: NSRange(location: min(offset, text.length), length: 0)).location
+        // From the line above too: a block that lost its last line (dd) ends there now.
+        if top > shown.location { top = text.lineRange(for: NSRange(location: top - 1, length: 0)).location }
+        // The block's first line, as far up as the screen: a table's rows each have a value of their own, so the lines are walked.
+        if inBlock(top) {
+            while top > shown.location {
+                let above = text.lineRange(for: NSRange(location: top - 1, length: 0)).location
+                guard inBlock(above) else { break }
+                top = above
+            }
+        }
+        guard let line = lineRect(at: top) else { return visible }
+        let y = max(visible.minY, line.minY - 4)
+        guard y < visible.maxY else { return nil }
+        return NSRect(x: visible.minX, y: y, width: visible.width, height: visible.maxY - y)
+    }
 
     // MARK: The scroll through an edit
 
@@ -53,7 +85,7 @@ extension NoteTextView {
         guard owner == .plain else { return false }
         guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
         holdScroll(editing: affectedCharRange, with: ((replacementString ?? "") as NSString).length)
-        DispatchQueue.main.async { [weak self] in self?.redrawPanels() }
+        DispatchQueue.main.async { [weak self] in self?.redrawPanels(from: affectedCharRange.location) }
         return true
     }
 

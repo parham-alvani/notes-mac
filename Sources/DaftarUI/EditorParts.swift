@@ -219,11 +219,23 @@ extension NoteTextView {
             case .chip(let colour, let closed):
                 let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? Fonts.text(size: em * 0.92)
                 let height = ceil(font.ascender - font.descender)
-                NSPalette.part(colour, alpha: closed ? 0.105 : 0.14).setFill()
                 let pieces = segments(range)
+                // A pill stays within half an em of its segment: a chip outside the rect is not measured.
+                guard pieces.contains(where: { $0.insetBy(dx: -em, dy: -2).intersects(rect) }) else { return }
+                NSPalette.part(colour, alpha: closed ? 0.105 : 0.14).setFill()
                 // The room made before a chip is counted in its segment: on one line, the pill is measured
                 // back from the chip's end by the width of its own letters.
-                let letters = pieces.count == 1 ? ceil(storage.attributedSubstring(from: range).size().width) : .greatestFiniteMagnitude
+                var letters = CGFloat.greatestFiniteMagnitude
+                if pieces.count == 1 {
+                    let chip = storage.attributedSubstring(from: range)
+                    if let kept = extras.chipWidths[chip] {
+                        letters = kept
+                    } else {
+                        letters = ceil(chip.size().width)
+                        if extras.chipWidths.count >= 2000 { extras.chipWidths.removeAll() }
+                        extras.chipWidths[chip] = letters
+                    }
+                }
                 for piece in pieces {
                     // Half an em of room at each side, which the styling left after the spaces around the chip.
                     let width = min(piece.width, letters)
