@@ -86,23 +86,56 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         if settings.taskDigest {
             let (at, day) = nextDigest(minutes: settings.digestTime, now: now)
             let groups = store.taskGroups(today: day, days: 0)
-            let due = groups.today
-            if !due.isEmpty || !groups.overdue.isEmpty {
+            // Only the tasks every line of `notifications.digest_filter` matches.
+            let keep = { (tasks: [VaultTask]) in
+                TasksQuery.filtered(tasks, by: settings.digestFilter, today: day, statuses: store.index.statuses)
+            }
+            let due = keep(groups.today), overdue = keep(groups.overdue)
+            if !due.isEmpty || !overdue.isEmpty {
                 var lines = due.prefix(5).map { "• " + TaskRow.plain($0.task.text) }
                 if due.count > 5 { lines.append("and \(due.count - 5) more") }
-                if !groups.overdue.isEmpty { lines.append("\(groups.overdue.count) overdue") }
+                if !overdue.isEmpty { lines.append("\(overdue.count) overdue") }
                 out.append(Planned(
                     id: digestId, title: due.isEmpty ? "Nothing due today" : "\(due.count) due today", body: lines.joined(separator: "\n"),
                     userInfo: ["open": "today"], at: minute(at)))
             }
         }
         for rule in settings.notificationRules {
-            let text = store.url(of: rule.note).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-            guard let (at, day) = rule.next(now: now, text: text) else { continue }
-            out.append(Planned(
-                id: rule.alertId, title: rule.alertTitle, body: rule.body(day), userInfo: ["open": rule.note], sound: true, at: minute(at)))
+            switch rule.kind {
+            case .heading:
+                let text = store.url(of: rule.note).flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+                guard let (at, day) = rule.next(now: now, text: text) else { continue }
+                out.append(Planned(
+                    id: rule.alertId, title: rule.alertTitle, body: rule.body(day), userInfo: ["open": rule.note], sound: true, at: minute(at)))
+            case .query:
+                var found: [String] = []
+                guard let (at, _) = rule.next(now: now, due: { day in
+                    found = rule.tasks(in: store.index, today: day).map { TaskRow.plain($0.task.text) }
+                    return !found.isEmpty
+                }) else { continue }
+                out.append(Planned(
+                    id: rule.alertId, title: rule.alertTitle, body: rule.body(tasks: found), userInfo: ["open": "today"], sound: true, at: minute(at)))
+            case .quiet:
+                let changed = lastChange(of: rule.note, in: store)
+                var quiet = 0
+                guard let (at, _) = rule.next(now: now, due: { day in
+                    quiet = rule.quietDays(lastChange: changed, day: day) ?? 0
+                    return quiet > 0
+                }) else { continue }
+                out.append(Planned(
+                    id: rule.alertId, title: rule.alertTitle, body: rule.body(quietFor: changed == nil ? nil : quiet), userInfo: ["open": rule.note],
+                    sound: true, at: minute(at)))
+            }
         }
         return out
+    }
+
+    /// When the note at [path] last changed: its last commit in the vault's
+    /// history, else the file's modified time; nil for a note that is not there.
+    static func lastChange(of path: String, in store: VaultStore) -> Date? {
+        guard let url = store.url(of: path), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        if store.isRepository, let root = store.root, let date = Git(root: root).lastCommitDate(of: path) { return date }
+        return (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
     /// Replaces every pending request with the ones the vault calls for now,

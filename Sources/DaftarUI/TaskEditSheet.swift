@@ -270,8 +270,7 @@ struct TaskEditSheet: View {
         if let new {
             notePath = new.path
             headingLine = new.headingLine
-            var empty = TaskFields()
-            empty.created = Day.today().description
+            var empty = TaskFields.new(today: .today(), scheduled: store.settings.defaultScheduled)
             before = empty
             empty.text = new.text
             fields = empty

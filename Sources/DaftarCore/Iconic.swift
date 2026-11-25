@@ -31,9 +31,13 @@ public struct Iconic: Sendable {
 
     public init() {}
 
+    /// Iconic's file in `.obsidian/`, read when the vault has no `.daftar/icons.json`.
+    public static let obsidianFile = ".obsidian/plugins/iconic/data.json"
+
+    /// The vault's icons: `.daftar/icons.json`, else Iconic's own file.
     public static func load(_ root: URL) -> Iconic {
-        let url = root.appending(path: ".obsidian/plugins/iconic/data.json")
-        guard let data = try? Data(contentsOf: url) else { return Iconic() }
+        let path = DaftarFolder.has(DaftarFolder.icons, in: root) ? DaftarFolder.icons : obsidianFile
+        guard let data = try? Data(contentsOf: root.appending(path: path)) else { return Iconic() }
         return parse(data)
     }
 

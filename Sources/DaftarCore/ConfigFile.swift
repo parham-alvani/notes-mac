@@ -288,6 +288,8 @@ public struct ConfigFile: Sendable, Equatable {
         # "spain", "catalonia" or "barcelona", each keeping the days of the one
         # before it. Empty is none.
         place = ""
+        # The working day, HH:MM-HH:MM: where Today's timeline counts free time.
+        working_day = "09:00-18:00"
 
         [editor]
         # Away from the cursor's line, the marks (**, ==, [[ ]], #, a link's
@@ -356,6 +358,9 @@ public struct ConfigFile: Sendable, Equatable {
         digest = true
         # The morning digest of the tasks due, as HH:MM.
         digest_time = "09:00"
+        # Tasks query lines every task the digest counts must match, as
+        # ["path does not include Elaheh"]. Empty counts every task.
+        digest_filter = []
 
         # A rule of your own: at `at` each day, when the note has no heading
         # that starts with today's `heading` (a moment.js format, as a daily
@@ -368,6 +373,19 @@ public struct ConfigFile: Sendable, Equatable {
         # at = "21:00"
         # title = "Diary"
         # message = "Nothing is logged in the diary today."
+        # In place of `heading`, `query = ["due before tomorrow", "not done"]`
+        # rings when the Tasks query has open tasks, and `quiet_days = 14` when
+        # the note has not changed for that many days. `days = ["mon", "fri"]`
+        # keeps a rule to those days of the week.
+
+        [tasks]
+        # A new task's ⏳ scheduled date, in days after today; 0 adds none.
+        default_scheduled = 0
+
+        [jobs]
+        # The job_stage values that wait on the company, and those that end a process.
+        waiting = ["applied"]
+        closed = ["rejected", "withdrawn", "declined", "closed"]
 
         [terminal]
         # Empty is the login shell in $SHELL.

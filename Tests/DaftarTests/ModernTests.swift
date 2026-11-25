@@ -114,7 +114,9 @@ import Testing
         store.setIcon("Cars/Fiat.md", icon: "🚗", color: nil)
         #expect(store.iconic.icon(for: "Cars", folder: true) == Iconic.Icon(name: "lucide-car", color: "blue"))
         _ = try await store.move("Cars", to: "Vehicles")
-        let data = try Data(contentsOf: root.appending(path: ".obsidian/plugins/iconic/data.json"))
+        // A vault with no `.obsidian/` keeps its icons in `.daftar/icons.json`.
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: ".obsidian").path))
+        let data = try Data(contentsOf: root.appending(path: DaftarFolder.icons))
         #expect(Iconic.parse(data).icon(for: "Vehicles/Fiat.md", folder: false)?.name == "🚗")
         #expect(store.iconic.icon(for: "Vehicles", folder: true)?.color == "blue")
         #expect(store.iconic.icon(for: "Cars", folder: true) == nil)

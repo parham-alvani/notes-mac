@@ -563,14 +563,14 @@ private struct NotificationSettings: View {
             }
             Section {
                 ForEach(settings.notificationRules, id: \.id) { rule in
-                    LabeledContent(rule.alertTitle, value: "\(rule.note) at \(AppSettings.clock(rule.at))")
+                    LabeledContent(rule.alertTitle, value: "\(rule.note.isEmpty ? "A query" : rule.note) at \(AppSettings.clock(rule.at))")
                 }
             } header: {
                 Text("Rules")
             } footer: {
                 Text(settings.notificationRules.isEmpty
-                    ? "None. A rule is a [notifications.rules.<id>] section of the settings file or the vault's .daftar.toml: at a time each day, an alert when a note has no heading for today."
-                    : "Each rings at its time when its note has no heading for today. They are [notifications.rules.<id>] sections of the settings file or the vault's .daftar.toml.")
+                    ? "None. A rule is a [notifications.rules.<id>] section of the settings file or the vault's .daftar.toml: at a time each day, an alert when a note has no heading for today, when a Tasks query has open tasks (query), or when a note has not changed for some days (quiet_days)."
+                    : "Each rings at its time when its note has no heading for today, its query has open tasks, or its note has been quiet for its days. They are [notifications.rules.<id>] sections of the settings file or the vault's .daftar.toml.")
             }
             Section {
                 Button("Open Notification Settings…") {

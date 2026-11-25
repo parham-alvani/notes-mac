@@ -30,6 +30,13 @@ final class VaultStore {
         case .vault: vaultFolds
         }
     }
+
+    /// Whether the note at [path] opens folded: as `foldsSections`, with the
+    /// nearest folder's `folded` over the vault's `reader.folded`.
+    func foldsSections(_ path: String) -> Bool {
+        guard settings.foldSections == .vault else { return foldsSections }
+        return settings.folderRules.rule(for: path).folded ?? vaultFolds
+    }
     /// Obsidian's excluded files and the files for AI agents (`files.hidden`):
     /// what the lists leave out, always, as Spotlight does.
     private(set) var hidden = ExcludedFiles()
@@ -499,12 +506,15 @@ final class VaultStore {
     /// a new daily-notes folder, an icon or a bookmark from the phone
     /// showed only after the app was opened again.
     private func readSettings(_ paths: Set<String>, in root: URL) {
-        if paths.contains(FileWatcher.iconic) { iconic = Iconic.load(root) }
-        if paths.contains(FileWatcher.bookmarks) { readBookmarks(root) }
-        if paths.contains(FileWatcher.dailyNotes) { periodic = PeriodicNotes(DailyNotes.read(root: root)) }
-        if paths.contains(FileWatcher.templates) { templates = Templates.read(root: root) }
-        if paths.contains(FileWatcher.app) { loadHidden(root) }
-        if paths.contains(FileWatcher.vault) { readVaultSettings(root) }
+        // `.daftar.toml` holds what these files held, in its own sections.
+        let own = paths.contains(FileWatcher.vault)
+        if paths.contains(FileWatcher.iconic) || paths.contains(DaftarFolder.icons) { iconic = Iconic.load(root) }
+        if paths.contains(FileWatcher.bookmarks) || paths.contains(DaftarFolder.bookmarks) { readBookmarks(root) }
+        if own || paths.contains(FileWatcher.dailyNotes) { periodic = PeriodicNotes(DailyNotes.read(root: root)) }
+        if own || paths.contains(FileWatcher.templates) { templates = Templates.read(root: root) }
+        if own || paths.contains(FileWatcher.app) { loadHidden(root) }
+        if own || paths.contains(DaftarFolder.quotes) { refreshBeautitab() }
+        if own { readVaultSettings(root) }
         revision += 1
     }
 
@@ -766,8 +776,9 @@ final class VaultStore {
 
     // MARK: Files
 
-    /// Iconic's file in the vault, which Obsidian and the phone read too.
-    private func iconicFile(_ root: URL) -> URL { root.appending(path: ".obsidian/plugins/iconic/data.json") }
+    /// The icons' file in the vault, which the phone reads too: `.daftar/icons.json`,
+    /// else Iconic's own in a vault that has `.obsidian/` (`DaftarFolder.written`).
+    private func iconicFile(_ root: URL) -> URL { DaftarFolder.written(DaftarFolder.icons, old: Iconic.obsidianFile, in: root) }
 
     /// Gives [path] an icon -- a Lucide name or an emoji -- and a colour, in
     /// Iconic's own file; with both nil, takes them away.
@@ -839,6 +850,14 @@ final class VaultStore {
 
     /// The template notes of the vault, for New Note.
     var templateNotes: [String] { templates.templates(in: index.files) }
+
+    /// The template a new note in [folder] starts from by the vault's
+    /// `[folders."<folder>"]` rules, when it is a note of the vault.
+    func folderTemplate(in folder: String) -> String? {
+        guard let template = settings.folderRules.rule(for: folder.isEmpty ? "x.md" : folder + "/x.md").template else { return nil }
+        let path = Vault.isNote(template) ? template : template + ".md"
+        return index.files.contains(path) ? path : nil
+    }
 
     /// [template]'s text filled for a note named [name], made now.
     func filled(template: String, name: String) -> String {

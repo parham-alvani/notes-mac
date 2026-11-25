@@ -13,14 +13,15 @@ public enum QuickLookPreview {
     }
 
     /// The vault a note is in: the nearest folder above it that has
-    /// `.obsidian`, or nil for a note outside any vault.
+    /// `.obsidian`, `.daftar` or a `.daftar.toml`, or nil for a note outside any vault.
     public static func vaultRoot(of note: URL) -> URL? {
         var at = note.deletingLastPathComponent().standardizedFileURL
         while at.path != "/" {
             var isFolder: ObjCBool = false
-            if FileManager.default.fileExists(atPath: at.appendingPathComponent(".obsidian").path, isDirectory: &isFolder), isFolder.boolValue {
+            for folder in [".obsidian", DaftarFolder.name] where FileManager.default.fileExists(atPath: at.appendingPathComponent(folder).path, isDirectory: &isFolder) && isFolder.boolValue {
                 return at
             }
+            if FileManager.default.fileExists(atPath: at.appendingPathComponent(VaultSettings.file).path) { return at }
             at = at.deletingLastPathComponent()
         }
         return nil

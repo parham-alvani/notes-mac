@@ -150,9 +150,18 @@ public struct DailyNotes: Sendable, Hashable {
         self.init(folder: root["folder"] as? String ?? "", format: root["format"] as? String ?? "", template: root["template"] as? String ?? "")
     }
 
-    /// The settings of the vault at [root].
+    /// The settings of the vault at [root]: its `[daily]` section, else
+    /// `.obsidian/daily-notes.json` (`docs/specs/no-obsidian-folder.md`).
     public static func read(root: URL) -> DailyNotes {
-        (try? Data(contentsOf: root.appending(path: ".obsidian/daily-notes.json"))).map(DailyNotes.init(json:)) ?? DailyNotes()
+        if let daily = DailyNotes(settings: DaftarFolder.settings(root)) { return daily }
+        return (try? Data(contentsOf: root.appending(path: ".obsidian/daily-notes.json"))).map(DailyNotes.init(json:)) ?? DailyNotes()
+    }
+
+    /// `[daily]` of a vault's `.daftar.toml`, when it sets one of its keys.
+    public init?(settings: ConfigFile) {
+        let keys = ["format", "folder", "template"].map { settings.string("daily." + $0) }
+        guard keys.contains(where: { $0 != nil }) else { return nil }
+        self.init(folder: keys[1] ?? "", format: keys[0] ?? "", template: keys[2] ?? "")
     }
 }
 

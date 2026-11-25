@@ -16,6 +16,8 @@ import Foundation
 public struct JobSearch: Sendable, Equatable {
     /// By path.
     public var applications: [JobApplication]
+    /// The properties and stages the applications were read with.
+    public var keys = JobKeys()
 
     public static let prepNote = "Interview Preparation.md"
 
@@ -33,6 +35,7 @@ public struct JobSearch: Sendable, Equatable {
 
     /// The applications of [index]'s notes that [keep] keeps.
     public init(index: VaultIndex, keys: JobKeys = JobKeys(), keep: (String) -> Bool = { _ in true }) {
+        self.keys = keys
         // A folder's logo, found once for the whole vault rather than a
         // walk of every file for each company.
         var logos: [String: String] = [:]
@@ -197,6 +200,13 @@ public struct JobKeys: Sendable, Equatable {
     public var prepNote = JobSearch.prepNote
 
     public init() {}
+
+    /// The default keys with the stages of the settings, `jobs.waiting` and
+    /// `jobs.closed` (`docs/specs/more-vault-settings.md`, section 4).
+    public init(settings: ResolvedSettings) {
+        waiting = settings.strings("jobs.waiting") ?? waiting
+        closed = settings.strings("jobs.closed") ?? closed
+    }
 }
 
 /// One company's application, from its note's front matter.
@@ -327,7 +337,8 @@ extension JobSearch {
     /// [keys]' order. A stage the order does not know comes after the known
     /// ones, by name. In a column, a booked event comes first, the soonest
     /// first; then the newest application.
-    public func board(keys: JobKeys = JobKeys()) -> (going: [Column], closed: [Column]) {
+    public func board(keys: JobKeys? = nil) -> (going: [Column], closed: [Column]) {
+        let keys = keys ?? self.keys
         var byStage: [String: [JobApplication]] = [:]
         for application in applications { byStage[application.stage, default: []].append(application) }
         let isClosed = { (stage: String) in keys.closed.contains { $0.lowercased() == stage } }

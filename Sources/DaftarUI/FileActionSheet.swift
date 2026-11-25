@@ -166,11 +166,11 @@ struct FileActionSheet: View {
                 .focused($focused)
                 .onSubmit { Task { await commit() } }
                 .onChange(of: name) { error = nil }
-            if case .newNote = action, !store.templateNotes.isEmpty {
+            if case .newNote = action, !templateChoices.isEmpty {
                 Picker("Template", selection: $template) {
                     Text("None").tag(String?.none)
                     Divider()
-                    ForEach(store.templateNotes, id: \.self) { path in
+                    ForEach(templateChoices, id: \.self) { path in
                         Text(Vault.title(of: path)).tag(String?.some(path))
                     }
                 }
@@ -272,10 +272,18 @@ struct FileActionSheet: View {
         }
     }
 
+    /// The vault's templates, and the folder's own when it is not one of them.
+    private var templateChoices: [String] {
+        let notes = store.templateNotes
+        return template.map { notes.contains($0) ? notes : notes + [$0] } ?? notes
+    }
+
     private func prepare() {
         switch action {
         case .newNote(let folder):
             name = shortName(VaultMoves.freeName("Untitled", in: folder, files: store.index.files))
+            // The folder's own template (`[folders."<folder>"] template`), when it is a note of the vault.
+            template = store.folderTemplate(in: folder)
         case .newFolder(let parent):
             name = shortName(VaultMoves.freeName("New Folder", ext: "", in: parent, files: store.index.files.union(store.index.emptyFolders)))
         case .rename(let path):

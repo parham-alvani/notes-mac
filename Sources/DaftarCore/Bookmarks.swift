@@ -39,7 +39,12 @@ public struct Bookmarks: Sendable, Equatable {
 
     public init(items: [OrderedJSON] = []) { self.items = items }
 
-    static func url(_ root: URL) -> URL { root.appending(path: ".obsidian/bookmarks.json") }
+    /// Obsidian's file, read and written when the vault has no `.daftar/bookmarks.json`.
+    public static let obsidianFile = ".obsidian/bookmarks.json"
+
+    /// `.daftar/bookmarks.json` when it is there, else Obsidian's in a vault
+    /// that has `.obsidian/`, else the new place (`DaftarFolder.written`).
+    static func url(_ root: URL) -> URL { DaftarFolder.written(DaftarFolder.bookmarks, old: obsidianFile, in: root) }
 
     /// No file is no bookmarks yet; a file that does not read is `unreadable`.
     public static func load(_ root: URL) -> Bookmarks {

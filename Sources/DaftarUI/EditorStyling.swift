@@ -327,8 +327,13 @@ extension EditorController {
         // Obsidian's line height, 1.6.
         paragraph.lineHeightMultiple = 1.65
         paragraph.paragraphSpacing = fontSize * 0.2
-        // Each paragraph takes the direction of its first strong letter.
-        paragraph.baseWritingDirection = .natural
+        // Each paragraph takes the direction of its first strong letter,
+        // unless the note's folder gives the note one (`[folders."<folder>"] direction`).
+        switch path.flatMap({ store.settings.folderRules.rule(for: $0).direction }) {
+        case .rtl: paragraph.baseWritingDirection = .rightToLeft
+        case .ltr: paragraph.baseWritingDirection = .leftToRight
+        default: paragraph.baseWritingDirection = .natural
+        }
         return [.font: Fonts.text(size: fontSize), .foregroundColor: NSPalette.text, .paragraphStyle: paragraph]
     }
 

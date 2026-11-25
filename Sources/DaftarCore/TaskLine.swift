@@ -519,6 +519,16 @@ public struct TaskFields: Sendable, Equatable {
     public var other: [TaskMetadata.Meta] = []
 
     public init() {}
+
+    /// A new task's form on [today]: `➕` today, and `⏳` [scheduled] days
+    /// later when that is more than 0 (`tasks.default_scheduled`,
+    /// `docs/specs/more-vault-settings.md`, section 2).
+    public static func new(today: Day, scheduled days: Int = 0) -> TaskFields {
+        var fields = TaskFields()
+        fields.created = today.description
+        if days > 0 { fields.scheduled = today.adding(days: days).description }
+        return fields
+    }
 }
 
 extension TaskLine {

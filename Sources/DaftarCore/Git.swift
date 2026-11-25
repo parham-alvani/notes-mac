@@ -650,6 +650,14 @@ public struct Git: Sendable {
         ]))
     }
 
+    /// When [path] was last committed, at once on the caller's thread; nil
+    /// when no commit has it.
+    public func lastCommitDate(of path: String) -> Date? {
+        let (status, output) = ask(["log", "-1", "--format=%ct", "--", path])
+        guard status == 0, let seconds = TimeInterval(output) else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
     /// What `git log --format=%x1e%H%x1f%aI%x1f%an%x1f%s --name-only` printed.
     public static func revisions(_ output: String) -> [Revision] {
         let dates = ISO8601DateFormatter()

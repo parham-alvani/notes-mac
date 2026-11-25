@@ -177,6 +177,19 @@ public struct TasksQuery: Sendable {
         return limit.map { Array(sorted.prefix($0)) } ?? sorted
     }
 
+    /// Whether [task] passes every filter of the query on [today].
+    public func matches(_ task: QueryTask, today: Day) -> Bool { filters.allSatisfy { $0(task, today) } }
+
+    /// [tasks] that every one of [lines] matches, in their order: the
+    /// morning digest's `notifications.digest_filter`
+    /// (`docs/specs/more-vault-settings.md`, section 3). A line that cannot
+    /// be read is left out.
+    public static func filtered(_ tasks: [VaultTask], by lines: [String], today: Day, statuses: TaskStatuses) -> [VaultTask] {
+        guard !lines.isEmpty else { return tasks }
+        let query = parse(lines.joined(separator: "\n"))
+        return tasks.filter { query.matches(QueryTask($0, statuses: statuses), today: today) }
+    }
+
     /// The groups a task is listed under, outermost first. A group may be
     /// named "" -- no heading, grouped by heading -- and has no title.
     public func groups(of task: QueryTask) -> [String] { groupers.map { $0(task) } }

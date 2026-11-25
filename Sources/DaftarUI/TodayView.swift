@@ -210,7 +210,8 @@ struct TimelineCard: View {
     var body: some View {
         TimelineView(.everyMinute) { context in
             let timeline = DaftarCore.Timeline(
-                day: day, meetings: meetings, tasks: tasks, statuses: store.index.statuses, zone: .current, now: context.date)
+                day: day, meetings: meetings, tasks: tasks, statuses: store.index.statuses, zone: .current, now: context.date,
+                workingDay: store.settings.workingDay)
             Card(title: "Timeline", symbol: "clock", color: Palette.blue) {
                 if !timeline.allDay.isEmpty {
                     HStack(spacing: 8) {

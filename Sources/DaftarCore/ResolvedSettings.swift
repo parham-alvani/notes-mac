@@ -83,6 +83,29 @@ public struct ResolvedSettings: Sendable, Equatable {
         "capture.heading": .text,
         "files.hidden": .strings,
         "files.show_hidden": .bool,
+        // What `.obsidian/` held (`docs/specs/no-obsidian-folder.md`).
+        "files.attachments": .path,
+        "files.ignore": .strings,
+        "daily.format": .text,
+        "daily.folder": .path,
+        "daily.template": .path,
+        "templates.folder": .path,
+        "templates.date_format": .text,
+        "templates.time_format": .text,
+        "home.greeting": .text,
+        "home.clock": .choice(["12-hour", "24-hour", "system"]),
+        "home.show_time": .bool,
+        "home.show_greeting": .bool,
+        "home.show_search": .bool,
+        "home.show_recent": .bool,
+        "home.show_bookmarks": .bool,
+        "home.show_quote": .bool,
+        // `docs/specs/more-vault-settings.md`.
+        "calendar.working_day": .text,
+        "tasks.default_scheduled": .int(0...365),
+        "notifications.digest_filter": .strings,
+        "jobs.waiting": .strings,
+        "jobs.closed": .strings,
     ]
 
     /// The kind of [key] when a vault may set it on every platform: a key
@@ -91,8 +114,24 @@ public struct ResolvedSettings: Sendable, Equatable {
     /// `NotificationRule.kinds`), whose ids no list can name ahead.
     static func shared(_ key: String) -> Kind? {
         if let kind = allowed[key] { return kind }
-        guard let (_, name) = NotificationRule.split(key) else { return nil }
-        return NotificationRule.kinds[name]
+        if let (_, name) = NotificationRule.split(key) { return NotificationRule.kinds[name] }
+        // A status's section, `[tasks.statuses.<id>]`.
+        if key.hasPrefix("tasks.statuses."), let dot = key.lastIndex(of: "."), ["symbol", "name", "next", "type"].contains(String(key[key.index(after: dot)...])) {
+            let id = key[key.index(key.startIndex, offsetBy: "tasks.statuses.".count)..<dot]
+            return !id.isEmpty && id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) ? .text : nil
+        }
+        // A property's type, `[properties.types]`.
+        if key.hasPrefix("properties.types."), !key.dropFirst("properties.types.".count).isEmpty { return .text }
+        // A folder's rules, `[folders."<folder>"]`.
+        if let (_, name) = FolderRules.split(key) {
+            switch name {
+            case "direction": return .choice(["rtl", "ltr", "auto"])
+            case "folded": return .bool
+            case "template": return .path
+            default: return nil
+            }
+        }
+        return nil
     }
 
     /// The settings only the Mac has, which a vault holds in its `[macos]`
@@ -133,7 +172,7 @@ public struct ResolvedSettings: Sendable, Equatable {
     /// `[audit]`, `[reader]`, `[agents]`) is not an app setting.
     static let sections: Set<String> = [
         "appearance", "calendar", "editor", "git", "notifications", "terminal", "scratchpad", "capture", "meaning", "home", "files",
-        "wakatime", "export",
+        "wakatime", "export", "daily", "templates", "jobs",
     ]
 
     /// The keys at the top of `config.toml`, never the vault's to say.

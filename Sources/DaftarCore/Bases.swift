@@ -215,8 +215,15 @@ public final class BaseEngine {
         self.stat = stat
     }
 
-    /// The property types in a vault's `.obsidian/types.json`.
+    /// The property types of a vault: its `[properties.types]`, else `.obsidian/types.json`.
     public static func types(in root: URL) -> [String: String] {
+        let settings = DaftarFolder.settings(root)
+        let set = DaftarFolder.keys(settings, under: "properties.types")
+        if !set.isEmpty {
+            var types: [String: String] = [:]
+            for (name, key) in set { if let type = settings.string(key) { types[name] = type } }
+            return types
+        }
         guard let data = try? Data(contentsOf: root.appending(path: ".obsidian/types.json")),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let types = object["types"] as? [String: String]

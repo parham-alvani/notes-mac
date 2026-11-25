@@ -100,6 +100,16 @@ final class AppSettings {
     var digestTime: Int { didSet { write("notifications.digest_time", .string(Self.clock(digestTime))) } }
     /// The person's own alerts, `[notifications.rules.<id>]`, read from the file and the vault's; none is written here.
     private(set) var notificationRules: [NotificationRule] = []
+    /// `notifications.digest_filter`: Tasks query lines every task the digest counts must match.
+    private(set) var digestFilter: [String] = []
+    /// `calendar.working_day`, in minutes after midnight: where Today's timeline counts free time.
+    private(set) var workingDay = Timeline.workingDay
+    /// `tasks.default_scheduled`: the days after today a new task's ⏳ starts at; 0 for none.
+    private(set) var defaultScheduled = 0
+    /// The job search's stages, `jobs.waiting` and `jobs.closed`.
+    private(set) var jobKeys = JobKeys()
+    /// `[folders."<folder>"]`: a note's direction, folding and template by its folder.
+    private(set) var folderRules = FolderRules()
     var shell: String { didSet { write("terminal.shell", .string(shell)) } }
     var vimMode: Bool { didSet { write("editor.vim_mode", .bool(vimMode)) } }
     var livePreview: Bool { didSet { write("editor.live_preview", .bool(livePreview)) } }
@@ -337,6 +347,16 @@ final class AppSettings {
         digestTime = resolved.string("notifications.digest_time").flatMap(Self.minutes) ?? 9 * 60
         let rules = NotificationRule.all(resolved, root: vaultRoot)
         if rules != notificationRules { notificationRules = rules }
+        let filter = resolved.strings("notifications.digest_filter") ?? []
+        if filter != digestFilter { digestFilter = filter }
+        let working = Timeline.workingDay(resolved.string("calendar.working_day"))
+        if working != workingDay { workingDay = working }
+        let scheduled = resolved.int("tasks.default_scheduled").map { max(0, min(365, $0)) } ?? 0
+        if scheduled != defaultScheduled { defaultScheduled = scheduled }
+        let keys = JobKeys(settings: resolved)
+        if keys != jobKeys { jobKeys = keys }
+        let folders = FolderRules(resolved)
+        if folders != folderRules { folderRules = folders }
         shell = resolved.string("terminal.shell") ?? ""
         vimMode = resolved.bool("editor.vim_mode") ?? false
         livePreview = resolved.bool("editor.live_preview") ?? true

@@ -850,15 +850,8 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         }
     }
 
-    /// Where a pasted image goes: Obsidian's attachment folder for the vault.
-    var attachmentFolder: String {
-        guard let root = store.root,
-            let data = try? Data(contentsOf: root.appending(path: ".obsidian/app.json")),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let folder = json["attachmentFolderPath"] as? String, !folder.isEmpty, folder != "/"
-        else { return "" }
-        return folder.hasPrefix("./") ? "" : folder
-    }
+    /// Where a pasted image goes: the vault's attachment folder (`files.attachments`, else Obsidian's).
+    var attachmentFolder: String { store.root.map(DaftarFolder.attachments) ?? "" }
 }
 
 /// A file's modification date and size, to tell that it was not written since.

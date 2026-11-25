@@ -14,8 +14,8 @@ final class FileWatcher: @unchecked Sendable {
     private let handler: (Set<String>) -> Void
     private let rescan: () -> Void
 
-    /// The files of `.obsidian` the store reads once and keeps: a pull or
-    /// Obsidian changes them, and the store reads them again.
+    /// The files of `.obsidian` and `.daftar` the store reads once and
+    /// keeps: a pull or Obsidian changes them, and the store reads them again.
     static let dailyNotes = ".obsidian/daily-notes.json"
     static let templates = ".obsidian/templates.json"
     static let bookmarks = ".obsidian/bookmarks.json"
@@ -23,7 +23,7 @@ final class FileWatcher: @unchecked Sendable {
     static let app = ".obsidian/app.json"
     /// The vault's own settings for Daftar, on every device (`reader.folded`).
     static let vault = ".daftar.toml"
-    static let settings: Set<String> = [dailyNotes, templates, bookmarks, iconic, app, vault]
+    static let settings: Set<String> = [dailyNotes, templates, bookmarks, iconic, app, vault, DaftarFolder.icons, DaftarFolder.bookmarks, DaftarFolder.quotes]
 
     /// Whether a change of the vault path [relative] is one to report.
     static func reports(_ relative: String) -> Bool {

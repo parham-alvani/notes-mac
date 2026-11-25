@@ -347,7 +347,8 @@ import Testing
     /// there after a bookmark made here: the file is read before it is written.
     @Test func aBookmarkIsAddedToTheFileAsItIsNow() throws {
         store.toggleBookmark("Notes/Plan.md")
-        let file = root.appending(path: ".obsidian/bookmarks.json")
+        // A vault with no `.obsidian/` keeps its bookmarks in `.daftar/`.
+        let file = root.appending(path: DaftarFolder.bookmarks)
         let pulled = """
             {
               "items": [

@@ -260,7 +260,7 @@ public struct VaultIndex: Sendable {
 /// The files of a vault on disk: which ones count, and how they are read.
 public enum Vault {
     /// Folders never read: the app's settings, git, dependencies, the trash.
-    static let skipped: Set<String> = [".obsidian", ".git", ".trash", "node_modules", ".github"]
+    static let skipped: Set<String> = [".obsidian", ".daftar", ".git", ".trash", "node_modules", ".github"]
 
     /// Front matter the reader does not print: the plugins' own keys.
     public static let hiddenProperties: Set<String> = ["cssclasses", "cssclass", "icon", "iconColor", "position"]
@@ -393,7 +393,7 @@ public enum Vault {
     /// read again when they are among them.
     public static func update(_ index: VaultIndex, changed: Set<String>, in root: URL, search: SearchIndex? = nil) -> VaultIndex {
         var index = index
-        if changed.contains(TaskStatuses.file) { index.statuses = TaskStatuses.load(root) }
+        if changed.contains(TaskStatuses.file) || changed.contains(VaultSettings.file) { index.statuses = TaskStatuses.load(root) }
         let manager = FileManager.default
         var reread: [String] = []
         // A folder came or went, or its last file did: the empty ones are found again.
@@ -568,11 +568,7 @@ public struct ExcludedFiles: Sendable {
     }
 
     public static func load(_ root: URL, names: [String] = []) -> ExcludedFiles {
-        guard let data = try? Data(contentsOf: root.appending(path: ".obsidian/app.json")),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let filters = object["userIgnoreFilters"] as? [String]
-        else { return ExcludedFiles(names: names) }
-        return ExcludedFiles(filters: filters, names: names)
+        ExcludedFiles(filters: DaftarFolder.ignoreFilters(root), names: names)
     }
 
     public var isEmpty: Bool { prefixes.isEmpty && patterns.isEmpty && names.isEmpty }

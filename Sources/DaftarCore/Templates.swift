@@ -22,8 +22,13 @@ public struct Templates: Sendable, Hashable {
         self.init(folder: root["folder"] as? String ?? "", dateFormat: root["dateFormat"] as? String ?? "", timeFormat: root["timeFormat"] as? String ?? "")
     }
 
+    /// The vault's `[templates]` (`folder`, `date_format`, `time_format`)
+    /// when it sets one of them, else `.obsidian/templates.json`.
     public static func read(root: URL) -> Templates {
-        (try? Data(contentsOf: root.appending(path: ".obsidian/templates.json"))).map(Templates.init(json:)) ?? Templates()
+        let settings = DaftarFolder.settings(root)
+        let keys = ["folder", "date_format", "time_format"].map { settings.string("templates." + $0) }
+        if keys.contains(where: { $0 != nil }) { return Templates(folder: keys[0] ?? "", dateFormat: keys[1] ?? "", timeFormat: keys[2] ?? "") }
+        return (try? Data(contentsOf: root.appending(path: ".obsidian/templates.json"))).map(Templates.init(json:)) ?? Templates()
     }
 
     /// The notes of [paths] that are templates: those in the folder, or,

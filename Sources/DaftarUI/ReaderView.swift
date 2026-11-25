@@ -203,7 +203,7 @@ struct ReaderView: NSViewRepresentable {
             // change to a note can change it.
             let changedOnDisk = store.revision != shownRevision
                 && (store.lastChanged.contains(request.path) || (hasQuery && store.lastChanged.contains(where: Vault.isNote)))
-            let sizeChanged = ReaderView.shownKey(store.settings, folded: store.foldsSections) != shownSize
+            let sizeChanged = ReaderView.shownKey(store.settings, folded: store.foldsSections(request.path)) != shownSize
             // Back from the editor at the same place: what was saved there
             // since is drawn, though it is no longer the last change.
             let changedWhileAway = store.revision != shownRevision && !changedOnDisk && !Vault.isImage(request.path)
@@ -244,7 +244,7 @@ struct ReaderView: NSViewRepresentable {
             if shown?.path != request.path { remote.forget() }
             shown = request
             shownRevision = store.revision
-            shownSize = ReaderView.shownKey(store.settings, folded: store.foldsSections)
+            shownSize = ReaderView.shownKey(store.settings, folded: store.foldsSections(request.path))
             showCount += 1
             if Vault.isImage(request.path) {
                 showImage(request, keepScroll: keepScroll)
@@ -283,7 +283,9 @@ struct ReaderView: NSViewRepresentable {
                 // The person's folds for the note, or none kept: then the page folds every
                 // section when notes open folded (`docs/specs/folded-sections.md` in notes-linux).
                 "folds": request.text == nil ? (store.places.keptFolds(request.path).map { $0 as Any } ?? NSNull()) : [],
-                "folded": request.text == nil && store.foldsSections,
+                "folded": request.text == nil && store.foldsSections(request.path),
+                // The note's base direction, by its folder (`[folders."<folder>"] direction`).
+                "direction": store.settings.folderRules.rule(for: request.path).direction?.rawValue ?? "auto",
                 "detected": detected.map { ["kind": $0.kind.rawValue, "text": $0.text, "value": $0.value] },
             ]
             note.merge(ReaderView.appearance(store.settings)) { $1 }
@@ -549,7 +551,7 @@ struct ReaderView: NSViewRepresentable {
             case "folds":
                 // Where notes open folded, "none shut" is a choice to keep too.
                 if let shown, shown.text == nil, let folds = body["folds"] as? [String] {
-                    parent.store.places.setFolds(shown.path, folds, explicit: parent.store.foldsSections)
+                    parent.store.places.setFolds(shown.path, folds, explicit: parent.store.foldsSections(shown.path))
                 }
             case "cursor":
                 if let line = body["line"] as? Int { parent.onCursor?(line) }

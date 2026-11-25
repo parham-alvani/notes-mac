@@ -240,7 +240,7 @@ struct JobBoardView: View {
         guard store.setJobStage(application, to: stage), let index = search?.applications.firstIndex(where: { $0.path == application.path }) else { return }
         withMotion(.snappy) {
             search?.applications[index].stage = stage
-            search?.applications[index].closed = JobKeys().closed.contains(stage)
+            search?.applications[index].closed = (search?.keys.closed ?? []).contains { $0.lowercased() == stage }
         }
         announce("\(application.company) moved to \(JobSearch.title(stage))")
     }
@@ -504,9 +504,9 @@ extension VaultStore {
     /// it is now. With [quiet], each going note is read from disk for the
     /// `memory-quiet` rule of the vault's `.daftar.toml`.
     func jobSearch(quiet: Bool) async -> JobSearch {
-        let index = index, excluded = excluded, root = root
+        let index = index, excluded = excluded, root = root, keys = settings.jobKeys
         return await Task.detached(priority: .userInitiated) {
-            var search = JobSearch(index: index) { !excluded.contains($0) }
+            var search = JobSearch(index: index, keys: keys) { !excluded.contains($0) }
             if quiet, let root {
                 let rules = QuietRules.read(try? String(contentsOf: root.appending(path: ".daftar.toml"), encoding: .utf8))
                 let today = LocalTime(date: Date()).day

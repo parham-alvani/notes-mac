@@ -137,6 +137,15 @@ public struct Timeline: Sendable {
 
     /// 09:00 to 18:00, as the week notes count free time.
     public static let workingDay = 540..<1080
+
+    /// `calendar.working_day`, `HH:MM-HH:MM` with the start before the end,
+    /// in minutes after midnight; the default for a value that does not fit
+    /// (`docs/specs/more-vault-settings.md`, section 1).
+    public static func workingDay(_ text: String?) -> Range<Int> {
+        let parts = text?.split(separator: "-", omittingEmptySubsequences: false).map { NotificationRule.minutes(String($0).trimmingCharacters(in: .whitespaces)) }
+        guard let parts, parts.count == 2, let start = parts[0], let end = parts[1], start < end else { return workingDay }
+        return start..<end
+    }
     /// Free time shorter than this is not free time.
     public static let shortestFree = 15
 
