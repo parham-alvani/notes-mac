@@ -460,6 +460,22 @@ final class NoteTextView: NSTextView {
         return max(least, (width - CGFloat(textSize * textWidth)) / 2)
     }
 
+    /// Where a block [natural] points wide grows past the measure, up to
+    /// `appearance.block_width` em, centred in the view (`WideBlock.place`,
+    /// `docs/specs/wide-blocks.md` in notes-linux): its width, and its start
+    /// from the text container's left edge. Nil when it keeps the measure.
+    func widePlace(natural: CGFloat) -> WideBlock.Place? {
+        guard let controller, !controller.isPreview, let container = textContainer else { return nil }
+        let settings = controller.store.settings
+        guard settings.textWidth > 0 else { return nil }
+        let room: CGFloat = bounds.width < Self.narrowPane ? 16 : 32
+        let measure = container.size.width - container.lineFragmentPadding * 2
+        guard let place = WideBlock.place(
+            natural: natural, measure: measure, pane: bounds.width, room: room, limit: CGFloat(settings.blockWidth * settings.textSize))
+        else { return nil }
+        return WideBlock.Place(width: place.width, offset: place.offset - textContainerOrigin.x)
+    }
+
     /// Narrower than this, a pane has the small margins, in the editor and the reader.
     static let narrowPane: CGFloat = 720
 }

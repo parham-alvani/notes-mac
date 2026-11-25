@@ -16,10 +16,19 @@ final class EmbeddedImage: NSObject {
     /// The frames of an animated GIF, WebP or PNG; `ImageAnimator` moves them on.
     let animation: ImageAnimation?
 
-    init(image: NSImage, size: NSSize, animation: ImageAnimation? = nil) {
+    /// Its start from the text container's left edge: 0, or less for a
+    /// picture wider than the measure, centred in the view (`widePlace`).
+    let x: CGFloat
+    /// The view's width it was placed for, when it is alone on its line and
+    /// wider than the measure, so a wider or narrower view places it again; 0 when not.
+    let pane: CGFloat
+
+    init(image: NSImage, size: NSSize, animation: ImageAnimation? = nil, x: CGFloat = 0, pane: CGFloat = 0) {
         self.image = image
         self.size = size
         self.animation = animation
+        self.x = x
+        self.pane = pane
     }
 
     static let gap: CGFloat = 8
@@ -34,7 +43,7 @@ final class ImageLayoutFragment: NSTextLayoutFragment {
     private var imageFrame: CGRect {
         guard let embedded else { return .zero }
         let bottom = textLineFragments.last.map { $0.typographicBounds.maxY } ?? 0
-        return CGRect(origin: CGPoint(x: 0, y: bottom + EmbeddedImage.gap), size: embedded.size)
+        return CGRect(origin: CGPoint(x: embedded.x, y: bottom + EmbeddedImage.gap), size: embedded.size)
     }
 
     override var renderingSurfaceBounds: CGRect {

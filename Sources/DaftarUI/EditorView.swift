@@ -635,7 +635,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
     /// What the styling's fonts depend on: a change styles the whole note again.
     private var textSizeKey: String {
         let settings = store.settings
-        return "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)"
+        return "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.propertiesForm)|\(settings.blockWidth)"
     }
 
     func applyTextSize() {

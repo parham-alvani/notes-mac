@@ -32,7 +32,7 @@ struct ReaderView: NSViewRepresentable {
     @MainActor static func appearance(_ settings: AppSettings) -> [String: Any] {
         [
             "textSize": settings.textSize, "fontText": Fonts.css.text, "fontCode": Fonts.css.code,
-            "readingLine": settings.readingLine, "textWidth": settings.textWidth, "remoteImages": settings.remoteImages,
+            "readingLine": settings.readingLine, "textWidth": settings.textWidth, "blockWidth": settings.blockWidth, "remoteImages": settings.remoteImages,
             "palette": settings.darkPalette == .soft ? "soft" : "naz",
             "linkPreview": settings.linkPreview, "sectionBar": settings.sectionBar,
         ]
@@ -40,7 +40,7 @@ struct ReaderView: NSViewRepresentable {
 
     /// The settings the note on screen was drawn with: a change to one draws it again.
     @MainActor static func shownKey(_ settings: AppSettings, folded: Bool = false) -> String {
-        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.remoteImages)|\(settings.darkPalette.rawValue)|\(folded)"
+        "\(settings.textSize)|\(settings.font)|\(settings.codeFont)|\(settings.readingLine)|\(settings.textWidth)|\(settings.blockWidth)|\(settings.remoteImages)|\(settings.darkPalette.rawValue)|\(folded)"
             + "|\(settings.linkPreview)|\(settings.sectionBar)"
     }
 

@@ -15,7 +15,7 @@ test("tags get their colour, as in the reader", () => {
 
 test("a code block is drawn under its language, a diagram is not", () => {
   const html = preview({ text: "```go\nx := 1\n```\n\n```mermaid\ngraph TD\n```" });
-  assert.match(html, /<div class="code-block" style="--lang-color: var\(--aqua\)"><div class="code-head"><span class="code-lang">go<\/span><\/div><pre>/);
+  assert.match(html, /<div class="code-block" style="--lang-color: var\(--aqua\)"><div class="code-head"><span class="code-lang">go<\/span><\/div><pre data-wide>/);
   assert.equal(html.match(/class="code-block"/g).length, 1);
 });
 

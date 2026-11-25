@@ -62,6 +62,8 @@ final class AppSettings {
     var codeFont: String { didSet { write("appearance.code_font", .string(codeFont)) } }
     /// The widest line of text, in em of the text size, in the reader and the editor; 0 is the whole window.
     var textWidth: Int { didSet { write("appearance.text_width", .int(textWidth)) } }
+    /// The widest a table, a code block or a picture may grow past the text, in em; 0 keeps them in the text's width.
+    var blockWidth: Int { didSet { write("appearance.block_width", .int(blockWidth)) } }
     /// The reading cursor's band on the line being read, in percent of the accent; 0 is none.
     var readingLine: Int { didSet { write("appearance.reading_line", .int(readingLine)) } }
     /// Pictures from the web in a note are shown; off, the reader asks no site for one until it is clicked.
@@ -209,6 +211,7 @@ final class AppSettings {
         codeFont = "SF Mono"
         readingLine = 18
         textWidth = 35
+        blockWidth = 60
         remoteImages = true
         foldSections = .vault
         linkPreview = true
@@ -311,6 +314,7 @@ final class AppSettings {
         codeFont = resolved.string("appearance.code_font") ?? "SF Mono"
         readingLine = max(0, min(100, resolved.int("appearance.reading_line") ?? 18))
         textWidth = max(0, resolved.int("appearance.text_width") ?? 35)
+        blockWidth = max(0, resolved.int("appearance.block_width") ?? 60)
         // Anything but `false` shows them, as before the setting was there.
         remoteImages = resolved.bool("appearance.remote_images") ?? true
         foldSections = resolved.string("appearance.fold_sections").flatMap(FoldSections.init(rawValue:)) ?? .vault

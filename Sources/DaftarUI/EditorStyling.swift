@@ -863,17 +863,25 @@ extension EditorController {
         guard let image, image.size.width > 0 else { return }
         images[target] = image
         let available = min(CGFloat(store.settings.textSize) * 44, max(200, (view?.textContainer?.size.width ?? 600) - 20))
-        var width = min(image.size.width, available)
-        if let alias = link.alias, let requested = Double(alias.split(separator: "x").first ?? "") { width = min(CGFloat(requested), available) }
+        var natural = image.size.width
+        if let alias = link.alias, let requested = Double(alias.split(separator: "x").first ?? "") { natural = CGFloat(requested) }
+        // A picture alone on its line may grow past the measure; one in a sentence, a list or a quote keeps it.
+        let alone = (storage.string as NSString).substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines) == embed
+        let wide = alone ? view?.widePlace(natural: natural) : nil
+        var width = min(natural, wide?.width ?? available)
         let height = min(width * image.size.height / image.size.width, 480)
         width = height * image.size.width / image.size.height
         let size = NSSize(width: width, height: height)
+        // Centred in the view when it is still wider than the measure.
+        let x = wide.map { $0.offset + ($0.width - width) / 2 } ?? 0
 
         let paragraph = ((storage.attribute(.paragraphStyle, at: line.location, effectiveRange: nil) as? NSParagraphStyle)?
             .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
         paragraph.paragraphSpacing = height + EmbeddedImage.gap * 2
         animator.view = view
-        let embedded = EmbeddedImage(image: image, size: size, animation: animator.animation(for: target, url: url))
+        let embedded = EmbeddedImage(
+            image: image, size: size, animation: animator.animation(for: target, url: url), x: min(x, 0),
+            pane: alone && natural > available ? view?.bounds.width ?? 0 : 0)
         storage.addAttributes([.paragraphStyle: paragraph, .daftarImage: embedded], range: line)
     }
 }

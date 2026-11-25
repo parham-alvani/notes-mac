@@ -346,6 +346,21 @@ extension EditorController {
         storage.endEditing()
     }
 
+    /// The view is wider or narrower: a picture alone on its line and wider
+    /// than the measure is placed again (`widePlace`).
+    func refitPictures() {
+        guard let view, let storage = view.textStorage, storage.length > 0 else { return }
+        let width = view.bounds.width
+        var again: [NSRange] = []
+        storage.enumerateAttribute(.daftarImage, in: NSRange(location: 0, length: storage.length), options: []) { value, range, _ in
+            if let image = value as? EmbeddedImage, image.pane > 0, image.pane != width { again.append(range) }
+        }
+        guard !again.isEmpty else { return }
+        storage.beginEditing()
+        for range in again where NSMaxRange(range) <= storage.length { style(storage, range: range) }
+        storage.endEditing()
+    }
+
     /// The caret keeps to the cells' text in a grid: off a pipe and out of
     /// the padding, on to the next cell or back to the one before, and over
     /// a row's end to the next row. A place typed to stays: a space at a
@@ -615,6 +630,7 @@ extension NoteTextView {
         DispatchQueue.main.async { [weak self] in
             self?.refitPending = false
             self?.controller?.refitTables()
+            self?.controller?.refitPictures()
         }
     }
 }

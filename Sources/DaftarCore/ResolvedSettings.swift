@@ -50,6 +50,7 @@ public struct ResolvedSettings: Sendable, Equatable {
         "appearance.font": .name,
         "appearance.code_font": .name,
         "appearance.text_width": .int(0...400),
+        "appearance.block_width": .int(0...400),
         "appearance.reading_line": .int(0...100),
         "appearance.fold_sections": .choice(["vault", "always", "never"]),
         "appearance.link_preview": .bool,
