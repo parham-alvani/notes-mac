@@ -598,7 +598,7 @@ final class EditorController: NSObject, NSTextStorageDelegate, NSTextViewDelegat
         if edit.range.length > 0 || length > 0 {
             view.holdScroll(editing: edit.range, with: length)
             storage.replaceCharacters(in: edit.range, with: edit.text)
-            view.redrawPanels()
+            view.redrawPanels(from: edit.range.location)
         }
         // The front matter the form stands for got longer or shorter: an
         // edit styles its own lines, and these are hidden by their place.

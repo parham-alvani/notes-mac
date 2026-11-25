@@ -66,6 +66,45 @@ private let picturePath = ProcessInfo.processInfo.environment["DAFTAR_PARTS_PICT
         (attribute(.foregroundColor, at: word) as NSColor?) == .clear
     }
 
+    /// An edit draws the background again from its block's first line down,
+    /// never the lines above the block.
+    @Test func anEditDrawsAgainFromItsBlocksFirstLineDown() throws {
+        try open(
+            """
+            First paragraph, far above.
+
+            | A | B |
+            | --- | --- |
+            | one | two |
+            | three | four |
+
+            > [!note] Title
+            >
+            > Body of the callout.
+
+            Plain paragraph.
+
+            Last line.
+            """)
+        view.enclosingScrollView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        func top(_ word: String) -> CGFloat? { view.panelsToRedraw(from: text.range(of: word).location)?.minY }
+        func line(_ word: String) -> CGFloat { view.lineRect(at: text.range(of: word).location)?.minY ?? .infinity }
+        // A cell's edit can change a column's width: from the table's header.
+        #expect(try #require(top("three")) <= line("| A"))
+        #expect(try #require(top("three")) > line("First"))
+        // A callout's line: from its title, whose colour the kind sets.
+        #expect(try #require(top("Body")) <= line("> [!note]"))
+        // The line after a callout, where a dd of its last line lands: from the line above, not the title.
+        #expect(try #require(top("Plain")) > line("> [!note]"))
+        #expect(try #require(top("Plain")) < line("Plain"))
+        // A plain paragraph: from the line above it, and nothing of the callout.
+        #expect(try #require(top("Last")) > line("Plain"))
+        #expect(try #require(top("Last")) < line("Last"))
+        // Down to the bottom of the screen, since a paragraph that grew moves every line under it.
+        #expect(view.panelsToRedraw(from: text.range(of: "Last").location)?.maxY == view.visibleRect.maxY)
+    }
+
     @Test func aBoxIsDrawnAwayFromTheCursorAndRawUnderIt() throws {
         try open("Top\n\n- [ ] Buy milk\n1. [x] Sent\n- [ ]\n")
         // The cursor is on the first line: the marks go, and the box is in their place.
